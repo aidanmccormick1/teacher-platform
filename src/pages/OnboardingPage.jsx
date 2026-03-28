@@ -29,6 +29,8 @@ export default function OnboardingPage() {
 
   const [form, setForm] = useState({
     full_name:    '',
+    phone:        '',
+    work_email:   '',
     role:         'teacher',
     subjects:     [],
     grades:       [],
@@ -79,10 +81,12 @@ export default function OnboardingPage() {
       const { error: profileError } = await supabase
         .from('users')
         .update({
-          full_name: form.full_name,
-          role:      form.role,
-          school_id: schoolId,
-          onboarded: true,
+          full_name:  form.full_name,
+          phone:      form.phone.trim() || null,
+          work_email: form.work_email.trim() || null,
+          role:       form.role,
+          school_id:  schoolId,
+          onboarded:  true,
         })
         .eq('id', session.user.id)
 
@@ -129,6 +133,28 @@ export default function OnboardingPage() {
                   value={form.full_name}
                   onChange={e => update('full_name', e.target.value)}
                   placeholder="Ms. Johnson"
+                />
+              </div>
+
+              <div>
+                <label className="label">Phone number <span className="text-gray-400 font-normal">(optional)</span></label>
+                <input
+                  type="tel"
+                  className="input"
+                  value={form.phone}
+                  onChange={e => update('phone', e.target.value)}
+                  placeholder="(555) 000-0000"
+                />
+              </div>
+
+              <div>
+                <label className="label">Work email <span className="text-gray-400 font-normal">(optional)</span></label>
+                <input
+                  type="email"
+                  className="input"
+                  value={form.work_email}
+                  onChange={e => update('work_email', e.target.value)}
+                  placeholder="you@school.edu"
                 />
               </div>
 

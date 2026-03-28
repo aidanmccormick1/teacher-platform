@@ -1,11 +1,17 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '@/context/AuthContext'
 import { supabase } from '@/lib/supabase'
-import { UserCircleIcon, CheckIcon } from '@heroicons/react/24/outline'
+import { CheckIcon } from '@heroicons/react/24/outline'
 
 export default function ProfilePage() {
   const { profile, refreshProfile } = useAuth()
-  const [form, setForm] = useState({ full_name: '', email: '' })
+  const [form, setForm] = useState({
+    full_name:     '',
+    email:         '',
+    phone:         '',
+    work_email:    '',
+    personal_email: '',
+  })
   const [loading, setLoading] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState(null)
@@ -17,8 +23,11 @@ export default function ProfilePage() {
   useEffect(() => {
     if (profile) {
       setForm({
-        full_name: profile.full_name || '',
-        email: profile.email || '',
+        full_name:      profile.full_name     || '',
+        email:          profile.email         || '',
+        phone:          profile.phone         || '',
+        work_email:     profile.work_email    || '',
+        personal_email: profile.personal_email || '',
       })
     }
   }, [profile])
@@ -31,7 +40,12 @@ export default function ProfilePage() {
 
     const { error: dbError } = await supabase
       .from('users')
-      .update({ full_name: form.full_name.trim() || null })
+      .update({
+        full_name:      form.full_name.trim()      || null,
+        phone:          form.phone.trim()          || null,
+        work_email:     form.work_email.trim()     || null,
+        personal_email: form.personal_email.trim() || null,
+      })
       .eq('id', profile.id)
 
     setLoading(false)
@@ -45,7 +59,6 @@ export default function ProfilePage() {
     }
   }
 
-  // Derive initials for avatar
   const initials = form.full_name
     ? form.full_name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
     : (form.email?.[0] || '?').toUpperCase()
@@ -69,28 +82,71 @@ export default function ProfilePage() {
       </div>
 
       {/* Edit form */}
-      <form onSubmit={handleSave} className="card p-5 space-y-4">
-        <h2 className="font-semibold text-gray-900 text-sm">Edit details</h2>
-
+      <form onSubmit={handleSave} className="card p-5 space-y-5">
+        {/* Personal */}
         <div>
-          <label className="label">Full name</label>
-          <input
-            className="input"
-            value={form.full_name}
-            onChange={e => setForm(f => ({ ...f, full_name: e.target.value }))}
-            placeholder="Your name"
-          />
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Personal</p>
+          <div className="space-y-4">
+            <div>
+              <label className="label">Full name</label>
+              <input
+                className="input"
+                value={form.full_name}
+                onChange={e => setForm(f => ({ ...f, full_name: e.target.value }))}
+                placeholder="Your name"
+              />
+            </div>
+
+            <div>
+              <label className="label">Phone number</label>
+              <input
+                className="input"
+                type="tel"
+                value={form.phone}
+                onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
+                placeholder="(555) 000-0000"
+              />
+            </div>
+
+            <div>
+              <label className="label">Personal email</label>
+              <input
+                className="input"
+                type="email"
+                value={form.personal_email}
+                onChange={e => setForm(f => ({ ...f, personal_email: e.target.value }))}
+                placeholder="you@gmail.com"
+              />
+            </div>
+          </div>
         </div>
 
+        {/* Work */}
         <div>
-          <label className="label">Email</label>
-          <input
-            className="input bg-gray-50 cursor-not-allowed"
-            value={form.email}
-            disabled
-            title="Email cannot be changed here"
-          />
-          <p className="text-xs text-gray-400 mt-1">Email cannot be changed</p>
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Work</p>
+          <div className="space-y-4">
+            <div>
+              <label className="label">Work email</label>
+              <input
+                className="input"
+                type="email"
+                value={form.work_email}
+                onChange={e => setForm(f => ({ ...f, work_email: e.target.value }))}
+                placeholder="you@school.edu"
+              />
+            </div>
+
+            <div>
+              <label className="label">Login email</label>
+              <input
+                className="input bg-gray-50 cursor-not-allowed"
+                value={form.email}
+                disabled
+                title="Login email cannot be changed here"
+              />
+              <p className="text-xs text-gray-400 mt-1">This is the email used to sign in and cannot be changed.</p>
+            </div>
+          </div>
         </div>
 
         {error && (
