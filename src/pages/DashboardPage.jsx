@@ -46,10 +46,12 @@ export default function DashboardPage() {
   async function loadData() {
     setLoading(true)
 
+    // Optimized: Single query with join to get courses + sections at once
     const { data: courseData } = await supabase
       .from('courses')
-      .select('id, name, subject, grade_level')
+      .select('id, name, subject, grade_level, sections(id, name, meeting_days, meeting_time, room, course_id)')
       .eq('teacher_id', profile.id)
+      .order('id')
 
     if (!courseData?.length) {
       setCourses([])
@@ -58,23 +60,26 @@ export default function DashboardPage() {
       return
     }
 
+    // Flatten courses and collect all sections
+    const courseLookup = {}
+    const allSectionsList = []
+
+    courseData.forEach(course => {
+      courseLookup[course.id] = course
+      if (course.sections?.length) {
+        allSectionsList.push(...course.sections)
+      }
+    })
+
     setCourses(courseData)
-    const courseIds = courseData.map(c => c.id)
+    setAllSections(allSectionsList)
 
-    const { data: sectionData } = await supabase
-      .from('sections')
-      .select('*')
-      .in('course_id', courseIds)
-      .order('meeting_time', { ascending: true })
+    // Filter today's sections and enrich with course info
+    const todaySections = allSectionsList.filter(s => doesSectionMeetToday(s.meeting_days))
 
-    setAllSections(sectionData || [])
-
-    const todaySections = (sectionData || []).filter(s => doesSectionMeetToday(s.meeting_days))
-
-    // Enrich with course info and "is now" status
     const enriched = todaySections.map(section => ({
       ...section,
-      course: courseData.find(c => c.id === section.course_id),
+      course: courseLookup[section.course_id],
       isNow: isClassNow(section.meeting_time),
     }))
 
@@ -90,7 +95,7 @@ export default function DashboardPage() {
 
   const today    = format(new Date(), 'EEEE, MMMM d')
   const greeting = getGreeting()
-  const firstName = profile?.full_name?.split(' ')[0] || 'there'
+  const firstName = profile?.full_name?.split(' ')[0] || null
   const hasSchedule = allSections.length > 0
   const hasAnything = sections.length > 0
 
@@ -104,7 +109,7 @@ export default function DashboardPage() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">
-            Good {greeting}, {firstName} 👋
+            {firstName ? `Good ${greeting}, ${firstName}` : `Good ${greeting}`}
           </h1>
           <p className="text-sm text-gray-400 mt-1">{today}</p>
         </div>
@@ -131,19 +136,26 @@ export default function DashboardPage() {
             </div>
 
             <div className="space-y-2">
-              {sections.map((section, i) => {
-                const color = colorFor(courses.findIndex(c => c.id === section.course_id))
-                const isNext = !section.isNow && i === nextIdx && !sections[0]?.isNow
-                return (
-                  <ClassCard
-                    key={section.id}
-                    section={section}
-                    color={color}
-                    isNext={isNext}
-                    navigate={navigate}
-                  />
-                )
-              })}
+              {(() => {
+                // Precompute color index for each course
+                const courseColorMap = {}
+                courses.forEach((course, idx) => {
+                  courseColorMap[course.id] = colorFor(idx)
+                })
+                return sections.map((section, i) => {
+                  const color = courseColorMap[section.course_id]
+                  const isNext = !section.isNow && i === nextIdx && !sections[0]?.isNow
+                  return (
+                    <ClassCard
+                      key={section.id}
+                      section={section}
+                      color={color}
+                      isNext={isNext}
+                      navigate={navigate}
+                    />
+                  )
+                })
+              })()}
             </div>
           </div>
 
@@ -317,23 +329,32 @@ function FreeDay({ sections, courses, navigate }) {
             Tomorrow — {tomorrowDay}
           </p>
           <div className="space-y-2">
-            {tomorrow
-              .sort((a, b) => (a.meeting_time || '').localeCompare(b.meeting_time || ''))
-              .map((section, i) => {
-                const color = colorFor(courses.findIndex(c => c.id === section.course_id))
-                return (
-                  <div key={section.id} className="card px-4 py-3 flex items-center gap-3">
-                    <div className={`w-2 h-2 rounded-full ${color.dot}`} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-800">{section.name}</p>
-                      <p className="text-xs text-gray-400">
-                        {courses.find(c => c.id === section.course_id)?.name}
-                        {section.meeting_time && ` · ${formatTime(section.meeting_time)}`}
-                      </p>
+            {(() => {
+              const courseColorMap = {}
+              const courseLookup = {}
+              courses.forEach((course, idx) => {
+                courseColorMap[course.id] = colorFor(idx)
+                courseLookup[course.id] = course
+              })
+              return tomorrow
+                .sort((a, b) => (a.meeting_time || '').localeCompare(b.meeting_time || ''))
+                .map((section) => {
+                  const color = courseColorMap[section.course_id]
+                  const course = courseLookup[section.course_id]
+                  return (
+                    <div key={section.id} className="card px-4 py-3 flex items-center gap-3">
+                      <div className={`w-2 h-2 rounded-full ${color.dot}`} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-800">{section.name}</p>
+                        <p className="text-xs text-gray-400">
+                          {course?.name}
+                          {section.meeting_time && ` · ${formatTime(section.meeting_time)}`}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                )
-              })}
+                  )
+                })
+            })()}
           </div>
         </div>
       )}

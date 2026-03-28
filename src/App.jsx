@@ -1,15 +1,17 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, Suspense, lazy } from 'react-router-dom'
 import { AuthProvider, useAuth } from '@/context/AuthContext'
 
-// Pages
+// Pages — immediate load (critical)
 import LoginPage        from '@/pages/LoginPage'
 import OnboardingPage   from '@/pages/OnboardingPage'
 import DashboardPage    from '@/pages/DashboardPage'
-import LessonTrackerPage from '@/pages/LessonTrackerPage'
-import CurriculumPage   from '@/pages/CurriculumPage'
-import CoursePage       from '@/pages/CoursePage'
-import SchedulePage     from '@/pages/SchedulePage'
 import AppShell         from '@/components/AppShell'
+
+// Pages — lazy load (not critical, can defer)
+const LessonTrackerPage = lazy(() => import('@/pages/LessonTrackerPage'))
+const CurriculumPage = lazy(() => import('@/pages/CurriculumPage'))
+const CoursePage = lazy(() => import('@/pages/CoursePage'))
+const SchedulePage = lazy(() => import('@/pages/SchedulePage'))
 
 function RequireAuth({ children }) {
   const { session, loading } = useAuth()
@@ -29,6 +31,24 @@ function FullPageSpinner() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <div className="w-8 h-8 border-3 border-navy-800 border-t-transparent rounded-full animate-spin" />
+    </div>
+  )
+}
+
+function PageLoadingSkeleton() {
+  return (
+    <div className="space-y-6 pb-8">
+      {[1, 2, 3].map(i => (
+        <div key={i} className="rounded-2xl border border-gray-100 p-4 animate-pulse">
+          <div className="flex gap-4">
+            <div className="w-14 h-10 bg-gray-100 rounded-lg" />
+            <div className="flex-1 space-y-2">
+              <div className="h-4 bg-gray-100 rounded w-1/3" />
+              <div className="h-3 bg-gray-100 rounded w-1/2" />
+            </div>
+          </div>
+        </div>
+      ))}
     </div>
   )
 }
@@ -61,12 +81,28 @@ function AppRoutes() {
         </RequireAuth>
       }>
         <Route path="/"            element={<DashboardPage />} />
-        <Route path="/curriculum"  element={<CurriculumPage />} />
-        <Route path="/courses/:id" element={<CoursePage />} />
-        <Route path="/schedule"    element={<SchedulePage />} />
+        <Route path="/curriculum"  element={
+          <Suspense fallback={<PageLoadingSkeleton />}>
+            <CurriculumPage />
+          </Suspense>
+        } />
+        <Route path="/courses/:id" element={
+          <Suspense fallback={<PageLoadingSkeleton />}>
+            <CoursePage />
+          </Suspense>
+        } />
+        <Route path="/schedule"    element={
+          <Suspense fallback={<PageLoadingSkeleton />}>
+            <SchedulePage />
+          </Suspense>
+        } />
         <Route
           path="/sections/:sectionId/lessons/:lessonId"
-          element={<LessonTrackerPage />}
+          element={
+            <Suspense fallback={<PageLoadingSkeleton />}>
+              <LessonTrackerPage />
+            </Suspense>
+          }
         />
       </Route>
 

@@ -58,9 +58,10 @@ export function AuthProvider({ children }) {
 
   async function fetchProfile(userId) {
     try {
+      // Optimized: Only fetch user row, not schools (not needed on auth check)
       const { data, error } = await supabase
         .from('users')
-        .select('*, schools(*)')
+        .select('id, email, full_name, role, school_id, onboarded, created_at')
         .eq('id', userId)
         .single()
       if (!error && data) setProfile(data)

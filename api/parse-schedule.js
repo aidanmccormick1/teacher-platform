@@ -19,22 +19,31 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'OpenAI API key not configured' })
   }
 
-  const systemPrompt = `You are a schedule parser. Given raw schedule text (or an image of a schedule), extract each class/section the teacher teaches.
+  const systemPrompt = `You are a schedule and assignment parser. Extract classes, sections, and assignments from schedules, syllabi, or assignment sheets.
 
-Return a JSON array called "schedule". Each item should have:
-- name: string (course name, e.g. "Algebra I", "AP Chemistry", "English 10")
-- period: string (section label, e.g. "Period 1", "Block A", "6th Period") — if not present, use the name
-- days: array of full day names from ["Monday","Tuesday","Wednesday","Thursday","Friday","A-Day","B-Day"]. If "daily" or "every day", include all 5 weekdays.
-- time: string in HH:MM 24-hour format (e.g. "08:00", "13:30"), or null if not provided
+For SCHEDULE items (classes/sections), return with:
+- name: string (course name, e.g. "Algebra I", "AP Chemistry")
+- period: string (section label, e.g. "Period 1", "Block A") — if absent, use name
+- days: array from ["Monday","Tuesday","Wednesday","Thursday","Friday","A-Day","B-Day"]. If "daily" or "every day", include all 5 weekdays.
+- time: string "HH:MM" 24-hour format (e.g. "08:00", "13:30"), or null
 - room: string or null
-- subject: infer from name (e.g. "Math", "Science", "English", "History", "Art", "PE", "Computer Science", "Foreign Language", "Other")
-- grade: infer if possible (e.g. "9", "10", "AP"), or empty string
+- subject: inferred from name (Math, Science, English, History, Art, PE, Computer Science, Foreign Language, Social Studies, Elective, Other)
+- grade: inferred (e.g. "9", "10", "AP", "Honors"), or empty string
+- type: "class"
 
-Skip non-class items like Lunch, Planning, Break, etc.
-Return ONLY valid JSON with no explanation. Example format:
+For ASSIGNMENT items (individual tasks, projects, quizzes), return with:
+- name: string (assignment title)
+- course_name: string (which class it belongs to)
+- due_date: string "YYYY-MM-DD" format, or null if not specified
+- description: string or null (what students must do)
+- type: "assignment"
+
+Skip non-class items like Lunch, Planning, Break, Staff meetings, etc.
+Return ONLY valid JSON. Example:
 {
   "schedule": [
-    { "name": "Algebra I", "period": "Period 1", "days": ["Monday","Wednesday","Friday"], "time": "08:00", "room": "204", "subject": "Math", "grade": "9" }
+    { "name": "Algebra I", "period": "Period 1", "days": ["Monday","Wednesday","Friday"], "time": "08:00", "room": "204", "subject": "Math", "grade": "9", "type": "class" },
+    { "name": "Chapter 3 Quiz", "course_name": "Algebra I", "due_date": "2026-03-31", "description": "Sections 3.1-3.4, 20 questions", "type": "assignment" }
   ]
 }`
 
@@ -47,7 +56,10 @@ Return ONLY valid JSON with no explanation. Example format:
         {
           role: 'user',
           content: [
-            { type: 'text', text: 'Extract the teaching schedule from this image.' },
+            {
+              type: 'text',
+              text: 'Please carefully extract all classes, sections, and assignments from this image. Look for: class names, time slots, room numbers, meeting days, due dates, and assignment descriptions. Be thorough and include all readable information.'
+            },
             { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${image}` } },
           ],
         },
@@ -55,7 +67,7 @@ Return ONLY valid JSON with no explanation. Example format:
     } else {
       messages = [
         { role: 'system', content: systemPrompt },
-        { role: 'user', content: `Parse this schedule:\n\n${text}` },
+        { role: 'user', content: `Parse this schedule and assignment information:\n\n${text}` },
       ]
     }
 
