@@ -46,12 +46,24 @@ export function AuthProvider({ children }) {
 
   async function fetchProfile(userId) {
     try {
-      // Optimized: Only fetch user row, not schools (not needed on auth check)
-      const { data, error } = await supabase
+      // Try with extended fields first; fall back to base fields if columns don't exist yet
+      let { data, error } = await supabase
         .from('users')
         .select('id, email, full_name, role, school_id, onboarded, created_at, phone, work_email, personal_email')
         .eq('id', userId)
         .single()
+
+      if (error?.code === '42703' || error?.message?.includes('column')) {
+        // Column doesn't exist yet — fall back to base fields
+        const fallback = await supabase
+          .from('users')
+          .select('id, email, full_name, role, school_id, onboarded, created_at')
+          .eq('id', userId)
+          .single()
+        data = fallback.data
+        error = fallback.error
+      }
+
       if (!error && data) setProfile(data)
     } catch (_) {
       // profile fetch failed — app still loads, user goes to onboarding

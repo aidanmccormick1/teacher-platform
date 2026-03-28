@@ -91,7 +91,7 @@ export default function AppShell() {
             </div>
             <div>
               <h1 className="text-[15px] font-bold tracking-tight text-gray-900 leading-none">Cacio EDU</h1>
-              <p className="text-[11px] text-gray-400 mt-0.5 font-medium">Teacher Platform</p>
+              <p className="text-[11px] text-gray-400 mt-0.5 font-medium">Cacio EDU</p>
             </div>
           </div>
         </div>
