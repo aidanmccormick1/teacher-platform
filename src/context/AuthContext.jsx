@@ -9,51 +9,39 @@ export function AuthProvider({ children }) {
   const [loading, setLoading]   = useState(true)
 
   useEffect(() => {
-    let settled = false
+    let initialSessionHandled = false
 
-    function settle() {
-      if (!settled) {
-        settled = true
-        setLoading(false)
-      }
-    }
-
-    // Hard timeout — if auth takes more than 5s, give up and show login
-    const timeout = setTimeout(() => {
-      supabase.auth.signOut()
-      setSession(null)
-      setProfile(null)
-      settle()
-    }, 5000)
-
+    // getSession() is the authoritative first check — handles persisted sessions on reload
     supabase.auth.getSession().then(({ data: { session }, error }) => {
-      clearTimeout(timeout)
+      initialSessionHandled = true
       if (error || !session) {
-        if (error) supabase.auth.signOut()
         setSession(null)
-        settle()
+        setLoading(false)
         return
       }
       setSession(session)
-      fetchProfile(session.user.id).finally(settle)
+      fetchProfile(session.user.id).finally(() => setLoading(false))
     })
 
+    // onAuthStateChange handles subsequent changes (login, logout, token refresh)
+    // but we skip INITIAL_SESSION since getSession() already handles it
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
+      async (event, session) => {
+        // Skip the initial session event — getSession handles it above
+        if (event === 'INITIAL_SESSION') return
+
         setSession(session)
         if (session) {
           await fetchProfile(session.user.id)
         } else {
           setProfile(null)
         }
-        settle()
+        // Only update loading here if getSession somehow didn't fire
+        if (!initialSessionHandled) setLoading(false)
       }
     )
 
-    return () => {
-      clearTimeout(timeout)
-      subscription.unsubscribe()
-    }
+    return () => subscription.unsubscribe()
   }, [])
 
   async function fetchProfile(userId) {
