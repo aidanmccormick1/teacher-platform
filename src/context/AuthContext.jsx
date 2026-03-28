@@ -4,25 +4,40 @@ import { supabase } from '@/lib/supabase'
 const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
-  const [session, setSession]   = useState(undefined) // undefined = loading
+  const [session, setSession]   = useState(undefined)
   const [profile, setProfile]   = useState(null)
   const [loading, setLoading]   = useState(true)
 
   useEffect(() => {
-    // Get initial session — if token refresh fails, clear it and treat as logged out
-    supabase.auth.getSession().then(({ data: { session }, error }) => {
-      if (error) {
-        supabase.auth.signOut()
-        setSession(null)
+    let settled = false
+
+    function settle() {
+      if (!settled) {
+        settled = true
         setLoading(false)
+      }
+    }
+
+    // Hard timeout — if auth takes more than 5s, give up and show login
+    const timeout = setTimeout(() => {
+      supabase.auth.signOut()
+      setSession(null)
+      setProfile(null)
+      settle()
+    }, 5000)
+
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      clearTimeout(timeout)
+      if (error || !session) {
+        if (error) supabase.auth.signOut()
+        setSession(null)
+        settle()
         return
       }
       setSession(session)
-      if (session) fetchProfile(session.user.id)
-      else setLoading(false)
+      fetchProfile(session.user.id).finally(settle)
     })
 
-    // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
         setSession(session)
@@ -30,23 +45,28 @@ export function AuthProvider({ children }) {
           await fetchProfile(session.user.id)
         } else {
           setProfile(null)
-          setLoading(false)
         }
+        settle()
       }
     )
 
-    return () => subscription.unsubscribe()
+    return () => {
+      clearTimeout(timeout)
+      subscription.unsubscribe()
+    }
   }, [])
 
   async function fetchProfile(userId) {
-    const { data, error } = await supabase
-      .from('users')
-      .select('*, schools(*)')
-      .eq('id', userId)
-      .single()
-
-    if (!error) setProfile(data)
-    setLoading(false)
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('*, schools(*)')
+        .eq('id', userId)
+        .single()
+      if (!error && data) setProfile(data)
+    } catch (_) {
+      // profile fetch failed — app still loads, user goes to onboarding
+    }
   }
 
   async function signIn(email, password) {
@@ -65,6 +85,8 @@ export function AuthProvider({ children }) {
 
   async function signOut() {
     await supabase.auth.signOut()
+    setSession(null)
+    setProfile(null)
   }
 
   async function refreshProfile() {
