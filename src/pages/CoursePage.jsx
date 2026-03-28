@@ -10,13 +10,15 @@ import {
   DocumentDuplicateIcon,
   SparklesIcon,
   PencilSquareIcon,
-  ArrowUpIcon,
-  ArrowDownIcon,
   ClockIcon,
   MapPinIcon,
   CalendarDaysIcon,
   XMarkIcon,
   CheckIcon,
+  ArrowUpTrayIcon,
+  DocumentTextIcon,
+  ChevronLeftIcon,
+  Bars3Icon,
 } from '@heroicons/react/24/outline'
 import clsx from 'clsx'
 
@@ -27,22 +29,47 @@ function formatTimeCourse(t) {
   return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${p}`
 }
 
-const ALL_DAYS_COURSE = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'A-Day', 'B-Day']
+// Days that can have distinct times
+const WEEKDAYS_FULL = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
+const BLOCK_DAYS = ['A-Day', 'B-Day']
+const ALL_DAYS = [...WEEKDAYS_FULL, ...BLOCK_DAYS]
+const DAY_SHORT = { Monday: 'Mon', Tuesday: 'Tue', Wednesday: 'Wed', Thursday: 'Thu', Friday: 'Fri', 'A-Day': 'A', 'B-Day': 'B' }
+
+// Unit color palette — like Atlas
+const UNIT_COLORS = [
+  { bg: 'bg-blue-500',   light: 'bg-blue-50',   border: 'border-blue-200',   text: 'text-blue-700',   bar: '#3b82f6' },
+  { bg: 'bg-violet-500', light: 'bg-violet-50',  border: 'border-violet-200', text: 'text-violet-700', bar: '#8b5cf6' },
+  { bg: 'bg-emerald-500',light: 'bg-emerald-50', border: 'border-emerald-200',text: 'text-emerald-700',bar: '#10b981' },
+  { bg: 'bg-amber-500',  light: 'bg-amber-50',   border: 'border-amber-200',  text: 'text-amber-700',  bar: '#f59e0b' },
+  { bg: 'bg-rose-500',   light: 'bg-rose-50',    border: 'border-rose-200',   text: 'text-rose-700',   bar: '#ef4444' },
+  { bg: 'bg-cyan-500',   light: 'bg-cyan-50',    border: 'border-cyan-200',   text: 'text-cyan-700',   bar: '#06b6d4' },
+  { bg: 'bg-orange-500', light: 'bg-orange-50',  border: 'border-orange-200', text: 'text-orange-700', bar: '#f97316' },
+  { bg: 'bg-pink-500',   light: 'bg-pink-50',    border: 'border-pink-200',   text: 'text-pink-700',   bar: '#ec4899' },
+]
+
+function colorForUnit(idx) {
+  return UNIT_COLORS[idx % UNIT_COLORS.length]
+}
+
+const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
 
 export default function CoursePage() {
   const { id: courseId } = useParams()
   const { profile }      = useAuth()
   const navigate         = useNavigate()
 
-  const [course,  setCourse]  = useState(null)
-  const [units,   setUnits]   = useState([])
-  const [sections, setSections] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [course,    setCourse]    = useState(null)
+  const [units,     setUnits]     = useState([])
+  const [sections,  setSections]  = useState([])
+  const [loading,   setLoading]   = useState(true)
   const [expandedUnits, setExpandedUnits] = useState({})
-  const [aiLoading, setAiLoading] = useState(false)
+  const [aiLoading, setAiLoading] = useState(null)
+  const [activeTab, setActiveTab] = useState('units') // 'units' | 'timeline' | 'standards'
+  const [showPlanner, setShowPlanner] = useState(false)
 
   useEffect(() => {
-    document.title = course ? `${course.name} | Cacio EDU` : 'Course | Cacio EDU'
+    document.title = course ? `${course.name} | TeacherOS` : 'Course | TeacherOS'
   }, [course])
 
   useEffect(() => { loadCourse() }, [courseId])
@@ -96,7 +123,6 @@ export default function CoursePage() {
     setUnits(prev => prev.map(u => u.id === unitId ? { ...u, title } : u))
   }
 
-  // AI: generate lesson outline for a unit
   async function aiGenerateLessons(unit) {
     if (aiLoading) return
     setAiLoading(unit.id)
@@ -104,29 +130,18 @@ export default function CoursePage() {
       const res = await fetch('/api/ai/generate-unit-outline', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          unitTitle:   unit.title,
-          courseSubject: course?.subject,
-          gradeLevel:  course?.grade_level,
-        }),
+        body: JSON.stringify({ unitTitle: unit.title, courseSubject: course?.subject, gradeLevel: course?.grade_level }),
       })
       const { lessons: generated } = await res.json()
       if (!generated?.length) return
 
       const existingCount = unit.lessons.length
       const inserts = generated.map((l, i) => ({
-        unit_id:                    unit.id,
-        title:                      l.title,
-        description:                l.description || null,
-        estimated_duration_minutes: l.duration_minutes || null,
-        order_index:                existingCount + i,
+        unit_id: unit.id, title: l.title, description: l.description || null,
+        estimated_duration_minutes: l.duration_minutes || null, order_index: existingCount + i,
       }))
 
-      const { data: newLessons } = await supabase
-        .from('lessons')
-        .insert(inserts)
-        .select()
-
+      const { data: newLessons } = await supabase.from('lessons').insert(inserts).select()
       setUnits(prev => prev.map(u =>
         u.id === unit.id
           ? { ...u, lessons: [...u.lessons, ...(newLessons || []).map(l => ({ ...l, lesson_segments: [] }))] }
@@ -152,9 +167,7 @@ export default function CoursePage() {
       .select()
       .single()
     setUnits(prev => prev.map(u =>
-      u.id === unitId
-        ? { ...u, lessons: [...u.lessons, { ...data, lesson_segments: [] }] }
-        : u
+      u.id === unitId ? { ...u, lessons: [...u.lessons, { ...data, lesson_segments: [] }] } : u
     ))
   }
 
@@ -162,9 +175,7 @@ export default function CoursePage() {
     if (!confirm('Delete this lesson?')) return
     await supabase.from('lessons').delete().eq('id', lessonId)
     setUnits(prev => prev.map(u =>
-      u.id === unitId
-        ? { ...u, lessons: u.lessons.filter(l => l.id !== lessonId) }
-        : u
+      u.id === unitId ? { ...u, lessons: u.lessons.filter(l => l.id !== lessonId) } : u
     ))
   }
 
@@ -185,119 +196,175 @@ export default function CoursePage() {
       {/* Header */}
       <div className="flex items-start justify-between gap-3">
         <div>
-          <button
-            onClick={() => navigate('/curriculum')}
-            className="text-xs text-gray-400 hover:text-gray-600 mb-1 block"
-          >
-            ← Curriculum
+          <button onClick={() => navigate('/curriculum')} className="text-xs text-gray-400 hover:text-gray-600 mb-1 flex items-center gap-1">
+            <ChevronLeftIcon className="w-3 h-3" /> Curriculum
           </button>
           <h1 className="page-title">{course?.name}</h1>
           <p className="text-sm text-gray-400">
-            {course?.subject} · Grade {course?.grade_level}
+            {course?.subject}{course?.grade_level ? ` · Grade ${course.grade_level}` : ''}
           </p>
         </div>
-        <button className="btn-primary gap-1.5 shrink-0" onClick={addUnit}>
-          <PlusIcon className="w-4 h-4" />
-          Add unit
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          {activeTab === 'units' && (
+            <button className="btn-primary gap-1.5" onClick={addUnit}>
+              <PlusIcon className="w-4 h-4" />
+              Add unit
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Sections panel */}
-      <SectionsPanel
-        courseId={courseId}
-        sections={sections}
-        onSectionsChange={setSections}
-      />
-
-      {/* Course planner — shown when no units exist yet */}
-      {units.length === 0 && (
-        <CoursePlanner course={course} onDone={loadCourse} />
-      )}
-
-      {/* Units */}
-      <div className="space-y-3">
-        {units.map((unit, uIdx) => (
-          <div key={unit.id} className="card overflow-hidden">
-            {/* Unit header */}
-            <div
-              className="flex items-center gap-3 p-4 cursor-pointer hover:bg-gray-50 transition-colors"
-              onClick={() => toggleUnit(unit.id)}
-            >
-              <ChevronDownIcon className={clsx(
-                'w-4 h-4 text-gray-400 shrink-0 transition-transform',
-                !expandedUnits[unit.id] && '-rotate-90'
-              )} />
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-gray-900 text-sm">
-                  Unit {uIdx + 1}: {unit.title}
-                </p>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  {unit.lessons.length} lesson{unit.lessons.length !== 1 ? 's' : ''}
-                </p>
-              </div>
-              <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
-                <button
-                  className="btn-ghost p-1.5 text-purple-500 hover:bg-purple-50"
-                  onClick={() => aiGenerateLessons(unit)}
-                  disabled={aiLoading === unit.id}
-                  title="Generate lessons with AI"
-                >
-                  {aiLoading === unit.id
-                    ? <span className="w-4 h-4 border-2 border-purple-400 border-t-transparent rounded-full animate-spin block" />
-                    : <SparklesIcon className="w-4 h-4" />
-                  }
-                </button>
-                <button
-                  className="btn-ghost p-1.5"
-                  onClick={() => renameUnit(unit.id, unit.title)}
-                  title="Rename unit"
-                >
-                  <PencilSquareIcon className="w-4 h-4" />
-                </button>
-                <button
-                  className="btn-ghost p-1.5 text-red-400 hover:bg-red-50"
-                  onClick={() => deleteUnit(unit.id)}
-                  title="Delete unit"
-                >
-                  <TrashIcon className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            {/* Lessons */}
-            {expandedUnits[unit.id] && (
-              <div className="border-t border-gray-100">
-                {unit.lessons.map((lesson, lIdx) => (
-                  <LessonRow
-                    key={lesson.id}
-                    lesson={lesson}
-                    idx={lIdx}
-                    courseId={courseId}
-                    onDelete={() => deleteLesson(unit.id, lesson.id)}
-                    onReload={loadCourse}
-                  />
-                ))}
-                <div className="px-4 py-3 bg-gray-50 border-t border-gray-100">
-                  <button
-                    className="btn-ghost gap-1.5 text-xs"
-                    onClick={() => addLesson(unit.id)}
-                  >
-                    <PlusIcon className="w-3.5 h-3.5" />
-                    Add lesson
-                  </button>
-                </div>
-              </div>
+      {/* Tab bar */}
+      <div className="flex border-b border-gray-100">
+        {[
+          { id: 'units',     label: 'Units & Lessons' },
+          { id: 'timeline',  label: 'Year Timeline' },
+          { id: 'standards', label: 'Standards' },
+        ].map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={clsx(
+              'px-4 py-2.5 text-sm font-medium border-b-2 transition-colors',
+              activeTab === tab.id
+                ? 'border-navy-800 text-navy-800'
+                : 'border-transparent text-gray-400 hover:text-gray-600'
             )}
-          </div>
+          >
+            {tab.label}
+          </button>
         ))}
       </div>
+
+      {/* Sections panel — always visible at top */}
+      <SectionsPanel courseId={courseId} sections={sections} onSectionsChange={setSections} />
+
+      {/* Tab content */}
+      {activeTab === 'units' && (
+        <>
+          {/* Planner prompt when no units */}
+          {units.length === 0 && !showPlanner && (
+            <div className="card p-6 flex items-center gap-4 border-dashed border-2 border-gray-200 bg-gray-50">
+              <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center shrink-0">
+                <CalendarDaysIcon className="w-5 h-5 text-indigo-500" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-gray-900 text-sm">Plan your year</p>
+                <p className="text-xs text-gray-400 mt-0.5">Map out units month by month and we'll help fill in the lessons.</p>
+              </div>
+              <div className="flex gap-2 shrink-0">
+                <button className="btn-secondary text-sm" onClick={addUnit}>Add unit</button>
+                <button className="btn-primary text-sm" onClick={() => setShowPlanner(true)}>Plan year</button>
+              </div>
+            </div>
+          )}
+
+          {units.length === 0 && showPlanner && (
+            <CoursePlanner course={course} onDone={() => { setShowPlanner(false); loadCourse() }} onSkip={() => setShowPlanner(false)} />
+          )}
+
+          {units.length > 0 && units.length < 3 && !showPlanner && (
+            <button
+              onClick={() => setShowPlanner(true)}
+              className="w-full text-left card p-4 flex items-center gap-3 border-dashed border-gray-200 hover:bg-gray-50 transition-colors"
+            >
+              <CalendarDaysIcon className="w-4 h-4 text-indigo-400 shrink-0" />
+              <span className="text-sm text-gray-500">Continue planning your year month by month</span>
+              <ChevronRightIcon className="w-4 h-4 text-gray-300 ml-auto" />
+            </button>
+          )}
+
+          {showPlanner && units.length > 0 && (
+            <CoursePlanner course={course} onDone={() => { setShowPlanner(false); loadCourse() }} onSkip={() => setShowPlanner(false)} />
+          )}
+
+          {/* Units list */}
+          <div className="space-y-3">
+            {units.map((unit, uIdx) => {
+              const color = colorForUnit(uIdx)
+              return (
+                <div key={unit.id} className="card overflow-hidden">
+                  <div
+                    className="flex items-center gap-3 p-4 cursor-pointer hover:bg-gray-50 transition-colors"
+                    onClick={() => toggleUnit(unit.id)}
+                  >
+                    {/* Color dot */}
+                    <div className={`w-2.5 h-2.5 rounded-full ${color.bg} shrink-0`} />
+                    <ChevronDownIcon className={clsx(
+                      'w-4 h-4 text-gray-300 shrink-0 transition-transform',
+                      !expandedUnits[unit.id] && '-rotate-90'
+                    )} />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-gray-900 text-sm">
+                        Unit {uIdx + 1}: {unit.title}
+                      </p>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        {unit.lessons.length} lesson{unit.lessons.length !== 1 ? 's' : ''}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                      <button
+                        className="btn-ghost p-1.5 text-indigo-400 hover:bg-indigo-50"
+                        onClick={() => aiGenerateLessons(unit)}
+                        disabled={aiLoading === unit.id}
+                        title="Suggest lessons"
+                      >
+                        {aiLoading === unit.id
+                          ? <span className="w-4 h-4 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin block" />
+                          : <SparklesIcon className="w-4 h-4" />
+                        }
+                      </button>
+                      <button className="btn-ghost p-1.5" onClick={() => renameUnit(unit.id, unit.title)} title="Rename">
+                        <PencilSquareIcon className="w-4 h-4" />
+                      </button>
+                      <button className="btn-ghost p-1.5 text-red-400 hover:bg-red-50" onClick={() => deleteUnit(unit.id)} title="Delete">
+                        <TrashIcon className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {expandedUnits[unit.id] && (
+                    <div className="border-t border-gray-100">
+                      {unit.lessons.map((lesson, lIdx) => (
+                        <LessonRow
+                          key={lesson.id}
+                          lesson={lesson}
+                          idx={lIdx}
+                          courseId={courseId}
+                          color={color}
+                          onDelete={() => deleteLesson(unit.id, lesson.id)}
+                          onReload={loadCourse}
+                        />
+                      ))}
+                      <div className="px-4 py-3 bg-gray-50 border-t border-gray-100">
+                        <button className="btn-ghost gap-1.5 text-xs" onClick={() => addLesson(unit.id)}>
+                          <PlusIcon className="w-3.5 h-3.5" />
+                          Add lesson
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </>
+      )}
+
+      {activeTab === 'timeline' && (
+        <YearTimeline units={units} course={course} />
+      )}
+
+      {activeTab === 'standards' && (
+        <StandardsPanel courseId={courseId} course={course} units={units} />
+      )}
     </div>
   )
 }
 
 // ─── Lesson Row ────────────────────────────────────────────────────
 
-function LessonRow({ lesson, idx, courseId, onDelete, onReload }) {
+function LessonRow({ lesson, idx, courseId, color, onDelete, onReload }) {
   const navigate = useNavigate()
   const [expanded, setExpanded] = useState(false)
   const [segments, setSegments] = useState(lesson.lesson_segments || [])
@@ -325,11 +392,7 @@ function LessonRow({ lesson, idx, courseId, onDelete, onReload }) {
     if (!title) return
     const { data } = await supabase
       .from('lesson_segments')
-      .insert({
-        lesson_id:   lesson.id,
-        title,
-        order_index: segments.length,
-      })
+      .insert({ lesson_id: lesson.id, title, order_index: segments.length })
       .select()
       .single()
     setSegments(prev => [...prev, data])
@@ -352,18 +415,11 @@ function LessonRow({ lesson, idx, courseId, onDelete, onReload }) {
       if (!generated?.length) return
 
       const inserts = generated.map((s, i) => ({
-        lesson_id:        lesson.id,
-        title:            s.title,
-        description:      s.description || null,
-        duration_minutes: s.duration_minutes || null,
-        order_index:      segments.length + i,
+        lesson_id: lesson.id, title: s.title, description: s.description || null,
+        duration_minutes: s.duration_minutes || null, order_index: segments.length + i,
       }))
 
-      const { data: newSegs } = await supabase
-        .from('lesson_segments')
-        .insert(inserts)
-        .select()
-
+      const { data: newSegs } = await supabase.from('lesson_segments').insert(inserts).select()
       setSegments(prev => [...prev, ...(newSegs || [])])
       setExpanded(true)
     } catch (err) {
@@ -378,7 +434,8 @@ function LessonRow({ lesson, idx, courseId, onDelete, onReload }) {
   return (
     <div className="border-b border-gray-100 last:border-0">
       <div className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50">
-        <button onClick={handleExpand} className="flex-1 flex items-center gap-3 text-left min-w-0">
+        <div className={`w-1 h-4 rounded-full ${color.bg} opacity-60 shrink-0`} />
+        <button onClick={handleExpand} className="flex-1 flex items-center gap-2 text-left min-w-0">
           <ChevronDownIcon className={clsx(
             'w-3.5 h-3.5 text-gray-300 shrink-0 transition-transform',
             !expanded && '-rotate-90'
@@ -387,45 +444,35 @@ function LessonRow({ lesson, idx, courseId, onDelete, onReload }) {
             {idx + 1}. {lesson.title}
           </span>
           {segCount > 0 && (
-            <span className="badge-gray shrink-0">{segCount} segments</span>
+            <span className="badge-gray shrink-0 text-xs">{segCount} seg</span>
           )}
         </button>
         <div className="flex items-center gap-1 shrink-0">
           <button
-            className="btn-ghost p-1 text-purple-400 hover:bg-purple-50"
+            className="btn-ghost p-1 text-indigo-400 hover:bg-indigo-50"
             onClick={aiGenerateSegments}
             disabled={aiLoading}
-            title="Generate segments with AI"
+            title="Suggest segments"
           >
             {aiLoading
-              ? <span className="w-3.5 h-3.5 border-2 border-purple-400 border-t-transparent rounded-full animate-spin block" />
+              ? <span className="w-3.5 h-3.5 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin block" />
               : <SparklesIcon className="w-3.5 h-3.5" />
             }
           </button>
-          <button
-            className="btn-ghost p-1 text-red-400 hover:bg-red-50"
-            onClick={onDelete}
-          >
+          <button className="btn-ghost p-1 text-red-400 hover:bg-red-50" onClick={onDelete}>
             <TrashIcon className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
 
       {expanded && (
-        <div className="bg-gray-50 px-4 pb-3 space-y-1.5 ml-6">
-          {segments.length === 0 && (
-            <p className="text-xs text-gray-400 py-2">No segments yet.</p>
-          )}
+        <div className="bg-gray-50 px-4 pb-3 space-y-1.5 ml-7">
+          {segments.length === 0 && <p className="text-xs text-gray-400 py-2">No segments yet.</p>}
           {segments.map(seg => (
             <div key={seg.id} className="flex items-center gap-2 py-1.5 px-3 bg-white rounded-lg border border-gray-100 text-sm">
               <span className="flex-1 text-gray-700 text-xs">{seg.title}</span>
-              {seg.duration_minutes && (
-                <span className="text-xs text-gray-400 shrink-0">{seg.duration_minutes}m</span>
-              )}
-              <button
-                className="text-gray-300 hover:text-red-400"
-                onClick={() => deleteSegment(seg.id)}
-              >
+              {seg.duration_minutes && <span className="text-xs text-gray-400 shrink-0">{seg.duration_minutes}m</span>}
+              <button className="text-gray-300 hover:text-red-400" onClick={() => deleteSegment(seg.id)}>
                 <TrashIcon className="w-3 h-3" />
               </button>
             </div>
@@ -440,11 +487,19 @@ function LessonRow({ lesson, idx, courseId, onDelete, onReload }) {
   )
 }
 
-// ─── Sections Panel ───────────────────────────────────────────────
+// ─── Sections Panel — supports per-day times ─────────────────────
 
 function SectionsPanel({ courseId, sections, onSectionsChange }) {
   const [showAdd, setShowAdd] = useState(false)
-  const [form, setForm] = useState({ name: '', meeting_days: [], meeting_time: '', room: '' })
+  const [form, setForm] = useState({
+    name: '',
+    meeting_days: [],
+    meeting_time: '',
+    room: '',
+    // per-day overrides: { Monday: '09:00', Friday: '10:00' }
+    day_times: {},
+    use_per_day: false,
+  })
   const [addLoading, setAddLoading] = useState(false)
   const [addError, setAddError] = useState(null)
 
@@ -457,21 +512,61 @@ function SectionsPanel({ courseId, sections, onSectionsChange }) {
     }))
   }
 
+  function setDayTime(day, time) {
+    setForm(f => ({ ...f, day_times: { ...f.day_times, [day]: time } }))
+  }
+
+  // Check if selected days have different times
+  const hasMultipleTimes = form.use_per_day && form.meeting_days.length > 1
+
   async function handleAdd(e) {
     e.preventDefault()
     setAddLoading(true)
     setAddError(null)
+
+    // Build the section data
+    // We store per-day times in a JSON column called day_times
+    // If use_per_day is off, store single meeting_time
+    const sectionData = {
+      course_id:    courseId,
+      name:         form.name,
+      meeting_days: form.meeting_days,
+      meeting_time: form.use_per_day ? null : (form.meeting_time || null),
+      day_times:    form.use_per_day ? form.day_times : null,
+      room:         form.room || null,
+    }
+
     const { data, error } = await supabase
       .from('sections')
-      .insert({ ...form, course_id: courseId, meeting_time: form.meeting_time || null })
+      .insert(sectionData)
       .select()
       .single()
+
     setAddLoading(false)
     if (error) {
-      setAddError(error.message || 'Failed to add period')
+      // If day_times column doesn't exist yet, fall back to single time
+      if (error.message?.includes('day_times')) {
+        const fallback = {
+          course_id:    courseId,
+          name:         form.name,
+          meeting_days: form.meeting_days,
+          meeting_time: form.meeting_time || null,
+          room:         form.room || null,
+        }
+        const { data: d2, error: e2 } = await supabase.from('sections').insert(fallback).select().single()
+        if (e2) {
+          setAddError(e2.message || 'Failed to add period')
+        } else if (d2) {
+          onSectionsChange(prev => [...prev, d2])
+          setForm({ name: '', meeting_days: [], meeting_time: '', room: '', day_times: {}, use_per_day: false })
+          setShowAdd(false)
+        }
+      } else {
+        setAddError(error.message || 'Failed to add period')
+      }
     } else if (data) {
       onSectionsChange(prev => [...prev, data])
-      setForm({ name: '', meeting_days: [], meeting_time: '', room: '' })
+      setForm({ name: '', meeting_days: [], meeting_time: '', room: '', day_times: {}, use_per_day: false })
       setShowAdd(false)
     }
   }
@@ -480,6 +575,16 @@ function SectionsPanel({ courseId, sections, onSectionsChange }) {
     if (!confirm('Remove this class period?')) return
     await supabase.from('sections').delete().eq('id', id)
     onSectionsChange(prev => prev.filter(s => s.id !== id))
+  }
+
+  function renderSectionTime(section) {
+    if (section.day_times && Object.keys(section.day_times).length > 0) {
+      // Show per-day times
+      const entries = Object.entries(section.day_times)
+      if (entries.length === 1) return formatTimeCourse(entries[0][1])
+      return entries.map(([day, time]) => `${day.slice(0,3)} ${formatTimeCourse(time)}`).join(', ')
+    }
+    return section.meeting_time ? formatTimeCourse(section.meeting_time) : null
   }
 
   return (
@@ -501,52 +606,54 @@ function SectionsPanel({ courseId, sections, onSectionsChange }) {
 
       {sections.length === 0 && !showAdd && (
         <div className="px-4 py-5 text-center">
-          <p className="text-sm text-gray-500 mb-1">No class periods yet</p>
-          <p className="text-xs text-gray-400">Add each period this course runs (e.g. Period 1 Mon/Wed/Fri at 8:00 AM).</p>
+          <p className="text-sm text-gray-400">No class periods yet</p>
+          <p className="text-xs text-gray-300 mt-0.5">Add each period this course runs, including the days and time.</p>
         </div>
       )}
 
       {sections.length > 0 && (
         <div className="divide-y divide-gray-50">
-          {sections.map(section => (
-            <div key={section.id} className="flex items-center px-4 py-3 gap-3">
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-800">{section.name}</p>
-                <div className="flex flex-wrap gap-3 mt-0.5">
-                  {section.meeting_days?.length > 0 && (
-                    <span className="text-xs text-gray-400 flex items-center gap-1">
-                      <CalendarDaysIcon className="w-3 h-3" />
-                      {section.meeting_days.map(d => d.slice(0, 3)).join(', ')}
-                    </span>
-                  )}
-                  {section.meeting_time && (
-                    <span className="text-xs text-gray-400 flex items-center gap-1">
-                      <ClockIcon className="w-3 h-3" />
-                      {formatTimeCourse(section.meeting_time)}
-                    </span>
-                  )}
-                  {section.room && (
-                    <span className="text-xs text-gray-400 flex items-center gap-1">
-                      <MapPinIcon className="w-3 h-3" />
-                      Rm {section.room}
-                    </span>
-                  )}
+          {sections.map(section => {
+            const timeStr = renderSectionTime(section)
+            return (
+              <div key={section.id} className="flex items-center px-4 py-3 gap-3">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-800">{section.name}</p>
+                  <div className="flex flex-wrap gap-3 mt-0.5">
+                    {section.meeting_days?.length > 0 && (
+                      <span className="text-xs text-gray-400 flex items-center gap-1">
+                        <CalendarDaysIcon className="w-3 h-3" />
+                        {section.meeting_days.map(d => DAY_SHORT[d] || d.slice(0,3)).join(', ')}
+                      </span>
+                    )}
+                    {timeStr && (
+                      <span className="text-xs text-gray-400 flex items-center gap-1">
+                        <ClockIcon className="w-3 h-3" />
+                        {timeStr}
+                      </span>
+                    )}
+                    {section.room && (
+                      <span className="text-xs text-gray-400 flex items-center gap-1">
+                        <MapPinIcon className="w-3 h-3" />
+                        Rm {section.room}
+                      </span>
+                    )}
+                  </div>
                 </div>
+                <button
+                  onClick={() => handleDelete(section.id)}
+                  className="text-gray-300 hover:text-red-400 p-1 transition-colors shrink-0"
+                >
+                  <TrashIcon className="w-4 h-4" />
+                </button>
               </div>
-              <button
-                onClick={() => handleDelete(section.id)}
-                className="text-gray-300 hover:text-red-400 p-1 transition-colors shrink-0"
-                title="Remove period"
-              >
-                <TrashIcon className="w-4 h-4" />
-              </button>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
       {showAdd && (
-        <form onSubmit={handleAdd} className="border-t border-gray-100 bg-indigo-50/40 px-4 py-4 space-y-3">
+        <form onSubmit={handleAdd} className="border-t border-gray-100 bg-gray-50/60 px-4 py-4 space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="label text-xs">Period name</label>
@@ -573,48 +680,75 @@ function SectionsPanel({ courseId, sections, onSectionsChange }) {
           <div>
             <label className="label text-xs">Meeting days</label>
             <div className="flex flex-wrap gap-1.5">
-              {ALL_DAYS_COURSE.map(day => (
+              {ALL_DAYS.map(day => (
                 <button
                   key={day}
                   type="button"
                   onClick={() => toggleDay(day)}
                   className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
                     form.meeting_days.includes(day)
-                      ? 'bg-indigo-600 text-white border-indigo-600'
+                      ? 'bg-navy-800 text-white border-navy-800'
                       : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
                   }`}
                 >
-                  {day.length > 3 ? day.slice(0, 3) : day}
+                  {DAY_SHORT[day] || day}
                 </button>
               ))}
             </div>
           </div>
 
-          <div className="w-40">
-            <label className="label text-xs">Time</label>
-            <input
-              type="time"
-              className="input text-sm"
-              value={form.meeting_time}
-              onChange={e => setForm(f => ({ ...f, meeting_time: e.target.value }))}
-            />
-          </div>
+          {/* Time section */}
+          {form.meeting_days.length > 0 && (
+            <div className="space-y-2">
+              {/* Toggle for per-day times */}
+              {form.meeting_days.length > 1 && (
+                <label className="flex items-center gap-2 cursor-pointer w-fit">
+                  <div
+                    className={`w-8 h-4.5 rounded-full transition-colors relative ${form.use_per_day ? 'bg-indigo-500' : 'bg-gray-200'}`}
+                    style={{ height: '18px', width: '32px' }}
+                    onClick={() => setForm(f => ({ ...f, use_per_day: !f.use_per_day }))}
+                  >
+                    <div className={`absolute top-0.5 w-3.5 h-3.5 bg-white rounded-full shadow transition-transform ${form.use_per_day ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                  </div>
+                  <span className="text-xs text-gray-500">Different times per day</span>
+                </label>
+              )}
+
+              {form.use_per_day && form.meeting_days.length > 1 ? (
+                <div className="space-y-2">
+                  {form.meeting_days.map(day => (
+                    <div key={day} className="flex items-center gap-3">
+                      <span className="text-xs font-medium text-gray-600 w-10">{DAY_SHORT[day] || day}</span>
+                      <input
+                        type="time"
+                        className="input text-sm w-36"
+                        value={form.day_times[day] || ''}
+                        onChange={e => setDayTime(day, e.target.value)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="w-40">
+                  <label className="label text-xs">Time</label>
+                  <input
+                    type="time"
+                    className="input text-sm"
+                    value={form.meeting_time}
+                    onChange={e => setForm(f => ({ ...f, meeting_time: e.target.value }))}
+                  />
+                </div>
+              )}
+            </div>
+          )}
 
           {addError && <p className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded">{addError}</p>}
 
           <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => setShowAdd(false)}
-              className="px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50"
-            >
+            <button type="button" onClick={() => setShowAdd(false)} className="px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">
               Cancel
             </button>
-            <button
-              type="submit"
-              disabled={addLoading || !form.name}
-              className="px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-40"
-            >
+            <button type="submit" disabled={addLoading || !form.name} className="px-3 py-1.5 text-xs font-semibold text-white bg-navy-800 rounded-lg hover:bg-navy-900 disabled:opacity-40">
               {addLoading ? 'Adding...' : 'Add period'}
             </button>
           </div>
@@ -624,31 +758,352 @@ function SectionsPanel({ courseId, sections, onSectionsChange }) {
   )
 }
 
-// ─── Course Planner (replaces AI Scaffold Banner) ─────────────────
+// ─── Year Timeline — Atlas-inspired ───────────────────────────────
+
+function YearTimeline({ units, course }) {
+  // We use start_date / end_date on units if they exist, otherwise distribute evenly
+  const schoolYear = buildSchoolYear()
+
+  if (units.length === 0) {
+    return (
+      <div className="card p-10 text-center">
+        <CalendarDaysIcon className="w-8 h-8 text-gray-200 mx-auto mb-3" />
+        <p className="text-sm text-gray-400">No units yet. Add units to see them on the timeline.</p>
+      </div>
+    )
+  }
+
+  // Assign each unit a rough time slice across the year
+  const totalLessons = units.reduce((s, u) => s + u.lessons.length, 0) || units.length
+  let lessonCursor = 0
+
+  const unitSlices = units.map((unit, i) => {
+    const lessons = Math.max(unit.lessons.length, 1)
+    const startPct = totalLessons > 0 ? (lessonCursor / totalLessons) * 100 : (i / units.length) * 100
+    lessonCursor += lessons
+    const endPct = totalLessons > 0 ? (lessonCursor / totalLessons) * 100 : ((i + 1) / units.length) * 100
+    return { unit, startPct, endPct, color: colorForUnit(i) }
+  })
+
+  return (
+    <div className="card overflow-hidden">
+      {/* Month header */}
+      <div className="px-5 pt-4 pb-2">
+        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Year at a glance</p>
+        <div className="flex" style={{ gap: 0 }}>
+          {schoolYear.map(m => (
+            <div key={m} className="flex-1 text-center">
+              <span className="text-xs text-gray-400 font-medium">{m}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Timeline bar */}
+        <div className="relative mt-2 mb-1">
+          <div className="h-8 bg-gray-100 rounded-xl overflow-hidden flex">
+            {unitSlices.map(({ unit, startPct, endPct, color }) => (
+              <div
+                key={unit.id}
+                className={`h-full ${color.bg} flex items-center px-2 overflow-hidden relative group cursor-pointer`}
+                style={{ width: `${endPct - startPct}%` }}
+                title={unit.title}
+              >
+                <span className="text-white text-xs font-semibold truncate leading-tight">
+                  {unit.title}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Unit legend */}
+      <div className="border-t border-gray-100 px-5 py-3 space-y-1">
+        {unitSlices.map(({ unit, color }, i) => (
+          <div key={unit.id} className="flex items-center gap-3 py-1.5">
+            <div className={`w-3 h-3 rounded-sm ${color.bg} shrink-0`} />
+            <span className="text-sm text-gray-700 font-medium flex-1 truncate">
+              Unit {i + 1}: {unit.title}
+            </span>
+            <span className="text-xs text-gray-400 shrink-0">
+              {unit.lessons.length} lesson{unit.lessons.length !== 1 ? 's' : ''}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function buildSchoolYear() {
+  // Default Aug - May school year months
+  return ['Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May']
+}
+
+// ─── Standards Panel ──────────────────────────────────────────────
+
+function StandardsPanel({ courseId, course, units }) {
+  const [file, setFile] = useState(null)
+  const [standards, setStandards] = useState([]) // parsed standards
+  const [analyzing, setAnalyzing] = useState(false)
+  const [analysis, setAnalysis] = useState(null)
+  const [dragOver, setDragOver] = useState(false)
+  const fileRef = useRef()
+
+  function handleFile(f) {
+    if (!f) return
+    setFile(f)
+    setAnalysis(null)
+    setStandards([])
+    // Read as text for txt/csv, as base64 for pdf
+    const ext = f.name.split('.').pop().toLowerCase()
+    if (ext === 'pdf') {
+      const reader = new FileReader()
+      reader.onload = e => {
+        const base64 = e.target.result.split(',')[1]
+        parseStandards({ pdf: base64, filename: f.name })
+      }
+      reader.readAsDataURL(f)
+    } else {
+      const reader = new FileReader()
+      reader.onload = e => parseStandards({ text: e.target.result, filename: f.name })
+      reader.readAsText(f)
+    }
+  }
+
+  async function parseStandards({ text, pdf, filename }) {
+    setAnalyzing(true)
+    try {
+      const body = { filename }
+      if (text) body.text = text.slice(0, 8000) // trim to avoid token limits
+      if (pdf) body.pdf = pdf
+
+      const res = await fetch('/api/ai/parse-standards', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+
+      if (!res.ok) throw new Error('Parse failed')
+      const { standards: parsed } = await res.json()
+      setStandards(parsed || [])
+    } catch (err) {
+      console.error('Standards parse failed:', err)
+      // Fallback: just show raw text lines as standards
+      if (text) {
+        const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 5)
+        setStandards(lines.slice(0, 50).map(l => ({ code: '', description: l })))
+      }
+    } finally {
+      setAnalyzing(false)
+    }
+  }
+
+  async function analyzeAlignment() {
+    if (!standards.length || !units.length) return
+    setAnalyzing(true)
+    try {
+      const unitSummaries = units.map(u => ({
+        title: u.title,
+        lessons: u.lessons.slice(0, 5).map(l => l.title),
+      }))
+
+      const res = await fetch('/api/ai/analyze-standards', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subject: course?.subject,
+          gradeLevel: course?.grade_level,
+          standards: standards.slice(0, 30),
+          units: unitSummaries,
+        }),
+      })
+
+      if (!res.ok) throw new Error('Analysis failed')
+      const { analysis: result } = await res.json()
+      setAnalysis(result)
+    } catch (err) {
+      console.error('Analysis failed:', err)
+      setAnalysis({ error: 'Analysis failed. Make sure your API key is configured.' })
+    } finally {
+      setAnalyzing(false)
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Upload zone */}
+      <div className="card p-5">
+        <div className="flex items-center gap-2 mb-3">
+          <DocumentTextIcon className="w-4 h-4 text-gray-400" />
+          <h3 className="font-semibold text-sm text-gray-900">Upload Standards</h3>
+        </div>
+        <p className="text-xs text-gray-400 mb-4">
+          Upload your state or district standards document (PDF, TXT, or CSV) and we'll compare them to your curriculum.
+        </p>
+
+        {!file ? (
+          <div
+            className={clsx(
+              'border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors',
+              dragOver ? 'border-indigo-400 bg-indigo-50' : 'border-gray-200 hover:border-gray-300 bg-gray-50'
+            )}
+            onClick={() => fileRef.current?.click()}
+            onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={e => { e.preventDefault(); setDragOver(false); handleFile(e.dataTransfer.files[0]) }}
+          >
+            <ArrowUpTrayIcon className="w-6 h-6 text-gray-300 mx-auto mb-2" />
+            <p className="text-sm text-gray-500 font-medium">Drop your standards file here</p>
+            <p className="text-xs text-gray-400 mt-1">or click to browse — PDF, TXT, CSV</p>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".pdf,.txt,.csv"
+              className="hidden"
+              onChange={e => handleFile(e.target.files[0])}
+            />
+          </div>
+        ) : (
+          <div className="flex items-center gap-3 bg-gray-50 rounded-xl px-4 py-3">
+            <DocumentTextIcon className="w-5 h-5 text-indigo-500 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-gray-800 truncate">{file.name}</p>
+              {analyzing && <p className="text-xs text-gray-400 mt-0.5">Reading standards...</p>}
+              {!analyzing && standards.length > 0 && (
+                <p className="text-xs text-gray-400 mt-0.5">{standards.length} standards found</p>
+              )}
+            </div>
+            <button
+              onClick={() => { setFile(null); setStandards([]); setAnalysis(null) }}
+              className="text-gray-300 hover:text-gray-500"
+            >
+              <XMarkIcon className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Standards list */}
+      {standards.length > 0 && !analyzing && (
+        <div className="card overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+            <h3 className="font-semibold text-sm text-gray-900">{standards.length} Standards</h3>
+            {units.length > 0 && (
+              <button
+                onClick={analyzeAlignment}
+                disabled={analyzing}
+                className="flex items-center gap-1.5 text-xs font-semibold text-white bg-indigo-600 px-3 py-1.5 rounded-lg hover:bg-indigo-700 disabled:opacity-40"
+              >
+                <SparklesIcon className="w-3.5 h-3.5" />
+                Analyze alignment
+              </button>
+            )}
+          </div>
+          <div className="divide-y divide-gray-50 max-h-64 overflow-y-auto">
+            {standards.map((std, i) => (
+              <div key={i} className="px-4 py-2.5 flex items-start gap-3">
+                {std.code && (
+                  <span className="text-xs font-mono font-semibold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded shrink-0 mt-0.5">
+                    {std.code}
+                  </span>
+                )}
+                <p className="text-xs text-gray-600 leading-relaxed">{std.description}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Analysis results */}
+      {analyzing && (
+        <div className="card p-6 text-center">
+          <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+          <p className="text-sm text-gray-500">Comparing standards to your curriculum...</p>
+        </div>
+      )}
+
+      {analysis && !analyzing && (
+        <div className="card overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
+            <CheckIcon className="w-4 h-4 text-emerald-500" />
+            <h3 className="font-semibold text-sm text-gray-900">Standards Alignment</h3>
+          </div>
+          <div className="px-4 py-4">
+            {analysis.error ? (
+              <p className="text-sm text-red-500">{analysis.error}</p>
+            ) : (
+              <div className="space-y-4">
+                {analysis.overview && (
+                  <p className="text-sm text-gray-700 leading-relaxed">{analysis.overview}</p>
+                )}
+                {analysis.alignments?.map((item, i) => (
+                  <div key={i} className="border border-gray-100 rounded-xl p-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className={clsx(
+                        'text-xs font-medium px-2 py-0.5 rounded-full',
+                        item.coverage === 'strong' ? 'bg-emerald-50 text-emerald-700' :
+                        item.coverage === 'partial' ? 'bg-amber-50 text-amber-700' :
+                        'bg-red-50 text-red-700'
+                      )}>
+                        {item.coverage === 'strong' ? 'Well covered' : item.coverage === 'partial' ? 'Partially covered' : 'Gap'}
+                      </span>
+                      {item.standard_code && (
+                        <span className="text-xs font-mono text-indigo-600">{item.standard_code}</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-600">{item.note}</p>
+                  </div>
+                ))}
+                {analysis.gaps?.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-red-600 mb-2">Standards not yet covered:</p>
+                    <ul className="space-y-1">
+                      {analysis.gaps.map((g, i) => (
+                        <li key={i} className="text-xs text-gray-500 flex items-start gap-1.5">
+                          <span className="text-red-300 mt-0.5">•</span> {g}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {!file && units.length === 0 && (
+        <div className="text-center py-4">
+          <p className="text-xs text-gray-400">Add units to your course first, then upload standards for alignment analysis.</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Course Planner — redesigned ──────────────────────────────────
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
 
-function CoursePlanner({ course, onDone }) {
-  // Step 1: course context. Step 2: month-by-month topic entry. Step 3: AI fills in lessons.
+function CoursePlanner({ course, onDone, onSkip }) {
   const [step, setStep] = useState(1)
   const [ctx, setCtx] = useState({
-    startMonth: '',
-    endMonth: '',
-    daysPerWeek: '',
+    startMonth: 'August',
+    endMonth: 'May',
+    daysPerWeek: '5',
     examDate: '',
     goals: '',
   })
-  // monthTopics: array of { month: string, topic: string }
   const [monthTopics, setMonthTopics] = useState([])
-  const [generating, setGenerating] = useState(null) // month string currently generating
-  const [done, setDone] = useState([]) // months that have been generated
+  const [generating, setGenerating] = useState(null)
+  const [done, setDone] = useState([])
+  const [error, setError] = useState(null)
 
-  // Build month list from start/end selection
   function buildMonthList(start, end) {
     const si = MONTHS.indexOf(start)
     const ei = MONTHS.indexOf(end)
     if (si < 0 || ei < 0) return []
-    // Handle wrap-around (e.g. Aug -> May next year)
     const result = []
     if (si <= ei) {
       for (let i = si; i <= ei; i++) result.push(MONTHS[i])
@@ -673,6 +1128,7 @@ function CoursePlanner({ course, onDone }) {
   async function generateForMonth(mt) {
     if (!mt.topic.trim()) return
     setGenerating(mt.month)
+    setError(null)
     try {
       const res = await fetch('/api/ai/scaffold-course', {
         method: 'POST',
@@ -685,14 +1141,17 @@ function CoursePlanner({ course, onDone }) {
           month:      mt.month,
           topic:      mt.topic,
           examDate:   ctx.examDate,
-          mode:       'month', // signal to the API to scope to one month
+          mode:       'month',
         }),
       })
-      if (res.ok) {
-        setDone(prev => [...prev, mt.month])
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || 'Generation failed')
       }
+      setDone(prev => [...prev, mt.month])
     } catch (err) {
       console.error('Generate failed for', mt.month, err)
+      setError(`Failed to generate ${mt.month}: ${err.message}`)
     } finally {
       setGenerating(null)
     }
@@ -703,48 +1162,37 @@ function CoursePlanner({ course, onDone }) {
     for (const mt of pending) {
       await generateForMonth(mt)
     }
-    onDone()
   }
 
   const filledCount = monthTopics.filter(mt => mt.topic.trim()).length
-  const months = monthTopics.map(mt => mt.month)
+  const allDone = done.length > 0 && done.length >= filledCount
 
   // ── Step 1: Context ──
   if (step === 1) {
     return (
-      <div className="card p-5 border-2 border-dashed border-gray-200 bg-gray-50 space-y-4">
-        <div className="flex items-center gap-2">
-          <SparklesIcon className="w-4 h-4 text-indigo-500" />
-          <h3 className="font-semibold text-sm text-gray-900">Plan your curriculum</h3>
-          <span className="text-xs text-gray-400 bg-white border border-gray-200 px-2 py-0.5 rounded-full">Step 1 of 2</span>
+      <div className="card overflow-hidden">
+        <div className="px-5 pt-5 pb-1">
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Step 1 of 2</p>
+            <button onClick={onSkip} className="text-xs text-gray-400 hover:text-gray-600">Skip</button>
+          </div>
+          <h3 className="font-bold text-gray-900 text-base mb-0.5">Plan your year</h3>
+          <p className="text-sm text-gray-400 mb-4">
+            Set the basics — you'll map out each month next.
+          </p>
         </div>
-        <p className="text-xs text-gray-500">
-          Tell us about the course — you'll map out your topics month by month, then AI generates the lesson details within each.
-        </p>
 
-        <form onSubmit={handleCtxNext} className="space-y-3">
+        <form onSubmit={handleCtxNext} className="px-5 pb-5 space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="label text-xs">Course starts</label>
-              <select
-                className="input text-sm"
-                value={ctx.startMonth}
-                onChange={e => setCtx(c => ({ ...c, startMonth: e.target.value }))}
-                required
-              >
-                <option value="">Month</option>
+              <select className="input text-sm" value={ctx.startMonth} onChange={e => setCtx(c => ({ ...c, startMonth: e.target.value }))} required>
                 {MONTHS.map(m => <option key={m} value={m}>{m}</option>)}
               </select>
             </div>
             <div>
               <label className="label text-xs">Course ends</label>
-              <select
-                className="input text-sm"
-                value={ctx.endMonth}
-                onChange={e => setCtx(c => ({ ...c, endMonth: e.target.value }))}
-                required
-              >
-                <option value="">Month</option>
+              <select className="input text-sm" value={ctx.endMonth} onChange={e => setCtx(c => ({ ...c, endMonth: e.target.value }))} required>
                 {MONTHS.map(m => <option key={m} value={m}>{m}</option>)}
               </select>
             </div>
@@ -752,49 +1200,34 @@ function CoursePlanner({ course, onDone }) {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="label text-xs">Class meetings per week</label>
-              <select
-                className="input text-sm"
-                value={ctx.daysPerWeek}
-                onChange={e => setCtx(c => ({ ...c, daysPerWeek: e.target.value }))}
-              >
-                <option value="">Select</option>
+              <label className="label text-xs">Classes per week</label>
+              <select className="input text-sm" value={ctx.daysPerWeek} onChange={e => setCtx(c => ({ ...c, daysPerWeek: e.target.value }))}>
                 {[1,2,3,4,5].map(n => <option key={n} value={n}>{n} day{n > 1 ? 's' : ''}</option>)}
               </select>
             </div>
             <div>
-              <label className="label text-xs">Key date (AP exam, finals, etc.)</label>
-              <input
-                type="text"
-                className="input text-sm"
-                value={ctx.examDate}
-                onChange={e => setCtx(c => ({ ...c, examDate: e.target.value }))}
-                placeholder="e.g. May 7 AP exam"
-              />
+              <label className="label text-xs">Key date (optional)</label>
+              <input type="text" className="input text-sm" value={ctx.examDate} onChange={e => setCtx(c => ({ ...c, examDate: e.target.value }))} placeholder="AP exam May 7" />
             </div>
           </div>
 
           <div>
-            <label className="label text-xs">Course goals or focus (optional)</label>
+            <label className="label text-xs">Course focus (optional)</label>
             <textarea
               className="input text-sm resize-none"
               rows={2}
               value={ctx.goals}
               onChange={e => setCtx(c => ({ ...c, goals: e.target.value }))}
-              placeholder="e.g. Prepare students for the AP exam with emphasis on primary source analysis"
+              placeholder="e.g. Prepare for AP exam with emphasis on primary source analysis"
             />
           </div>
 
           <div className="flex gap-2 pt-1">
-            <button type="submit" className="btn-primary text-sm gap-1.5" disabled={!ctx.startMonth || !ctx.endMonth}>
+            <button type="submit" className="btn-primary text-sm" disabled={!ctx.startMonth || !ctx.endMonth}>
               Next: map your months
             </button>
-            <button
-              type="button"
-              className="btn-secondary text-sm"
-              onClick={onDone}
-            >
-              Skip — add units manually
+            <button type="button" className="btn-secondary text-sm" onClick={onSkip}>
+              Skip
             </button>
           </div>
         </form>
@@ -802,17 +1235,25 @@ function CoursePlanner({ course, onDone }) {
     )
   }
 
-  // ── Step 2: Month-by-month topic mapping ──
+  // ── Step 2: Month-by-month ──
   return (
-    <div className="card border-2 border-dashed border-gray-200 bg-gray-50 overflow-hidden">
-      <div className="px-5 pt-5 pb-3 flex items-center gap-2">
-        <SparklesIcon className="w-4 h-4 text-indigo-500" />
-        <h3 className="font-semibold text-sm text-gray-900">Map your months</h3>
-        <span className="text-xs text-gray-400 bg-white border border-gray-200 px-2 py-0.5 rounded-full">Step 2 of 2</span>
+    <div className="card overflow-hidden">
+      <div className="px-5 pt-5 pb-3 flex items-center justify-between">
+        <div>
+          <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5">Step 2 of 2</p>
+          <h3 className="font-bold text-gray-900 text-base">Map your months</h3>
+          <p className="text-sm text-gray-400 mt-0.5">
+            One topic per month — just a short phrase. We'll build the lessons from there.
+          </p>
+        </div>
+        {allDone && (
+          <button onClick={onDone} className="btn-primary text-sm shrink-0">Done</button>
+        )}
       </div>
-      <p className="px-5 pb-3 text-xs text-gray-500">
-        Write the main topic or unit for each month — just a short phrase is enough. AI generates the individual lessons within each.
-      </p>
+
+      {error && (
+        <div className="mx-5 mb-3 bg-red-50 text-red-600 text-xs px-3 py-2 rounded-lg">{error}</div>
+      )}
 
       <div className="divide-y divide-gray-100">
         {monthTopics.map((mt) => {
@@ -820,36 +1261,36 @@ function CoursePlanner({ course, onDone }) {
           const isGenerating = generating === mt.month
           return (
             <div key={mt.month} className="flex items-center gap-3 px-5 py-3">
-              <div className="w-20 shrink-0">
-                <span className={`text-xs font-semibold ${isDone ? 'text-green-600' : 'text-gray-500'}`}>
-                  {mt.month}
+              <div className="w-14 shrink-0">
+                <span className={`text-xs font-bold ${isDone ? 'text-emerald-600' : 'text-gray-500'}`}>
+                  {mt.month.slice(0, 3).toUpperCase()}
                 </span>
                 {isDone && (
-                  <span className="block text-xs text-green-500 mt-0.5 flex items-center gap-1">
-                    <CheckIcon className="w-3 h-3 inline" /> Generated
-                  </span>
+                  <div className="flex items-center gap-0.5 mt-0.5">
+                    <CheckIcon className="w-3 h-3 text-emerald-500" />
+                    <span className="text-xs text-emerald-500">Done</span>
+                  </div>
                 )}
               </div>
               <input
-                className="input text-sm flex-1"
+                className={`input text-sm flex-1 ${isDone ? 'bg-gray-50 text-gray-400' : ''}`}
                 value={mt.topic}
                 onChange={e => updateTopic(mt.month, e.target.value)}
-                placeholder={`Topic or unit for ${mt.month}...`}
+                placeholder={`Topic for ${mt.month.slice(0, 3)}...`}
                 disabled={isDone}
+                onKeyDown={e => { if (e.key === 'Enter' && mt.topic.trim() && !isDone) generateForMonth(mt) }}
               />
               {!isDone && (
                 <button
                   type="button"
                   onClick={() => generateForMonth(mt)}
                   disabled={!mt.topic.trim() || isGenerating || !!generating}
-                  className="shrink-0 px-2.5 py-1.5 text-xs font-medium border border-indigo-200 text-indigo-600 rounded-lg hover:bg-indigo-50 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
-                  title="Generate lessons for this month"
+                  className="shrink-0 px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5 min-w-[80px] justify-center"
                 >
                   {isGenerating
-                    ? <span className="w-3 h-3 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
-                    : <SparklesIcon className="w-3 h-3" />
+                    ? <><span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" /> Building</>
+                    : 'Generate'
                   }
-                  {isGenerating ? 'Building...' : 'Generate'}
                 </button>
               )}
             </div>
@@ -857,33 +1298,27 @@ function CoursePlanner({ course, onDone }) {
         })}
       </div>
 
-      <div className="px-5 py-4 bg-white border-t border-gray-100 flex items-center justify-between gap-3">
-        <button
-          type="button"
-          onClick={() => setStep(1)}
-          className="text-xs text-gray-400 hover:text-gray-600"
-        >
-          Back
+      <div className="px-5 py-4 bg-gray-50 border-t border-gray-100 flex items-center justify-between gap-3">
+        <button type="button" onClick={() => setStep(1)} className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1">
+          <ChevronLeftIcon className="w-3 h-3" /> Back
         </button>
         <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={onDone}
-            className="btn-secondary text-sm"
-          >
-            Done
+          <button type="button" onClick={onDone} className="btn-secondary text-sm">
+            {done.length > 0 ? 'Done' : 'Skip for now'}
           </button>
-          <button
-            type="button"
-            onClick={generateAll}
-            disabled={filledCount === 0 || !!generating}
-            className="btn-primary text-sm gap-1.5 disabled:opacity-40"
-          >
-            {generating
-              ? <><span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" /> Generating...</>
-              : <><SparklesIcon className="w-3.5 h-3.5" /> Generate all ({filledCount})</>
-            }
-          </button>
+          {filledCount > 0 && done.length < filledCount && (
+            <button
+              type="button"
+              onClick={generateAll}
+              disabled={filledCount === 0 || !!generating}
+              className="btn-primary text-sm gap-1.5 disabled:opacity-40"
+            >
+              {generating
+                ? <><span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" /> Working...</>
+                : `Generate all (${filledCount - done.length})`
+              }
+            </button>
+          )}
         </div>
       </div>
     </div>

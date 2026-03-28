@@ -8,9 +8,20 @@ import {
   ChevronRightIcon,
   DocumentDuplicateIcon,
   TrashIcon,
-  PencilIcon,
   ExclamationTriangleIcon,
+  CheckIcon,
 } from '@heroicons/react/24/outline'
+
+const SUBJECTS = [
+  'Math', 'English / ELA', 'Science', 'History / Social Studies',
+  'World Languages', 'Art', 'Music', 'Physical Education',
+  'Computer Science', 'Special Education', 'Other',
+]
+
+const GRADES = [
+  'K', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12',
+  'Mixed', 'College',
+]
 
 export default function CurriculumPage() {
   const { profile } = useAuth()
@@ -20,7 +31,7 @@ export default function CurriculumPage() {
   const [loadError, setLoadError] = useState(false)
   const [showNewCourse, setShowNewCourse] = useState(false)
 
-  useEffect(() => { document.title = 'Curriculum | Cacio EDU' }, [])
+  useEffect(() => { document.title = 'Curriculum | TeacherOS' }, [])
 
   useEffect(() => {
     if (profile) {
@@ -39,11 +50,7 @@ export default function CurriculumPage() {
   async function loadCourses() {
     const { data } = await supabase
       .from('courses')
-      .select(`
-        *,
-        units ( count ),
-        sections ( count )
-      `)
+      .select(`*, units ( count ), sections ( count )`)
       .eq('teacher_id', profile.id)
       .order('created_at', { ascending: false })
     setCourses(data || [])
@@ -68,71 +75,48 @@ export default function CurriculumPage() {
       })
       .select()
       .single()
-
     if (!newCourse) return
 
-    // Copy units
-    const { data: units } = await supabase
-      .from('units')
-      .select('*')
-      .eq('course_id', course.id)
-
+    const { data: units } = await supabase.from('units').select('*').eq('course_id', course.id)
     for (const unit of (units || [])) {
-      const { data: newUnit } = await supabase
-        .from('units')
-        .insert({
-          course_id:   newCourse.id,
-          title:       unit.title,
-          description: unit.description,
-          order_index: unit.order_index,
-          standards:   unit.standards,
-        })
-        .select()
-        .single()
-
+      const { data: newUnit } = await supabase.from('units').insert({
+        course_id: newCourse.id, title: unit.title,
+        description: unit.description, order_index: unit.order_index, standards: unit.standards,
+      }).select().single()
       if (!newUnit) continue
-
-      const { data: lessons } = await supabase
-        .from('lessons')
-        .select('*')
-        .eq('unit_id', unit.id)
-
+      const { data: lessons } = await supabase.from('lessons').select('*').eq('unit_id', unit.id)
       for (const lesson of (lessons || [])) {
-        const { data: newLesson } = await supabase
-          .from('lessons')
-          .insert({
-            unit_id:                    newUnit.id,
-            title:                      lesson.title,
-            description:                lesson.description,
-            order_index:                lesson.order_index,
-            estimated_duration_minutes: lesson.estimated_duration_minutes,
-          })
-          .select()
-          .single()
-
+        const { data: newLesson } = await supabase.from('lessons').insert({
+          unit_id: newUnit.id, title: lesson.title, description: lesson.description,
+          order_index: lesson.order_index, estimated_duration_minutes: lesson.estimated_duration_minutes,
+        }).select().single()
         if (!newLesson) continue
-
-        const { data: segs } = await supabase
-          .from('lesson_segments')
-          .select('*')
-          .eq('lesson_id', lesson.id)
-
+        const { data: segs } = await supabase.from('lesson_segments').select('*').eq('lesson_id', lesson.id)
         if (segs?.length) {
           await supabase.from('lesson_segments').insert(
-            segs.map(s => ({
-              lesson_id:        newLesson.id,
-              title:            s.title,
-              description:      s.description,
-              duration_minutes: s.duration_minutes,
-              order_index:      s.order_index,
-            }))
+            segs.map(s => ({ lesson_id: newLesson.id, title: s.title, description: s.description, duration_minutes: s.duration_minutes, order_index: s.order_index }))
           )
         }
       }
     }
-
     await loadCourses()
     navigate(`/courses/${newCourse.id}`)
+  }
+
+  // Subject color mapping for visual variety
+  const subjectColor = (subject) => {
+    const map = {
+      'Math': 'bg-blue-50 text-blue-700',
+      'English / ELA': 'bg-violet-50 text-violet-700',
+      'Science': 'bg-emerald-50 text-emerald-700',
+      'History / Social Studies': 'bg-amber-50 text-amber-700',
+      'World Languages': 'bg-rose-50 text-rose-700',
+      'Art': 'bg-pink-50 text-pink-700',
+      'Music': 'bg-orange-50 text-orange-700',
+      'Physical Education': 'bg-cyan-50 text-cyan-700',
+      'Computer Science': 'bg-indigo-50 text-indigo-700',
+    }
+    return map[subject] || 'bg-gray-100 text-gray-600'
   }
 
   return (
@@ -169,11 +153,13 @@ export default function CurriculumPage() {
           </button>
         </div>
       ) : courses.length === 0 ? (
-        <div className="card p-8 text-center">
-          <BookOpenIcon className="w-10 h-10 text-gray-300 mx-auto mb-3" />
+        <div className="card p-10 text-center">
+          <div className="w-14 h-14 rounded-2xl bg-gray-50 flex items-center justify-center mx-auto mb-4">
+            <BookOpenIcon className="w-7 h-7 text-gray-300" />
+          </div>
           <h3 className="font-semibold text-gray-900 mb-1">No courses yet</h3>
-          <p className="text-sm text-gray-500 mb-4">
-            Create your first course to start building your curriculum.
+          <p className="text-sm text-gray-400 mb-5">
+            Add your first course to start organizing your curriculum.
           </p>
           <button className="btn-primary" onClick={() => setShowNewCourse(true)}>
             Create your first course
@@ -181,40 +167,53 @@ export default function CurriculumPage() {
         </div>
       ) : (
         <div className="space-y-2">
-          {courses.map(course => (
-            <div
-              key={course.id}
-              className="card p-4 flex items-center gap-3 hover:shadow-md transition-all cursor-pointer"
-              onClick={() => navigate(`/courses/${course.id}`)}
-            >
-              <div className="w-10 h-10 rounded-lg bg-navy-100 flex items-center justify-center shrink-0">
-                <BookOpenIcon className="w-5 h-5 text-navy-700" />
+          {courses.map(course => {
+            const unitCount = course.units?.[0]?.count ?? 0
+            return (
+              <div
+                key={course.id}
+                className="card p-4 flex items-center gap-3 hover:shadow-md transition-all cursor-pointer group"
+                onClick={() => navigate(`/courses/${course.id}`)}
+              >
+                <div className="w-10 h-10 rounded-xl bg-navy-50 flex items-center justify-center shrink-0">
+                  <BookOpenIcon className="w-5 h-5 text-navy-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-gray-900 text-sm truncate">{course.name}</p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    {course.subject && (
+                      <span className={`text-xs px-1.5 py-0.5 rounded-md font-medium ${subjectColor(course.subject)}`}>
+                        {course.subject}
+                      </span>
+                    )}
+                    {course.grade_level && (
+                      <span className="text-xs text-gray-400">Grade {course.grade_level}</span>
+                    )}
+                    {unitCount > 0 && (
+                      <span className="text-xs text-gray-300">{unitCount} unit{unitCount !== 1 ? 's' : ''}</span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button
+                    className="btn-ghost p-1.5"
+                    onClick={e => { e.stopPropagation(); duplicateCourse(course) }}
+                    title="Duplicate"
+                  >
+                    <DocumentDuplicateIcon className="w-4 h-4" />
+                  </button>
+                  <button
+                    className="btn-ghost p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50"
+                    onClick={e => { e.stopPropagation(); deleteCourse(course.id) }}
+                    title="Delete"
+                  >
+                    <TrashIcon className="w-4 h-4" />
+                  </button>
+                </div>
+                <ChevronRightIcon className="w-4 h-4 text-gray-300 shrink-0" />
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-medium text-gray-900 text-sm truncate">{course.name}</p>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  {course.subject} · Grade {course.grade_level}
-                </p>
-              </div>
-              <div className="flex items-center gap-1.5 shrink-0">
-                <button
-                  className="btn-ghost p-1.5"
-                  onClick={e => { e.stopPropagation(); duplicateCourse(course) }}
-                  title="Duplicate course"
-                >
-                  <DocumentDuplicateIcon className="w-4 h-4" />
-                </button>
-                <button
-                  className="btn-ghost p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50"
-                  onClick={e => { e.stopPropagation(); deleteCourse(course.id) }}
-                  title="Delete course"
-                >
-                  <TrashIcon className="w-4 h-4" />
-                </button>
-                <ChevronRightIcon className="w-4 h-4 text-gray-300" />
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
@@ -232,77 +231,142 @@ export default function CurriculumPage() {
   )
 }
 
-// ─── New Course Modal ─────────────────────────────────────────────
+// ─── New Course Modal — 2-step walkthrough ─────────────────────────
 
 function NewCourseModal({ profile, onClose, onCreated }) {
+  const [step, setStep] = useState(1) // 1: nickname, 2: subject + grade
   const [form, setForm] = useState({ name: '', subject: '', grade_level: '' })
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
 
-  async function handleCreate(e) {
-    e.preventDefault()
+  async function handleCreate() {
     setLoading(true)
-    const { data, error } = await supabase
+    setError(null)
+    const { data, error: err } = await supabase
       .from('courses')
-      .insert({
-        ...form,
-        teacher_id: profile.id,
-        school_id:  profile.school_id,
-      })
+      .insert({ ...form, teacher_id: profile.id, school_id: profile.school_id })
       .select()
       .single()
     setLoading(false)
-    if (!error) onCreated(data)
+    if (err) {
+      setError(err.message || 'Something went wrong')
+    } else {
+      onCreated(data)
+    }
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <form
-        onSubmit={handleCreate}
-        className="relative bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl space-y-4"
-      >
-        <h3 className="font-semibold text-gray-900">New course</h3>
+      <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl w-full max-w-sm shadow-xl overflow-hidden">
 
-        <div>
-          <label className="label">Course name</label>
-          <input
-            className="input"
-            value={form.name}
-            onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-            placeholder="7th Grade History"
-            required
-            autoFocus
+        {/* Progress bar */}
+        <div className="h-1 bg-gray-100">
+          <div
+            className="h-1 bg-indigo-500 transition-all duration-300"
+            style={{ width: step === 1 ? '50%' : '100%' }}
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="label">Subject</label>
-            <input
-              className="input"
-              value={form.subject}
-              onChange={e => setForm(f => ({ ...f, subject: e.target.value }))}
-              placeholder="History"
-            />
-          </div>
-          <div>
-            <label className="label">Grade level</label>
-            <input
-              className="input"
-              value={form.grade_level}
-              onChange={e => setForm(f => ({ ...f, grade_level: e.target.value }))}
-              placeholder="7"
-            />
-          </div>
-        </div>
+        <div className="p-6">
+          {step === 1 ? (
+            <>
+              <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">Step 1 of 2</p>
+              <h3 className="font-bold text-gray-900 text-lg mb-1">What's this course called?</h3>
+              <p className="text-sm text-gray-400 mb-5">
+                Use a short name you recognize — like "AP Gov" or "7th Math B".
+              </p>
+              <input
+                className="input w-full text-base"
+                value={form.name}
+                onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                placeholder="e.g. AP US History, 6th Science Period 2"
+                autoFocus
+                onKeyDown={e => { if (e.key === 'Enter' && form.name.trim()) setStep(2) }}
+              />
+              <div className="flex gap-3 mt-5">
+                <button type="button" className="btn-secondary flex-1" onClick={onClose}>
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary flex-1"
+                  disabled={!form.name.trim()}
+                  onClick={() => setStep(2)}
+                >
+                  Next
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">Step 2 of 2</p>
+              <h3 className="font-bold text-gray-900 text-lg mb-1">Subject and grade</h3>
+              <p className="text-sm text-gray-400 mb-4">
+                Helps organize your curriculum. You can change this later.
+              </p>
 
-        <div className="flex gap-3">
-          <button type="button" className="btn-secondary flex-1" onClick={onClose}>Cancel</button>
-          <button type="submit" className="btn-primary flex-1" disabled={loading || !form.name}>
-            {loading ? 'Creating...' : 'Create'}
-          </button>
+              <div className="mb-4">
+                <label className="label text-xs mb-2 block">Subject</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {SUBJECTS.map(s => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => setForm(f => ({ ...f, subject: s }))}
+                      className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
+                        form.subject === s
+                          ? 'bg-navy-800 text-white border-navy-800'
+                          : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
+                      }`}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mb-5">
+                <label className="label text-xs mb-2 block">Grade level</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {GRADES.map(g => (
+                    <button
+                      key={g}
+                      type="button"
+                      onClick={() => setForm(f => ({ ...f, grade_level: g }))}
+                      className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
+                        form.grade_level === g
+                          ? 'bg-navy-800 text-white border-navy-800'
+                          : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
+                      }`}
+                    >
+                      {g}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {error && (
+                <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg mb-3">{error}</p>
+              )}
+
+              <div className="flex gap-3">
+                <button type="button" className="btn-secondary" onClick={() => setStep(1)}>
+                  Back
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary flex-1"
+                  disabled={loading}
+                  onClick={handleCreate}
+                >
+                  {loading ? 'Creating...' : 'Create course'}
+                </button>
+              </div>
+            </>
+          )}
         </div>
-      </form>
+      </div>
     </div>
   )
 }

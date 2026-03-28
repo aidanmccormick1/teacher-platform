@@ -1,12 +1,12 @@
 // Vercel serverless function
 // POST /api/ai/scaffold-course
-// Body: { courseId, subject, gradeLevel, goals }
-// Returns: { units: [{ title, lessons: [{ title, description }] }] }
-// Side effect: inserts units + lessons into Supabase using SERVICE ROLE key
+// Body: { courseId, subject, gradeLevel, goals, month?, topic?, examDate?, mode? }
+// mode: 'month' => generate one unit for a specific month/topic
+// mode: undefined => generate full course scaffold
+// Returns: { units } (also inserts into Supabase)
 
 import { createClient } from '@supabase/supabase-js'
 
-// Service role key needed for server-side inserts without RLS
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -17,7 +17,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
-  const { courseId, subject, gradeLevel, goals } = req.body
+  const { courseId, subject, gradeLevel, goals, month, topic, examDate, mode } = req.body
 
   if (!courseId) {
     return res.status(400).json({ error: 'courseId is required' })
@@ -28,17 +28,52 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'OpenAI API key not configured' })
   }
 
-  const context = [
-    subject     && `Subject: ${subject}`,
-    gradeLevel  && `Grade level: ${gradeLevel}`,
-    goals       && `Teacher goals: ${goals}`,
-  ].filter(Boolean).join('\n')
+  let prompt
 
-  const prompt = `You are a K-12 curriculum design expert.
+  if (mode === 'month' && month && topic) {
+    // Single-month mode: generate one unit with lessons for a specific month
+    const context = [
+      subject    && `Subject: ${subject}`,
+      gradeLevel && `Grade level: ${gradeLevel}`,
+      goals      && `Course goals: ${goals}`,
+      examDate   && `Key date: ${examDate}`,
+    ].filter(Boolean).join('\n')
+
+    prompt = `You are a K-12 curriculum design expert.
+${context}
+Month: ${month}
+Topic for this month: ${topic}
+
+Generate a single curriculum unit for this month, with 4-8 lessons.
+
+Return ONLY valid JSON (no markdown, no extra text) in this exact shape:
+{
+  "title": "${month}: ${topic}",
+  "description": "Brief description of what students will cover this month",
+  "lessons": [
+    {
+      "title": "Lesson title",
+      "description": "What students will learn",
+      "duration_minutes": 50
+    }
+  ]
+}
+
+Make lessons specific to the topic, pedagogically sequenced, and appropriate for the grade level.`
+  } else {
+    // Full course mode: generate 4-6 units with lessons
+    const context = [
+      subject    && `Subject: ${subject}`,
+      gradeLevel && `Grade level: ${gradeLevel}`,
+      goals      && `Teacher goals: ${goals}`,
+      examDate   && `Key date: ${examDate}`,
+    ].filter(Boolean).join('\n')
+
+    prompt = `You are a K-12 curriculum design expert.
 ${context}
 Generate a full course structure with 4-6 units, each with 5-8 lessons.
 
-Return ONLY a valid JSON array with this exact shape (no markdown, no extra text):
+Return ONLY a valid JSON array (no markdown, no extra text) in this exact shape:
 [
   {
     "title": "Unit 1: Introduction",
@@ -54,6 +89,7 @@ Return ONLY a valid JSON array with this exact shape (no markdown, no extra text
 ]
 
 Make it pedagogically sound, with clear progression and varied lesson types.`
+  }
 
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -63,10 +99,11 @@ Make it pedagogically sound, with clear progression and varied lesson types.`
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-5.4-nano',
+        model: 'gpt-4o-mini',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.7,
         max_tokens: 3000,
+        response_format: { type: 'json_object' },
       }),
     })
 
@@ -77,35 +114,47 @@ Make it pedagogically sound, with clear progression and varied lesson types.`
     }
 
     const data = await response.json()
-    const text = data.choices?.[0]?.message?.content?.trim() || '[]'
+    let text = data.choices?.[0]?.message?.content?.trim() || ''
 
-    let units = []
-    try {
-      units = JSON.parse(text)
-    } catch {
-      const match = text.match(/\[[\s\S]*\]/)
-      if (match) units = JSON.parse(match[0])
-    }
+    if (mode === 'month') {
+      // Expect a single object
+      let unit = null
+      try {
+        const parsed = JSON.parse(text)
+        // Handle if AI wrapped it in an array or nested it
+        unit = Array.isArray(parsed) ? parsed[0] : (parsed.unit || parsed)
+      } catch {
+        const match = text.match(/\{[\s\S]*\}/)
+        if (match) {
+          try { unit = JSON.parse(match[0]) } catch {}
+        }
+      }
 
-    if (!Array.isArray(units) || units.length === 0) {
-      return res.status(200).json({ units: [] })
-    }
+      if (!unit || !unit.title) {
+        return res.status(200).json({ units: [] })
+      }
 
-    // Insert into Supabase
-    for (let uIdx = 0; uIdx < units.length; uIdx++) {
-      const unit = units[uIdx]
+      // Count existing units for this course to set order_index
+      const { count } = await supabase
+        .from('units')
+        .select('id', { count: 'exact', head: true })
+        .eq('course_id', courseId)
+
       const { data: newUnit, error: unitErr } = await supabase
         .from('units')
         .insert({
           course_id:   courseId,
           title:       unit.title,
           description: unit.description || null,
-          order_index: uIdx,
+          order_index: count || 0,
         })
         .select()
         .single()
 
-      if (unitErr || !newUnit) continue
+      if (unitErr || !newUnit) {
+        console.error('Unit insert error:', unitErr)
+        return res.status(500).json({ error: 'Failed to save unit' })
+      }
 
       const lessons = unit.lessons || []
       if (lessons.length > 0) {
@@ -119,9 +168,57 @@ Make it pedagogically sound, with clear progression and varied lesson types.`
           }))
         )
       }
-    }
 
-    return res.status(200).json({ units })
+      return res.status(200).json({ units: [unit] })
+
+    } else {
+      // Full course mode — expect array
+      let units = []
+      try {
+        const parsed = JSON.parse(text)
+        units = Array.isArray(parsed) ? parsed : (parsed.units || [])
+      } catch {
+        const match = text.match(/\[[\s\S]*\]/)
+        if (match) {
+          try { units = JSON.parse(match[0]) } catch {}
+        }
+      }
+
+      if (!Array.isArray(units) || units.length === 0) {
+        return res.status(200).json({ units: [] })
+      }
+
+      for (let uIdx = 0; uIdx < units.length; uIdx++) {
+        const unit = units[uIdx]
+        const { data: newUnit, error: unitErr } = await supabase
+          .from('units')
+          .insert({
+            course_id:   courseId,
+            title:       unit.title,
+            description: unit.description || null,
+            order_index: uIdx,
+          })
+          .select()
+          .single()
+
+        if (unitErr || !newUnit) continue
+
+        const lessons = unit.lessons || []
+        if (lessons.length > 0) {
+          await supabase.from('lessons').insert(
+            lessons.map((l, lIdx) => ({
+              unit_id:                    newUnit.id,
+              title:                      l.title,
+              description:                l.description || null,
+              order_index:                lIdx,
+              estimated_duration_minutes: l.duration_minutes || null,
+            }))
+          )
+        }
+      }
+
+      return res.status(200).json({ units })
+    }
   } catch (err) {
     console.error('scaffold-course error:', err)
     return res.status(500).json({ error: 'Internal error' })
