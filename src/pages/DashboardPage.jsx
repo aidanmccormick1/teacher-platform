@@ -14,6 +14,8 @@ import {
   CalendarDaysIcon,
   BookOpenIcon,
   MapPinIcon,
+  CheckIcon,
+  ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline'
 import { format } from 'date-fns'
 
@@ -150,7 +152,7 @@ export default function DashboardPage() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">
-            {displayName ? `Good ${greeting}, ${displayName} 👋` : `Good ${greeting} 👋`}
+            {displayName ? `Good ${greeting}, ${displayName}` : `Good ${greeting}`}
           </h1>
           <p className="text-sm text-gray-400 mt-1">{today}</p>
         </div>
@@ -366,7 +368,9 @@ function FreeDay({ sections, courses, navigate }) {
     <div className="space-y-4">
       {/* No classes today */}
       <div className="card p-6 text-center">
-        <div className="text-4xl mb-3">🎉</div>
+        <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-3">
+          <CheckIcon className="w-5 h-5 text-green-600" />
+        </div>
         <h3 className="font-semibold text-gray-900">No classes today</h3>
         <p className="text-sm text-gray-400 mt-1">
           {today === 'Saturday' || today === 'Sunday'
@@ -443,7 +447,9 @@ function LoadingSkeleton() {
 function LoadError({ onRetry }) {
   return (
     <div className="card p-8 text-center">
-      <div className="text-3xl mb-3">⚠️</div>
+      <div className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center mx-auto mb-3">
+        <ExclamationTriangleIcon className="w-5 h-5 text-red-400" />
+      </div>
       <h3 className="font-semibold text-gray-900 mb-1">Couldn't load your schedule</h3>
       <p className="text-sm text-gray-400 mb-4">There was a problem connecting. Try refreshing.</p>
       <button

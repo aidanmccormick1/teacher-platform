@@ -16,6 +16,7 @@ import {
   MapPinIcon,
   CalendarDaysIcon,
   XMarkIcon,
+  CheckIcon,
 } from '@heroicons/react/24/outline'
 import clsx from 'clsx'
 
@@ -208,9 +209,9 @@ export default function CoursePage() {
         onSectionsChange={setSections}
       />
 
-      {/* AI scaffold prompt (only when empty) */}
+      {/* Course planner — shown when no units exist yet */}
       {units.length === 0 && (
-        <AiScaffoldBanner course={course} onScaffolded={loadCourse} />
+        <CoursePlanner course={course} onDone={loadCourse} />
       )}
 
       {/* Units */}
@@ -623,68 +624,266 @@ function SectionsPanel({ courseId, sections, onSectionsChange }) {
   )
 }
 
-// ─── AI Scaffold Banner ────────────────────────────────────────────
+// ─── Course Planner (replaces AI Scaffold Banner) ─────────────────
 
-function AiScaffoldBanner({ course, onScaffolded }) {
-  const [loading, setLoading] = useState(false)
-  const [goals, setGoals]     = useState('')
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
 
-  async function handleScaffold() {
-    if (!course) return
-    setLoading(true)
+function CoursePlanner({ course, onDone }) {
+  // Step 1: course context. Step 2: month-by-month topic entry. Step 3: AI fills in lessons.
+  const [step, setStep] = useState(1)
+  const [ctx, setCtx] = useState({
+    startMonth: '',
+    endMonth: '',
+    daysPerWeek: '',
+    examDate: '',
+    goals: '',
+  })
+  // monthTopics: array of { month: string, topic: string }
+  const [monthTopics, setMonthTopics] = useState([])
+  const [generating, setGenerating] = useState(null) // month string currently generating
+  const [done, setDone] = useState([]) // months that have been generated
+
+  // Build month list from start/end selection
+  function buildMonthList(start, end) {
+    const si = MONTHS.indexOf(start)
+    const ei = MONTHS.indexOf(end)
+    if (si < 0 || ei < 0) return []
+    // Handle wrap-around (e.g. Aug -> May next year)
+    const result = []
+    if (si <= ei) {
+      for (let i = si; i <= ei; i++) result.push(MONTHS[i])
+    } else {
+      for (let i = si; i < MONTHS.length; i++) result.push(MONTHS[i])
+      for (let i = 0; i <= ei; i++) result.push(MONTHS[i])
+    }
+    return result
+  }
+
+  function handleCtxNext(e) {
+    e.preventDefault()
+    const months = buildMonthList(ctx.startMonth, ctx.endMonth)
+    setMonthTopics(months.map(m => ({ month: m, topic: '' })))
+    setStep(2)
+  }
+
+  function updateTopic(month, value) {
+    setMonthTopics(prev => prev.map(mt => mt.month === month ? { ...mt, topic: value } : mt))
+  }
+
+  async function generateForMonth(mt) {
+    if (!mt.topic.trim()) return
+    setGenerating(mt.month)
     try {
       const res = await fetch('/api/ai/scaffold-course', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          courseId:    course.id,
-          subject:     course.subject,
-          gradeLevel:  course.grade_level,
-          goals,
+          courseId:   course.id,
+          subject:    course.subject,
+          gradeLevel: course.grade_level,
+          goals:      ctx.goals,
+          month:      mt.month,
+          topic:      mt.topic,
+          examDate:   ctx.examDate,
+          mode:       'month', // signal to the API to scope to one month
         }),
       })
-      await res.json()
-      onScaffolded()
+      if (res.ok) {
+        setDone(prev => [...prev, mt.month])
+      }
     } catch (err) {
-      console.error(err)
+      console.error('Generate failed for', mt.month, err)
     } finally {
-      setLoading(false)
+      setGenerating(null)
     }
   }
 
-  return (
-    <div className="card p-5 border-dashed border-2 border-gray-200 bg-gray-50">
-      <div className="flex items-start gap-3">
-        <SparklesIcon className="w-5 h-5 text-purple-400 shrink-0 mt-0.5" />
-        <div className="flex-1">
-          <h3 className="font-medium text-gray-900 text-sm mb-1">
-            Build your curriculum with AI
-          </h3>
-          <p className="text-xs text-gray-500 mb-3">
-            Describe your goals and we'll generate a full unit + lesson structure you can edit.
-          </p>
-          <textarea
-            className="input text-sm resize-none mb-3"
-            rows={2}
-            placeholder="e.g. Cover ancient civilizations through primary sources with emphasis on critical thinking"
-            value={goals}
-            onChange={e => setGoals(e.target.value)}
-          />
-          <div className="flex gap-2">
-            <button
-              className="btn-primary gap-1.5 text-sm"
-              onClick={handleScaffold}
-              disabled={loading}
-            >
-              {loading
-                ? <><span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" /> Building...</>
-                : <><SparklesIcon className="w-3.5 h-3.5" /> Generate structure</>
-              }
+  async function generateAll() {
+    const pending = monthTopics.filter(mt => mt.topic.trim() && !done.includes(mt.month))
+    for (const mt of pending) {
+      await generateForMonth(mt)
+    }
+    onDone()
+  }
+
+  const filledCount = monthTopics.filter(mt => mt.topic.trim()).length
+  const months = monthTopics.map(mt => mt.month)
+
+  // ── Step 1: Context ──
+  if (step === 1) {
+    return (
+      <div className="card p-5 border-2 border-dashed border-gray-200 bg-gray-50 space-y-4">
+        <div className="flex items-center gap-2">
+          <SparklesIcon className="w-4 h-4 text-indigo-500" />
+          <h3 className="font-semibold text-sm text-gray-900">Plan your curriculum</h3>
+          <span className="text-xs text-gray-400 bg-white border border-gray-200 px-2 py-0.5 rounded-full">Step 1 of 2</span>
+        </div>
+        <p className="text-xs text-gray-500">
+          Tell us about the course — you'll map out your topics month by month, then AI generates the lesson details within each.
+        </p>
+
+        <form onSubmit={handleCtxNext} className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label text-xs">Course starts</label>
+              <select
+                className="input text-sm"
+                value={ctx.startMonth}
+                onChange={e => setCtx(c => ({ ...c, startMonth: e.target.value }))}
+                required
+              >
+                <option value="">Month</option>
+                {MONTHS.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label text-xs">Course ends</label>
+              <select
+                className="input text-sm"
+                value={ctx.endMonth}
+                onChange={e => setCtx(c => ({ ...c, endMonth: e.target.value }))}
+                required
+              >
+                <option value="">Month</option>
+                {MONTHS.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label text-xs">Class meetings per week</label>
+              <select
+                className="input text-sm"
+                value={ctx.daysPerWeek}
+                onChange={e => setCtx(c => ({ ...c, daysPerWeek: e.target.value }))}
+              >
+                <option value="">Select</option>
+                {[1,2,3,4,5].map(n => <option key={n} value={n}>{n} day{n > 1 ? 's' : ''}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label text-xs">Key date (AP exam, finals, etc.)</label>
+              <input
+                type="text"
+                className="input text-sm"
+                value={ctx.examDate}
+                onChange={e => setCtx(c => ({ ...c, examDate: e.target.value }))}
+                placeholder="e.g. May 7 AP exam"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="label text-xs">Course goals or focus (optional)</label>
+            <textarea
+              className="input text-sm resize-none"
+              rows={2}
+              value={ctx.goals}
+              onChange={e => setCtx(c => ({ ...c, goals: e.target.value }))}
+              placeholder="e.g. Prepare students for the AP exam with emphasis on primary source analysis"
+            />
+          </div>
+
+          <div className="flex gap-2 pt-1">
+            <button type="submit" className="btn-primary text-sm gap-1.5" disabled={!ctx.startMonth || !ctx.endMonth}>
+              Next: map your months
             </button>
-            <button className="btn-secondary text-sm" onClick={() => {}}>
-              I'll add units manually
+            <button
+              type="button"
+              className="btn-secondary text-sm"
+              onClick={onDone}
+            >
+              Skip — add units manually
             </button>
           </div>
+        </form>
+      </div>
+    )
+  }
+
+  // ── Step 2: Month-by-month topic mapping ──
+  return (
+    <div className="card border-2 border-dashed border-gray-200 bg-gray-50 overflow-hidden">
+      <div className="px-5 pt-5 pb-3 flex items-center gap-2">
+        <SparklesIcon className="w-4 h-4 text-indigo-500" />
+        <h3 className="font-semibold text-sm text-gray-900">Map your months</h3>
+        <span className="text-xs text-gray-400 bg-white border border-gray-200 px-2 py-0.5 rounded-full">Step 2 of 2</span>
+      </div>
+      <p className="px-5 pb-3 text-xs text-gray-500">
+        Write the main topic or unit for each month — just a short phrase is enough. AI generates the individual lessons within each.
+      </p>
+
+      <div className="divide-y divide-gray-100">
+        {monthTopics.map((mt) => {
+          const isDone = done.includes(mt.month)
+          const isGenerating = generating === mt.month
+          return (
+            <div key={mt.month} className="flex items-center gap-3 px-5 py-3">
+              <div className="w-20 shrink-0">
+                <span className={`text-xs font-semibold ${isDone ? 'text-green-600' : 'text-gray-500'}`}>
+                  {mt.month}
+                </span>
+                {isDone && (
+                  <span className="block text-xs text-green-500 mt-0.5 flex items-center gap-1">
+                    <CheckIcon className="w-3 h-3 inline" /> Generated
+                  </span>
+                )}
+              </div>
+              <input
+                className="input text-sm flex-1"
+                value={mt.topic}
+                onChange={e => updateTopic(mt.month, e.target.value)}
+                placeholder={`Topic or unit for ${mt.month}...`}
+                disabled={isDone}
+              />
+              {!isDone && (
+                <button
+                  type="button"
+                  onClick={() => generateForMonth(mt)}
+                  disabled={!mt.topic.trim() || isGenerating || !!generating}
+                  className="shrink-0 px-2.5 py-1.5 text-xs font-medium border border-indigo-200 text-indigo-600 rounded-lg hover:bg-indigo-50 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+                  title="Generate lessons for this month"
+                >
+                  {isGenerating
+                    ? <span className="w-3 h-3 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
+                    : <SparklesIcon className="w-3 h-3" />
+                  }
+                  {isGenerating ? 'Building...' : 'Generate'}
+                </button>
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      <div className="px-5 py-4 bg-white border-t border-gray-100 flex items-center justify-between gap-3">
+        <button
+          type="button"
+          onClick={() => setStep(1)}
+          className="text-xs text-gray-400 hover:text-gray-600"
+        >
+          Back
+        </button>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={onDone}
+            className="btn-secondary text-sm"
+          >
+            Done
+          </button>
+          <button
+            type="button"
+            onClick={generateAll}
+            disabled={filledCount === 0 || !!generating}
+            className="btn-primary text-sm gap-1.5 disabled:opacity-40"
+          >
+            {generating
+              ? <><span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" /> Generating...</>
+              : <><SparklesIcon className="w-3.5 h-3.5" /> Generate all ({filledCount})</>
+            }
+          </button>
         </div>
       </div>
     </div>

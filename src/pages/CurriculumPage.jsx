@@ -9,6 +9,7 @@ import {
   DocumentDuplicateIcon,
   TrashIcon,
   PencilIcon,
+  ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline'
 
 export default function CurriculumPage() {
@@ -155,7 +156,9 @@ export default function CurriculumPage() {
         </div>
       ) : loadError ? (
         <div className="card p-8 text-center">
-          <div className="text-3xl mb-3">⚠️</div>
+          <div className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center mx-auto mb-3">
+            <ExclamationTriangleIcon className="w-5 h-5 text-red-400" />
+          </div>
           <h3 className="font-semibold text-gray-900 mb-1">Couldn't load courses</h3>
           <p className="text-sm text-gray-400 mb-4">There was a problem connecting. Try refreshing.</p>
           <button

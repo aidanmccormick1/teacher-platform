@@ -15,6 +15,8 @@ import {
   CheckIcon,
   LightBulbIcon,
   ChatBubbleBottomCenterTextIcon,
+  BookOpenIcon,
+  ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline'
 
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
@@ -52,22 +54,22 @@ const TUTORIAL_STEPS = [
   {
     title: 'Welcome to Schedule Builder',
     body: 'This is where you build your weekly teaching schedule. Once it\'s set up, your dashboard will show today\'s classes automatically — no manual updates needed.',
-    icon: '👋',
+    icon: null,
   },
   {
     title: 'Two ways to add classes',
     body: 'You can type your schedule out naturally (like "Algebra 9, Period 1, 8:00 AM, Mon/Wed/Fri, Room 204") or add each class manually. Either way works.',
-    icon: '✍️',
+    icon: null,
   },
   {
     title: 'AI parses it for you',
     body: 'Paste your schedule from a PDF, email, or school system and hit "Build with AI." It reads the text and builds your full schedule automatically.',
-    icon: '✨',
+    icon: null,
   },
   {
     title: 'Your week at a glance',
     body: 'After setup, you\'ll see a color-coded weekly grid. Click any class to mark attendance, track lesson progress, or add notes.',
-    icon: '📅',
+    icon: null,
   },
 ]
 
@@ -92,7 +94,6 @@ function TutorialOverlay({ onDone }) {
         </div>
 
         <div className="px-7 py-5 text-center space-y-3">
-          <div className="text-4xl">{current.icon}</div>
           <h2 className="text-lg font-bold text-gray-900">{current.title}</h2>
           <p className="text-sm text-gray-500 leading-relaxed">{current.body}</p>
         </div>
@@ -601,7 +602,7 @@ function AddClassModal({ courses, onClose, onCreated }) {
 function NoCourses({ onNavigate }) {
   return (
     <div className="card p-10 text-center">
-      <div className="text-4xl mb-4">📚</div>
+      <BookOpenIcon className="w-10 h-10 text-gray-300 mx-auto mb-4" />
       <h3 className="font-semibold text-gray-900 mb-2">Add your courses first</h3>
       <p className="text-sm text-gray-500 mb-6 max-w-xs mx-auto">
         Before building your schedule, add the courses you teach in the Curriculum section.
@@ -1047,7 +1048,9 @@ export default function SchedulePage() {
         </div>
       ) : loadError ? (
         <div className="card p-8 text-center">
-          <div className="text-3xl mb-3">⚠️</div>
+          <div className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center mx-auto mb-3">
+            <ExclamationTriangleIcon className="w-5 h-5 text-red-400" />
+          </div>
           <h3 className="font-semibold text-gray-900 mb-1">Couldn't load your schedule</h3>
           <p className="text-sm text-gray-400 mb-4">There was a problem connecting. Try refreshing.</p>
           <button
