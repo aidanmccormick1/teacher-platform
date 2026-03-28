@@ -1,3 +1,4 @@
+// build: 2026-03-28b
 import { createClient } from '@supabase/supabase-js'
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
