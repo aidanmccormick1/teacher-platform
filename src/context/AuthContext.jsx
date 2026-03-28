@@ -9,8 +9,14 @@ export function AuthProvider({ children }) {
   const [loading, setLoading]   = useState(true)
 
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    // Get initial session — if token refresh fails, clear it and treat as logged out
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (error) {
+        supabase.auth.signOut()
+        setSession(null)
+        setLoading(false)
+        return
+      }
       setSession(session)
       if (session) fetchProfile(session.user.id)
       else setLoading(false)
