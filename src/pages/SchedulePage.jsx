@@ -463,6 +463,7 @@ function AddClassModal({ courses, onClose, onCreated }) {
     room:         '',
   })
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
 
   function toggleDay(day) {
     setForm(f => ({
@@ -476,13 +477,20 @@ function AddClassModal({ courses, onClose, onCreated }) {
   async function handleCreate(e) {
     e.preventDefault()
     setLoading(true)
-    const { data, error } = await supabase
+    setError(null)
+    const { data, error: dbError } = await supabase
       .from('sections')
       .insert({ ...form, meeting_time: form.meeting_time || null })
       .select()
       .single()
     setLoading(false)
-    if (!error) onCreated(data)
+    if (dbError) {
+      setError(dbError.message || 'Failed to add class')
+      console.error('Add class error:', dbError)
+    } else if (data) {
+      onCreated(data)
+      onClose()
+    }
   }
 
   const ALL_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'A-Day', 'B-Day']
@@ -495,10 +503,16 @@ function AddClassModal({ courses, onClose, onCreated }) {
       >
         <div className="flex items-center justify-between">
           <h3 className="font-semibold text-gray-900">Add a class</h3>
-          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600">
+          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600" disabled={loading}>
             <XMarkIcon className="w-5 h-5" />
           </button>
         </div>
+
+        {error && (
+          <div className="p-3 rounded-lg bg-red-50 border border-red-200">
+            <p className="text-sm text-red-700">{error}</p>
+          </div>
+        )}
 
         <div>
           <label className="label">Course</label>
@@ -660,11 +674,15 @@ export default function SchedulePage() {
 
   async function handleParsedConfirm(items) {
     setSaving(true)
-    setParsedSchedule(null)
 
     try {
+      const createdSections = []
+
       // For each parsed item, find or create a matching course, then create a section
       for (const item of items) {
+        // Skip assignments for now (only process classes)
+        if (item.type === 'assignment') continue
+
         // Try to match by name to existing courses
         let courseId = courses.find(c =>
           c.name.toLowerCase().includes(item.name.toLowerCase()) ||
@@ -673,7 +691,7 @@ export default function SchedulePage() {
 
         // If no match, create a new course
         if (!courseId) {
-          const { data: newCourse } = await supabase
+          const { data: newCourse, error: courseError } = await supabase
             .from('courses')
             .insert({
               name:        item.name,
@@ -685,6 +703,10 @@ export default function SchedulePage() {
             .select('id, name, subject, grade_level')
             .single()
 
+          if (courseError) {
+            console.error('Error creating course:', courseError)
+            continue
+          }
           if (newCourse) {
             setCourses(prev => [...prev, newCourse])
             courseId = newCourse.id
@@ -694,7 +716,7 @@ export default function SchedulePage() {
         if (!courseId) continue
 
         // Create the section
-        const { data: newSection } = await supabase
+        const { data: newSection, error: sectionError } = await supabase
           .from('sections')
           .insert({
             course_id:    courseId,
@@ -706,10 +728,24 @@ export default function SchedulePage() {
           .select()
           .single()
 
-        if (newSection) setSections(prev => [...prev, newSection])
+        if (sectionError) {
+          console.error('Error creating section:', sectionError)
+          continue
+        }
+        if (newSection) {
+          createdSections.push(newSection)
+          setSections(prev => [...prev, newSection])
+        }
+      }
+
+      if (createdSections.length > 0) {
+        setParsedSchedule(null)
+      } else {
+        alert('Could not create any classes. Check console for errors.')
       }
     } catch (e) {
       console.error('Error saving schedule:', e)
+      alert('Error saving schedule: ' + e.message)
     } finally {
       setSaving(false)
     }
