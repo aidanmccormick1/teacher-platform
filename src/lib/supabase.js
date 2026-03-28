@@ -13,5 +13,10 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
+    // Use localStorage lock instead of Web Locks API
+    // Web Locks API causes "lock stolen" errors when multiple getSession() calls race
+    lock: async (name, acquireTimeout, fn) => {
+      return fn()
+    },
   },
 })

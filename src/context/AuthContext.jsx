@@ -13,7 +13,6 @@ export function AuthProvider({ children }) {
 
     // getSession() is the authoritative first check — handles persisted sessions on reload
     supabase.auth.getSession().then(({ data: { session }, error }) => {
-      console.log('[Auth] getSession result:', { hasSession: !!session, error: error?.message })
       initialSessionHandled = true
       if (error || !session) {
         setSession(null)
@@ -28,7 +27,6 @@ export function AuthProvider({ children }) {
     // but we skip INITIAL_SESSION since getSession() already handles it
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        console.log('[Auth] onAuthStateChange event:', event, '| hasSession:', !!session)
         // Skip the initial session event — getSession handles it above
         if (event === 'INITIAL_SESSION') return
 
