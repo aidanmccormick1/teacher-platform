@@ -16,10 +16,23 @@ export default function CurriculumPage() {
   const navigate = useNavigate()
   const [courses, setCourses] = useState([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
   const [showNewCourse, setShowNewCourse] = useState(false)
 
+  useEffect(() => { document.title = 'Curriculum | TeacherOS' }, [])
+
   useEffect(() => {
-    if (profile) loadCourses()
+    if (profile) {
+      setLoadError(false)
+      loadCourses()
+      const timeout = setTimeout(() => {
+        setLoading(prev => {
+          if (prev) { setLoadError(true); return false }
+          return prev
+        })
+      }, 10000)
+      return () => clearTimeout(timeout)
+    }
   }, [profile])
 
   async function loadCourses() {
@@ -139,6 +152,18 @@ export default function CurriculumPage() {
               <div className="h-3 bg-gray-100 rounded w-1/4" />
             </div>
           ))}
+        </div>
+      ) : loadError ? (
+        <div className="card p-8 text-center">
+          <div className="text-3xl mb-3">⚠️</div>
+          <h3 className="font-semibold text-gray-900 mb-1">Couldn't load courses</h3>
+          <p className="text-sm text-gray-400 mb-4">There was a problem connecting. Try refreshing.</p>
+          <button
+            onClick={() => { setLoadError(false); setLoading(true); loadCourses() }}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700"
+          >
+            Try again
+          </button>
         </div>
       ) : courses.length === 0 ? (
         <div className="card p-8 text-center">

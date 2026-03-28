@@ -38,9 +38,26 @@ export default function DashboardPage() {
   const [allSections, setAllSections] = useState([])
   const [courses, setCourses]     = useState([])
   const [loading, setLoading]     = useState(true)
+  const [loadError, setLoadError] = useState(false)
+
+  useEffect(() => { document.title = 'Dashboard | TeacherOS' }, [])
 
   useEffect(() => {
-    if (profile) loadData()
+    if (profile) {
+      setLoadError(false)
+      loadData()
+      // Timeout: if data hasn't loaded in 10s, show error state
+      const timeout = setTimeout(() => {
+        setLoading(prev => {
+          if (prev) {
+            setLoadError(true)
+            return false
+          }
+          return prev
+        })
+      }, 10000)
+      return () => clearTimeout(timeout)
+    }
   }, [profile])
 
   async function loadData() {
@@ -95,7 +112,12 @@ export default function DashboardPage() {
 
   const today    = format(new Date(), 'EEEE, MMMM d')
   const greeting = getGreeting()
-  const firstName = profile?.full_name?.split(' ')[0] || null
+  // Get first name from full_name, or derive from email (e.g. "aidan" from aidanm@...)
+  const firstName = profile?.full_name?.split(' ')[0] ||
+    (profile?.email ? profile.email.split('@')[0].replace(/[^a-zA-Z]/g, '') : null)
+  const displayName = firstName
+    ? firstName.charAt(0).toUpperCase() + firstName.slice(1)
+    : null
   const hasSchedule = allSections.length > 0
   const hasAnything = sections.length > 0
 
@@ -109,7 +131,7 @@ export default function DashboardPage() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">
-            {firstName ? `Good ${greeting}, ${firstName}` : `Good ${greeting}`}
+            {displayName ? `Good ${greeting}, ${displayName} 👋` : `Good ${greeting} 👋`}
           </h1>
           <p className="text-sm text-gray-400 mt-1">{today}</p>
         </div>
@@ -117,6 +139,8 @@ export default function DashboardPage() {
 
       {loading ? (
         <LoadingSkeleton />
+      ) : loadError ? (
+        <LoadError onRetry={() => { setLoadError(false); setLoading(true); loadData() }} />
       ) : !hasSchedule ? (
         <SetupPrompt navigate={navigate} courses={courses} />
       ) : !hasAnything ? (
@@ -383,6 +407,22 @@ function LoadingSkeleton() {
           </div>
         </div>
       ))}
+    </div>
+  )
+}
+
+function LoadError({ onRetry }) {
+  return (
+    <div className="card p-8 text-center">
+      <div className="text-3xl mb-3">⚠️</div>
+      <h3 className="font-semibold text-gray-900 mb-1">Couldn't load your schedule</h3>
+      <p className="text-sm text-gray-400 mb-4">There was a problem connecting. Try refreshing.</p>
+      <button
+        onClick={onRetry}
+        className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700"
+      >
+        Try again
+      </button>
     </div>
   )
 }
