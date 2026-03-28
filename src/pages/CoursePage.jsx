@@ -42,7 +42,7 @@ export default function CoursePage() {
   const [aiLoading, setAiLoading] = useState(false)
 
   useEffect(() => {
-    document.title = course ? `${course.name} | TeacherOS` : 'Course | TeacherOS'
+    document.title = course ? `${course.name} | Cacio EDU` : 'Course | Cacio EDU'
   }, [course])
 
   useEffect(() => { loadCourse() }, [courseId])

@@ -17,7 +17,7 @@ export default function ProfilePage() {
   const [error, setError] = useState(null)
 
   useEffect(() => {
-    document.title = 'Profile | TeacherOS'
+    document.title = 'Profile | Cacio EDU'
   }, [])
 
   useEffect(() => {

@@ -59,7 +59,7 @@ export default function LoginPage() {
           <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-navy-900 text-white text-xl font-bold mb-4">
             T
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">TeacherOS</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Cacio EDU</h1>
           <p className="text-sm text-gray-500 mt-1">Curriculum planning, simplified</p>
         </div>
 

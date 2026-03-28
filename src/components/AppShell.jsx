@@ -48,7 +48,7 @@ export default function AppShell() {
 
   // Get current page label for mobile header
   const currentPage = NAV.find(n => n.to === '/' ? location.pathname === '/' : location.pathname.startsWith(n.to))
-  const pageLabel = currentPage?.label || 'TeacherOS'
+  const pageLabel = currentPage?.label || 'Cacio EDU'
 
   return (
     <div className="min-h-screen flex bg-[#f7f8fc]">
@@ -90,7 +90,7 @@ export default function AppShell() {
               <AcademicCapIcon className="w-4.5 h-4.5 text-white w-[18px] h-[18px]" />
             </div>
             <div>
-              <h1 className="text-[15px] font-bold tracking-tight text-gray-900 leading-none">TeacherOS</h1>
+              <h1 className="text-[15px] font-bold tracking-tight text-gray-900 leading-none">Cacio EDU</h1>
               <p className="text-[11px] text-gray-400 mt-0.5 font-medium">Teacher Platform</p>
             </div>
           </div>

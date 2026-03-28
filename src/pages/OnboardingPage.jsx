@@ -121,7 +121,7 @@ export default function OnboardingPage() {
           {step === 1 && (
             <div className="space-y-5">
               <div>
-                <h2 className="page-title mb-1">Welcome to TeacherOS</h2>
+                <h2 className="page-title mb-1">Welcome to Cacio EDU</h2>
                 <p className="text-sm text-gray-500">Let's get your account set up. Takes about 2 minutes.</p>
               </div>
 

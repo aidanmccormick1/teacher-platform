@@ -847,7 +847,7 @@ export default function SchedulePage() {
   const [loadError, setLoadError] = useState(false)
   const nav = useNavigate()
 
-  useEffect(() => { document.title = 'Schedule | TeacherOS' }, [])
+  useEffect(() => { document.title = 'Schedule | Cacio EDU' }, [])
 
   useEffect(() => {
     if (profile) {

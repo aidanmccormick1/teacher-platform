@@ -51,7 +51,7 @@ export default function DashboardPage() {
   const [loadError, setLoadError]   = useState(false)
   const [now, setNow]               = useState(new Date())
 
-  useEffect(() => { document.title = 'Dashboard | TeacherOS' }, [])
+  useEffect(() => { document.title = 'Dashboard | Cacio EDU' }, [])
 
   // Keep "now" ticking so "Now" badge stays accurate
   useEffect(() => {

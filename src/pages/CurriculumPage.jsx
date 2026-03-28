@@ -20,7 +20,7 @@ export default function CurriculumPage() {
   const [loadError, setLoadError] = useState(false)
   const [showNewCourse, setShowNewCourse] = useState(false)
 
-  useEffect(() => { document.title = 'Curriculum | TeacherOS' }, [])
+  useEffect(() => { document.title = 'Curriculum | Cacio EDU' }, [])
 
   useEffect(() => {
     if (profile) {
