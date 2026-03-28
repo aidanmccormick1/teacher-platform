@@ -6,26 +6,33 @@ export default function LoginPage() {
   const { signIn, signUp } = useAuth()
   const navigate = useNavigate()
 
-  const [mode, setMode]       = useState('signin') // 'signin' | 'signup'
-  const [email, setEmail]     = useState('')
-  const [password, setPassword] = useState('')
-  const [error, setError]     = useState(null)
-  const [loading, setLoading] = useState(false)
+  const [mode, setMode]               = useState('signin')
+  const [fullName, setFullName]       = useState('')
+  const [email, setEmail]             = useState('')
+  const [password, setPassword]       = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [error, setError]             = useState(null)
+  const [loading, setLoading]         = useState(false)
 
   async function handleSubmit(e) {
     e.preventDefault()
     setError(null)
-    setLoading(true)
 
+    if (mode === 'signup') {
+      if (!fullName.trim()) return setError('Please enter your full name.')
+      if (password !== confirmPassword) return setError('Passwords do not match.')
+      if (password.length < 6) return setError('Password must be at least 6 characters.')
+    }
+
+    setLoading(true)
     try {
       if (mode === 'signin') {
         const { error } = await signIn(email, password)
         if (error) throw error
         navigate('/')
       } else {
-        const { error } = await signUp(email, password)
+        const { error } = await signUp(email, password, fullName.trim())
         if (error) throw error
-        // After signup, user goes to onboarding
         navigate('/onboarding')
       }
     } catch (err) {
@@ -33,6 +40,15 @@ export default function LoginPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  function switchMode(newMode) {
+    setMode(newMode)
+    setError(null)
+    setFullName('')
+    setEmail('')
+    setPassword('')
+    setConfirmPassword('')
   }
 
   return (
@@ -48,10 +64,11 @@ export default function LoginPage() {
         </div>
 
         <div className="card p-6">
+          {/* Toggle */}
           <div className="flex rounded-lg bg-gray-100 p-1 mb-5">
             <button
               type="button"
-              onClick={() => setMode('signin')}
+              onClick={() => switchMode('signin')}
               className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-all ${
                 mode === 'signin' ? 'bg-white shadow text-gray-900' : 'text-gray-500'
               }`}
@@ -60,7 +77,7 @@ export default function LoginPage() {
             </button>
             <button
               type="button"
-              onClick={() => setMode('signup')}
+              onClick={() => switchMode('signup')}
               className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-all ${
                 mode === 'signup' ? 'bg-white shadow text-gray-900' : 'text-gray-500'
               }`}
@@ -70,6 +87,22 @@ export default function LoginPage() {
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Full name — signup only */}
+            {mode === 'signup' && (
+              <div>
+                <label className="label">Full name</label>
+                <input
+                  type="text"
+                  value={fullName}
+                  onChange={e => setFullName(e.target.value)}
+                  className="input"
+                  placeholder="Jane Smith"
+                  required
+                  autoComplete="name"
+                />
+              </div>
+            )}
+
             <div>
               <label className="label">Email</label>
               <input
@@ -96,6 +129,23 @@ export default function LoginPage() {
                 autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
               />
             </div>
+
+            {/* Confirm password — signup only */}
+            {mode === 'signup' && (
+              <div>
+                <label className="label">Confirm password</label>
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={e => setConfirmPassword(e.target.value)}
+                  className="input"
+                  placeholder="••••••••"
+                  required
+                  minLength={6}
+                  autoComplete="new-password"
+                />
+              </div>
+            )}
 
             {error && (
               <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
