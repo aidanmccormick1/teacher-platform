@@ -12,8 +12,21 @@ import {
   PencilSquareIcon,
   ArrowUpIcon,
   ArrowDownIcon,
+  ClockIcon,
+  MapPinIcon,
+  CalendarDaysIcon,
+  XMarkIcon,
 } from '@heroicons/react/24/outline'
 import clsx from 'clsx'
+
+function formatTimeCourse(t) {
+  if (!t) return ''
+  const [h, m] = t.split(':').map(Number)
+  const p = h >= 12 ? 'PM' : 'AM'
+  return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${p}`
+}
+
+const ALL_DAYS_COURSE = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'A-Day', 'B-Day']
 
 export default function CoursePage() {
   const { id: courseId } = useParams()
@@ -22,37 +35,31 @@ export default function CoursePage() {
 
   const [course,  setCourse]  = useState(null)
   const [units,   setUnits]   = useState([])
+  const [sections, setSections] = useState([])
   const [loading, setLoading] = useState(true)
   const [expandedUnits, setExpandedUnits] = useState({})
   const [aiLoading, setAiLoading] = useState(false)
 
+  useEffect(() => {
+    document.title = course ? `${course.name} | TeacherOS` : 'Course | TeacherOS'
+  }, [course])
+
   useEffect(() => { loadCourse() }, [courseId])
 
   async function loadCourse() {
-    const { data: courseData } = await supabase
-      .from('courses')
-      .select('*')
-      .eq('id', courseId)
-      .single()
-    setCourse(courseData)
+    const [courseRes, unitsRes, sectionsRes] = await Promise.all([
+      supabase.from('courses').select('*').eq('id', courseId).single(),
+      supabase.from('units').select(`*, lessons (*, lesson_segments ( id ))`).eq('course_id', courseId).order('order_index', { ascending: true }),
+      supabase.from('sections').select('*').eq('course_id', courseId).order('meeting_time', { ascending: true }),
+    ])
 
-    const { data: unitsData } = await supabase
-      .from('units')
-      .select(`
-        *,
-        lessons (
-          *,
-          lesson_segments ( id )
-        )
-      `)
-      .eq('course_id', courseId)
-      .order('order_index', { ascending: true })
+    setCourse(courseRes.data)
+    setSections(sectionsRes.data || [])
 
-    const sorted = (unitsData || []).map(u => ({
+    const sorted = (unitsRes.data || []).map(u => ({
       ...u,
       lessons: [...(u.lessons || [])].sort((a, b) => a.order_index - b.order_index),
     }))
-
     setUnits(sorted)
     if (sorted.length > 0) {
       setExpandedUnits({ [sorted[0].id]: true })
@@ -193,6 +200,13 @@ export default function CoursePage() {
           Add unit
         </button>
       </div>
+
+      {/* Sections panel */}
+      <SectionsPanel
+        courseId={courseId}
+        sections={sections}
+        onSectionsChange={setSections}
+      />
 
       {/* AI scaffold prompt (only when empty) */}
       {units.length === 0 && (
@@ -420,6 +434,190 @@ function LessonRow({ lesson, idx, courseId, onDelete, onReload }) {
             Add segment
           </button>
         </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Sections Panel ───────────────────────────────────────────────
+
+function SectionsPanel({ courseId, sections, onSectionsChange }) {
+  const [showAdd, setShowAdd] = useState(false)
+  const [form, setForm] = useState({ name: '', meeting_days: [], meeting_time: '', room: '' })
+  const [addLoading, setAddLoading] = useState(false)
+  const [addError, setAddError] = useState(null)
+
+  function toggleDay(day) {
+    setForm(f => ({
+      ...f,
+      meeting_days: f.meeting_days.includes(day)
+        ? f.meeting_days.filter(d => d !== day)
+        : [...f.meeting_days, day],
+    }))
+  }
+
+  async function handleAdd(e) {
+    e.preventDefault()
+    setAddLoading(true)
+    setAddError(null)
+    const { data, error } = await supabase
+      .from('sections')
+      .insert({ ...form, course_id: courseId, meeting_time: form.meeting_time || null })
+      .select()
+      .single()
+    setAddLoading(false)
+    if (error) {
+      setAddError(error.message || 'Failed to add period')
+    } else if (data) {
+      onSectionsChange(prev => [...prev, data])
+      setForm({ name: '', meeting_days: [], meeting_time: '', room: '' })
+      setShowAdd(false)
+    }
+  }
+
+  async function handleDelete(id) {
+    if (!confirm('Remove this class period?')) return
+    await supabase.from('sections').delete().eq('id', id)
+    onSectionsChange(prev => prev.filter(s => s.id !== id))
+  }
+
+  return (
+    <div className="card overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+        <div className="flex items-center gap-2">
+          <CalendarDaysIcon className="w-4 h-4 text-gray-400" />
+          <span className="font-semibold text-sm text-gray-900">Class Periods</span>
+          <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-full">{sections.length}</span>
+        </div>
+        <button
+          onClick={() => setShowAdd(v => !v)}
+          className="flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-800 transition-colors"
+        >
+          <PlusIcon className="w-3.5 h-3.5" />
+          Add period
+        </button>
+      </div>
+
+      {sections.length === 0 && !showAdd && (
+        <div className="px-4 py-5 text-center">
+          <p className="text-sm text-gray-500 mb-1">No class periods yet</p>
+          <p className="text-xs text-gray-400">Add each period this course runs (e.g. Period 1 Mon/Wed/Fri at 8:00 AM).</p>
+        </div>
+      )}
+
+      {sections.length > 0 && (
+        <div className="divide-y divide-gray-50">
+          {sections.map(section => (
+            <div key={section.id} className="flex items-center px-4 py-3 gap-3">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-800">{section.name}</p>
+                <div className="flex flex-wrap gap-3 mt-0.5">
+                  {section.meeting_days?.length > 0 && (
+                    <span className="text-xs text-gray-400 flex items-center gap-1">
+                      <CalendarDaysIcon className="w-3 h-3" />
+                      {section.meeting_days.map(d => d.slice(0, 3)).join(', ')}
+                    </span>
+                  )}
+                  {section.meeting_time && (
+                    <span className="text-xs text-gray-400 flex items-center gap-1">
+                      <ClockIcon className="w-3 h-3" />
+                      {formatTimeCourse(section.meeting_time)}
+                    </span>
+                  )}
+                  {section.room && (
+                    <span className="text-xs text-gray-400 flex items-center gap-1">
+                      <MapPinIcon className="w-3 h-3" />
+                      Rm {section.room}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={() => handleDelete(section.id)}
+                className="text-gray-300 hover:text-red-400 p-1 transition-colors shrink-0"
+                title="Remove period"
+              >
+                <TrashIcon className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showAdd && (
+        <form onSubmit={handleAdd} className="border-t border-gray-100 bg-indigo-50/40 px-4 py-4 space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label text-xs">Period name</label>
+              <input
+                className="input text-sm"
+                value={form.name}
+                onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                placeholder="Period 1, Block A..."
+                required
+                autoFocus
+              />
+            </div>
+            <div>
+              <label className="label text-xs">Room</label>
+              <input
+                className="input text-sm"
+                value={form.room}
+                onChange={e => setForm(f => ({ ...f, room: e.target.value }))}
+                placeholder="204"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="label text-xs">Meeting days</label>
+            <div className="flex flex-wrap gap-1.5">
+              {ALL_DAYS_COURSE.map(day => (
+                <button
+                  key={day}
+                  type="button"
+                  onClick={() => toggleDay(day)}
+                  className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
+                    form.meeting_days.includes(day)
+                      ? 'bg-indigo-600 text-white border-indigo-600'
+                      : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
+                  }`}
+                >
+                  {day.length > 3 ? day.slice(0, 3) : day}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="w-40">
+            <label className="label text-xs">Time</label>
+            <input
+              type="time"
+              className="input text-sm"
+              value={form.meeting_time}
+              onChange={e => setForm(f => ({ ...f, meeting_time: e.target.value }))}
+            />
+          </div>
+
+          {addError && <p className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded">{addError}</p>}
+
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setShowAdd(false)}
+              className="px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={addLoading || !form.name}
+              className="px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-40"
+            >
+              {addLoading ? 'Adding...' : 'Add period'}
+            </button>
+          </div>
+        </form>
       )}
     </div>
   )

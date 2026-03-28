@@ -63,7 +63,7 @@ export default function DashboardPage() {
   async function loadData() {
     setLoading(true)
 
-    // Optimized: Single query with join to get courses + sections at once
+    // Single query with join to get courses + sections at once
     const { data: courseData } = await supabase
       .from('courses')
       .select('id, name, subject, grade_level, sections(id, name, meeting_days, meeting_time, room, course_id)')
@@ -91,13 +91,32 @@ export default function DashboardPage() {
     setCourses(courseData)
     setAllSections(allSectionsList)
 
-    // Filter today's sections and enrich with course info
+    // Filter today's sections
     const todaySections = allSectionsList.filter(s => doesSectionMeetToday(s.meeting_days))
+
+    // Fetch latest lesson progress for each of today's sections
+    const sectionIds = todaySections.map(s => s.id)
+    let progressBySection = {}
+    if (sectionIds.length > 0) {
+      const { data: progressData } = await supabase
+        .from('lesson_progress')
+        .select('section_id, lesson_id, status, last_segment_completed_index, date_taught, lessons(title, order_index, units(title, order_index))')
+        .in('section_id', sectionIds)
+        .order('date_taught', { ascending: false })
+
+      // For each section, keep only the most recent progress entry
+      ;(progressData || []).forEach(p => {
+        if (!progressBySection[p.section_id]) {
+          progressBySection[p.section_id] = p
+        }
+      })
+    }
 
     const enriched = todaySections.map(section => ({
       ...section,
       course: courseLookup[section.course_id],
       isNow: isClassNow(section.meeting_time),
+      currentLesson: progressBySection[section.id] || null,
     }))
 
     enriched.sort((a, b) => {
@@ -205,7 +224,8 @@ export default function DashboardPage() {
 }
 
 function ClassCard({ section, color, isNext, navigate }) {
-  const { course, isNow } = section
+  const { course, isNow, currentLesson } = section
+  const lessonTitle = currentLesson?.lessons?.title
 
   return (
     <div
@@ -262,6 +282,15 @@ function ClassCard({ section, color, isNext, navigate }) {
               </span>
             )}
           </div>
+          {/* Current lesson indicator */}
+          {lessonTitle && (
+            <div className="mt-1.5 flex items-center gap-1.5">
+              <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${color.dot}`} />
+              <p className="text-xs text-gray-400 truncate">
+                Last: <span className="text-gray-600 font-medium">{lessonTitle}</span>
+              </p>
+            </div>
+          )}
         </div>
 
         <ChevronRightIcon className="w-4 h-4 text-gray-300 shrink-0" />

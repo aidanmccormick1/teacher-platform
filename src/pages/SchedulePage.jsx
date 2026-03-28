@@ -617,6 +617,221 @@ function NoCourses({ onNavigate }) {
   )
 }
 
+// ─── Course Schedule Card ──────────────────────────────────────────────────────
+
+function CourseScheduleCard({ course, sections, colorClass, onAddSection, onDeleteSection, onNavigateCourse }) {
+  const [expanded, setExpanded] = useState(true)
+  const [showAdd, setShowAdd]   = useState(false)
+
+  return (
+    <div className="card overflow-hidden">
+      {/* Course header row */}
+      <div
+        className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50 transition-colors"
+        onClick={() => setExpanded(v => !v)}
+      >
+        <div className={`w-3 h-3 rounded-full shrink-0 ${colorClass}`} />
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold text-sm text-gray-900">{course.name}</p>
+          <p className="text-xs text-gray-400">
+            {course.subject}{course.grade_level ? ` · Grade ${course.grade_level}` : ''}
+            {' · '}{sections.length} section{sections.length !== 1 ? 's' : ''}
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0" onClick={e => e.stopPropagation()}>
+          <button
+            onClick={() => onNavigateCourse(course.id)}
+            className="text-xs text-indigo-600 font-medium hover:underline"
+          >
+            View curriculum
+          </button>
+          <ChevronRightIcon className={`w-4 h-4 text-gray-300 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+        </div>
+      </div>
+
+      {expanded && (
+        <div className="border-t border-gray-100">
+          {/* Section rows */}
+          {sections.length === 0 && !showAdd && (
+            <div className="px-4 py-4 text-center">
+              <p className="text-xs text-gray-400 mb-3">No class periods added yet for this course.</p>
+            </div>
+          )}
+
+          {sections.map(section => (
+            <div key={section.id} className="flex items-center px-4 py-3 gap-3 border-b border-gray-50 last:border-0 hover:bg-gray-50">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-800">{section.name}</p>
+                <div className="flex gap-3 mt-0.5 flex-wrap">
+                  {section.meeting_days?.length > 0 && (
+                    <span className="text-xs text-gray-400">
+                      {section.meeting_days.map(d => d.slice(0, 3)).join(', ')}
+                    </span>
+                  )}
+                  {section.meeting_time && (
+                    <span className="text-xs text-gray-400 flex items-center gap-1">
+                      <ClockIcon className="w-3 h-3" />
+                      {formatTime(section.meeting_time)}
+                    </span>
+                  )}
+                  {section.room && (
+                    <span className="text-xs text-gray-400 flex items-center gap-1">
+                      <MapPinIcon className="w-3 h-3" />
+                      Rm {section.room}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={() => onDeleteSection(section.id)}
+                className="text-gray-300 hover:text-red-400 p-1 transition-colors"
+                title="Remove section"
+              >
+                <TrashIcon className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+
+          {/* Inline add section form */}
+          {showAdd ? (
+            <InlineAddSection
+              courseId={course.id}
+              onCreated={section => {
+                onAddSection(section)
+                setShowAdd(false)
+              }}
+              onCancel={() => setShowAdd(false)}
+            />
+          ) : (
+            <div className="px-4 py-3 bg-gray-50 border-t border-gray-100">
+              <button
+                onClick={() => setShowAdd(true)}
+                className="flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:text-indigo-800 transition-colors"
+              >
+                <PlusIcon className="w-3.5 h-3.5" />
+                Add class period
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Inline Add Section Form ───────────────────────────────────────────────────
+
+function InlineAddSection({ courseId, onCreated, onCancel }) {
+  const ALL_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'A-Day', 'B-Day']
+  const [form, setForm] = useState({ name: '', meeting_days: [], meeting_time: '', room: '' })
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+
+  function toggleDay(day) {
+    setForm(f => ({
+      ...f,
+      meeting_days: f.meeting_days.includes(day)
+        ? f.meeting_days.filter(d => d !== day)
+        : [...f.meeting_days, day],
+    }))
+  }
+
+  async function handleCreate(e) {
+    e.preventDefault()
+    setLoading(true)
+    setError(null)
+    const { data, error: dbError } = await supabase
+      .from('sections')
+      .insert({ ...form, course_id: courseId, meeting_time: form.meeting_time || null })
+      .select()
+      .single()
+    setLoading(false)
+    if (dbError) {
+      setError(dbError.message || 'Failed to add section')
+    } else if (data) {
+      onCreated(data)
+    }
+  }
+
+  return (
+    <form onSubmit={handleCreate} className="px-4 py-4 border-t border-gray-100 bg-indigo-50/40 space-y-3">
+      <p className="text-xs font-semibold text-gray-600 uppercase tracking-wider">New class period</p>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="label text-xs">Period name</label>
+          <input
+            className="input text-sm"
+            value={form.name}
+            onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+            placeholder="Period 1, Block A, 6th hour..."
+            required
+            autoFocus
+          />
+        </div>
+        <div>
+          <label className="label text-xs">Room</label>
+          <input
+            className="input text-sm"
+            value={form.room}
+            onChange={e => setForm(f => ({ ...f, room: e.target.value }))}
+            placeholder="204"
+          />
+        </div>
+      </div>
+
+      <div>
+        <label className="label text-xs">Meeting days</label>
+        <div className="flex flex-wrap gap-1.5">
+          {ALL_DAYS.map(day => (
+            <button
+              key={day}
+              type="button"
+              onClick={() => toggleDay(day)}
+              className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
+                form.meeting_days.includes(day)
+                  ? 'bg-indigo-600 text-white border-indigo-600'
+                  : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
+              }`}
+            >
+              {day.length > 3 ? day.slice(0, 3) : day}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="w-40">
+        <label className="label text-xs">Time</label>
+        <input
+          type="time"
+          className="input text-sm"
+          value={form.meeting_time}
+          onChange={e => setForm(f => ({ ...f, meeting_time: e.target.value }))}
+        />
+      </div>
+
+      {error && <p className="text-xs text-red-600 bg-red-50 rounded px-2 py-1">{error}</p>}
+
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          disabled={loading || !form.name}
+          className="px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-40"
+        >
+          {loading ? 'Adding...' : 'Add period'}
+        </button>
+      </div>
+    </form>
+  )
+}
+
 // ─── Main Page ─────────────────────────────────────────────────────────────
 
 export default function SchedulePage() {
@@ -626,7 +841,6 @@ export default function SchedulePage() {
   const [loading, setLoading]   = useState(true)
   const [showTutorial, setShowTutorial]   = useState(false)
   const [showAIBuilder, setShowAIBuilder] = useState(false)
-  const [showAddModal, setShowAddModal]   = useState(false)
   const [parsedSchedule, setParsedSchedule] = useState(null)
   const [saving, setSaving] = useState(false)
   const [loadError, setLoadError] = useState(false)
@@ -691,18 +905,14 @@ export default function SchedulePage() {
     try {
       const createdSections = []
 
-      // For each parsed item, find or create a matching course, then create a section
       for (const item of items) {
-        // Skip assignments for now (only process classes)
         if (item.type === 'assignment') continue
 
-        // Try to match by name to existing courses
         let courseId = courses.find(c =>
           c.name.toLowerCase().includes(item.name.toLowerCase()) ||
           item.name.toLowerCase().includes(c.name.toLowerCase())
         )?.id
 
-        // If no match, create a new course
         if (!courseId) {
           const { data: newCourse, error: courseError } = await supabase
             .from('courses')
@@ -716,19 +926,12 @@ export default function SchedulePage() {
             .select('id, name, subject, grade_level')
             .single()
 
-          if (courseError) {
-            console.error('Error creating course:', courseError)
-            continue
-          }
-          if (newCourse) {
-            setCourses(prev => [...prev, newCourse])
-            courseId = newCourse.id
-          }
+          if (courseError) { console.error('Error creating course:', courseError); continue }
+          if (newCourse) { setCourses(prev => [...prev, newCourse]); courseId = newCourse.id }
         }
 
         if (!courseId) continue
 
-        // Create the section
         const { data: newSection, error: sectionError } = await supabase
           .from('sections')
           .insert({
@@ -741,14 +944,8 @@ export default function SchedulePage() {
           .select()
           .single()
 
-        if (sectionError) {
-          console.error('Error creating section:', sectionError)
-          continue
-        }
-        if (newSection) {
-          createdSections.push(newSection)
-          setSections(prev => [...prev, newSection])
-        }
+        if (sectionError) { console.error('Error creating section:', sectionError); continue }
+        if (newSection) { createdSections.push(newSection); setSections(prev => [...prev, newSection]) }
       }
 
       if (createdSections.length > 0) {
@@ -765,12 +962,20 @@ export default function SchedulePage() {
   }
 
   async function deleteSection(id) {
-    if (!confirm('Remove this class from your schedule?')) return
+    if (!confirm('Remove this class period?')) return
     await supabase.from('sections').delete().eq('id', id)
     setSections(prev => prev.filter(s => s.id !== id))
   }
 
-  const hasSchedule = sections.length > 0
+  // Color map for courses
+  const courseColorMap = {}
+  courses.forEach((c, i) => {
+    const cls = colorForIndex(i).split(' ')
+    // extract e.g. bg-blue-400
+    courseColorMap[c.id] = cls[0].replace('100', '400')
+  })
+
+  const totalSections = sections.length
 
   return (
     <div className="space-y-5">
@@ -780,10 +985,7 @@ export default function SchedulePage() {
       {/* AI Builder panel */}
       {showAIBuilder && (
         <AIBuilderPanel
-          onParsed={parsed => {
-            setShowAIBuilder(false)
-            setParsedSchedule(parsed)
-          }}
+          onParsed={parsed => { setShowAIBuilder(false); setParsedSchedule(parsed) }}
           onClose={() => setShowAIBuilder(false)}
         />
       )}
@@ -793,22 +995,7 @@ export default function SchedulePage() {
         <ParsedScheduleReview
           parsed={parsedSchedule}
           onConfirm={handleParsedConfirm}
-          onRetry={() => {
-            setParsedSchedule(null)
-            setShowAIBuilder(true)
-          }}
-        />
-      )}
-
-      {/* Manual add modal */}
-      {showAddModal && courses.length > 0 && (
-        <AddClassModal
-          courses={courses}
-          onClose={() => setShowAddModal(false)}
-          onCreated={section => {
-            setSections(prev => [...prev, section])
-            setShowAddModal(false)
-          }}
+          onRetry={() => { setParsedSchedule(null); setShowAIBuilder(true) }}
         />
       )}
 
@@ -825,40 +1012,35 @@ export default function SchedulePage() {
       <div className="flex items-start justify-between gap-3">
         <div>
           <h1 className="page-title">Schedule</h1>
-          {hasSchedule && (
+          {!loading && totalSections > 0 && (
             <p className="text-sm text-gray-400 mt-0.5">
-              {sections.length} class{sections.length !== 1 ? 'es' : ''} across {courses.length} course{courses.length !== 1 ? 's' : ''}
+              {totalSections} period{totalSections !== 1 ? 's' : ''} across {courses.length} course{courses.length !== 1 ? 's' : ''}
             </p>
           )}
         </div>
 
         {!loading && courses.length > 0 && (
-          <div className="flex gap-2 shrink-0">
-            <button
-              onClick={() => setShowAIBuilder(true)}
-              className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 text-white text-xs font-semibold rounded-xl hover:bg-indigo-700 transition-colors"
-            >
-              <SparklesIcon className="w-3.5 h-3.5" />
-              AI Builder
-            </button>
-            <button
-              onClick={() => setShowAddModal(true)}
-              className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 text-gray-600 text-xs font-medium rounded-xl hover:bg-gray-50 transition-colors"
-            >
-              <PlusIcon className="w-3.5 h-3.5" />
-              Manual
-            </button>
-          </div>
+          <button
+            onClick={() => setShowAIBuilder(true)}
+            className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 text-white text-xs font-semibold rounded-xl hover:bg-indigo-700 transition-colors shrink-0"
+          >
+            <SparklesIcon className="w-3.5 h-3.5" />
+            AI Builder
+          </button>
         )}
       </div>
 
       {loading ? (
         <div className="space-y-3">
-          {[1, 2].map(i => (
+          {[1, 2, 3].map(i => (
             <div key={i} className="card p-4 animate-pulse">
-              <div className="h-4 bg-gray-100 rounded w-1/3 mb-3" />
-              <div className="grid grid-cols-5 gap-2">
-                {[1,2,3,4,5].map(j => <div key={j} className="h-16 bg-gray-100 rounded-lg" />)}
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-3 h-3 bg-gray-200 rounded-full" />
+                <div className="h-4 bg-gray-100 rounded w-1/3" />
+              </div>
+              <div className="space-y-2 pl-6">
+                <div className="h-3 bg-gray-100 rounded w-1/2" />
+                <div className="h-3 bg-gray-100 rounded w-2/5" />
               </div>
             </div>
           ))}
@@ -877,110 +1059,65 @@ export default function SchedulePage() {
         </div>
       ) : courses.length === 0 ? (
         <NoCourses onNavigate={() => nav('/curriculum')} />
-      ) : !hasSchedule ? (
-        <div className="card p-10 text-center">
-          <div className="text-5xl mb-4">📅</div>
-          <h3 className="font-bold text-gray-900 mb-2 text-lg">Build your weekly schedule</h3>
-          <p className="text-sm text-gray-500 mb-6 max-w-sm mx-auto">
-            Paste your schedule, describe it, or snap a photo — AI will build it automatically. Or add classes one by one.
-          </p>
-          <div className="flex gap-3 justify-center flex-wrap">
-            <button
-              onClick={() => setShowAIBuilder(true)}
-              className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700"
-            >
-              <SparklesIcon className="w-4 h-4" />
-              Build with AI
-            </button>
-            <button
-              onClick={() => setShowAddModal(true)}
-              className="flex items-center gap-2 px-5 py-2.5 border border-gray-200 text-gray-700 text-sm font-medium rounded-xl hover:bg-gray-50"
-            >
-              <PlusIcon className="w-4 h-4" />
-              Add manually
-            </button>
-            <button
-              onClick={() => setShowTutorial(true)}
-              className="flex items-center gap-2 px-5 py-2.5 text-indigo-600 text-sm font-medium"
-            >
-              How does this work?
-            </button>
-          </div>
-        </div>
       ) : (
-        <div className="space-y-5">
-          {/* Week grid */}
-          <div className="card p-4 overflow-hidden">
-            <div className="flex items-center justify-between mb-4">
-              <p className="text-sm font-semibold text-gray-700">This week</p>
-              <div className="flex items-center gap-2">
-                {/* Color legend */}
-                <div className="flex gap-1.5 flex-wrap justify-end">
-                  {courses.slice(0, 5).map((c, i) => (
-                    <span
-                      key={c.id}
-                      className={`text-xs px-2 py-0.5 rounded-full border font-medium ${colorForIndex(i)}`}
-                    >
-                      {c.name.length > 12 ? c.name.slice(0, 10) + '…' : c.name}
-                    </span>
-                  ))}
-                </div>
+        <div className="space-y-3">
+          {/* Explainer for first-time users */}
+          {totalSections === 0 && (
+            <div className="card p-5 border border-indigo-100 bg-indigo-50/50 flex items-start gap-3">
+              <SparklesIcon className="w-5 h-5 text-indigo-400 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium text-indigo-900">Add class periods to each course</p>
+                <p className="text-xs text-indigo-600 mt-0.5">
+                  Each course can have multiple periods (e.g. AP Gov can have Period 1, Period 3, and Period 5). Click "Add class period" inside each course, or use AI Builder to import everything at once.
+                </p>
               </div>
             </div>
-            <WeekGrid
-              sections={sections}
-              courses={courses}
-              onDeleteSection={deleteSection}
-            />
-          </div>
+          )}
 
-          {/* List view */}
-          <div>
-            <p className="section-header mb-3">All classes</p>
-            <div className="space-y-2">
-              {courses.map((course, ci) => {
-                const courseSections = sections.filter(s => s.course_id === course.id)
-                if (!courseSections.length) return null
-                return (
-                  <div key={course.id} className="card overflow-hidden">
-                    <div className="px-4 py-3 border-b border-gray-50 flex items-center gap-3">
-                      <div className={`w-2.5 h-2.5 rounded-full ${colorForIndex(ci).split(' ')[0].replace('100', '400')}`} />
-                      <span className="font-semibold text-sm text-gray-900">{course.name}</span>
-                      <span className="text-xs text-gray-400">{course.subject}</span>
-                    </div>
-                    <div className="divide-y divide-gray-50">
-                      {courseSections.map(section => (
-                        <div key={section.id} className="flex items-center px-4 py-3 gap-3">
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-gray-800">{section.name}</p>
-                            <div className="flex gap-3 mt-0.5 flex-wrap">
-                              {section.meeting_days?.length > 0 && (
-                                <span className="text-xs text-gray-400">
-                                  {section.meeting_days.map(d => d.slice(0, 3)).join(', ')}
-                                </span>
-                              )}
-                              {section.meeting_time && (
-                                <span className="text-xs text-gray-400">{formatTime(section.meeting_time)}</span>
-                              )}
-                              {section.room && (
-                                <span className="text-xs text-gray-400">Rm {section.room}</span>
-                              )}
-                            </div>
-                          </div>
-                          <button
-                            onClick={() => deleteSection(section.id)}
-                            className="text-gray-300 hover:text-red-400 p-1 transition-colors"
-                          >
-                            <TrashIcon className="w-4 h-4" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
+          {/* One card per course */}
+          {courses.map((course, ci) => {
+            const courseSections = sections
+              .filter(s => s.course_id === course.id)
+              .sort((a, b) => (a.meeting_time || '').localeCompare(b.meeting_time || ''))
+            return (
+              <CourseScheduleCard
+                key={course.id}
+                course={course}
+                sections={courseSections}
+                colorClass={courseColorMap[course.id]}
+                onAddSection={section => setSections(prev => [...prev, section])}
+                onDeleteSection={deleteSection}
+                onNavigateCourse={id => nav(`/courses/${id}`)}
+              />
+            )
+          })}
+
+          {/* Week grid — collapsed by default, expandable */}
+          {totalSections > 0 && (
+            <WeekGridCollapsible sections={sections} courses={courses} onDeleteSection={deleteSection} />
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Collapsible Week Grid ──────────────────────────────────────────────────────
+
+function WeekGridCollapsible({ sections, courses, onDeleteSection }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="card overflow-hidden">
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+      >
+        <span>Week view</span>
+        <ChevronRightIcon className={`w-4 h-4 text-gray-400 transition-transform ${open ? 'rotate-90' : ''}`} />
+      </button>
+      {open && (
+        <div className="border-t border-gray-100 p-4 overflow-hidden">
+          <WeekGrid sections={sections} courses={courses} onDeleteSection={onDeleteSection} />
         </div>
       )}
     </div>
