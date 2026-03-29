@@ -491,15 +491,17 @@ function LessonRow({ lesson, idx, courseId, color, onDelete, onReload }) {
 
 function SectionsPanel({ courseId, sections, onSectionsChange }) {
   const [showAdd, setShowAdd] = useState(false)
-  const [form, setForm] = useState({
+  const EMPTY_FORM = {
     name: '',
     meeting_days: [],
     meeting_time: '',
+    end_time: '',
     room: '',
-    // per-day overrides: { Monday: '09:00', Friday: '10:00' }
+    // per-day overrides: { Monday: { start: '09:00', end: '09:55' }, Friday: { start: '10:00', end: '10:55' } }
     day_times: {},
     use_per_day: false,
-  })
+  }
+  const [form, setForm] = useState(EMPTY_FORM)
   const [addLoading, setAddLoading] = useState(false)
   const [addError, setAddError] = useState(null)
 
@@ -512,8 +514,15 @@ function SectionsPanel({ courseId, sections, onSectionsChange }) {
     }))
   }
 
-  function setDayTime(day, time) {
-    setForm(f => ({ ...f, day_times: { ...f.day_times, [day]: time } }))
+  // Update a single field (start or end) for a specific day
+  function setDayTimeField(day, field, value) {
+    setForm(f => ({
+      ...f,
+      day_times: {
+        ...f.day_times,
+        [day]: { ...(f.day_times[day] || {}), [field]: value },
+      },
+    }))
   }
 
   // Check if selected days have different times
@@ -525,13 +534,14 @@ function SectionsPanel({ courseId, sections, onSectionsChange }) {
     setAddError(null)
 
     // Build the section data
-    // We store per-day times in a JSON column called day_times
-    // If use_per_day is off, store single meeting_time
+    // day_times stores { day: { start, end } } per day when use_per_day is on
+    // Otherwise, meeting_time + end_time hold single start/end
     const sectionData = {
       course_id:    courseId,
       name:         form.name,
       meeting_days: form.meeting_days,
       meeting_time: form.use_per_day ? null : (form.meeting_time || null),
+      end_time:     form.use_per_day ? null : (form.end_time || null),
       day_times:    form.use_per_day ? form.day_times : null,
       room:         form.room || null,
     }
@@ -544,8 +554,8 @@ function SectionsPanel({ courseId, sections, onSectionsChange }) {
 
     setAddLoading(false)
     if (error) {
-      // If day_times column doesn't exist yet, fall back to single time
-      if (error.message?.includes('day_times')) {
+      // If extended columns don't exist yet, fall back to minimal insert
+      if (error.message?.includes('day_times') || error.message?.includes('end_time')) {
         const fallback = {
           course_id:    courseId,
           name:         form.name,
@@ -558,7 +568,7 @@ function SectionsPanel({ courseId, sections, onSectionsChange }) {
           setAddError(e2.message || 'Failed to add period')
         } else if (d2) {
           onSectionsChange(prev => [...prev, d2])
-          setForm({ name: '', meeting_days: [], meeting_time: '', room: '', day_times: {}, use_per_day: false })
+          setForm(EMPTY_FORM)
           setShowAdd(false)
         }
       } else {
@@ -566,7 +576,7 @@ function SectionsPanel({ courseId, sections, onSectionsChange }) {
       }
     } else if (data) {
       onSectionsChange(prev => [...prev, data])
-      setForm({ name: '', meeting_days: [], meeting_time: '', room: '', day_times: {}, use_per_day: false })
+      setForm(EMPTY_FORM)
       setShowAdd(false)
     }
   }
@@ -577,14 +587,34 @@ function SectionsPanel({ courseId, sections, onSectionsChange }) {
     onSectionsChange(prev => prev.filter(s => s.id !== id))
   }
 
+  function formatTimeRange(start, end) {
+    if (!start) return null
+    const startStr = formatTimeCourse(start)
+    if (!end) return startStr
+    // Show "8:00 – 8:55 AM" (drop AM/PM from start if same period)
+    const endStr = formatTimeCourse(end)
+    const startPeriod = start.split(':')[0] >= 12 ? 'PM' : 'AM'
+    const endPeriod   = end.split(':')[0]   >= 12 ? 'PM' : 'AM'
+    if (startPeriod === endPeriod) {
+      return `${startStr.replace(` ${startPeriod}`, '')} \u2013 ${endStr}`
+    }
+    return `${startStr} \u2013 ${endStr}`
+  }
+
   function renderSectionTime(section) {
     if (section.day_times && Object.keys(section.day_times).length > 0) {
-      // Show per-day times
       const entries = Object.entries(section.day_times)
-      if (entries.length === 1) return formatTimeCourse(entries[0][1])
-      return entries.map(([day, time]) => `${day.slice(0,3)} ${formatTimeCourse(time)}`).join(', ')
+      if (entries.length === 1) {
+        const v = entries[0][1]
+        // Support both old string format and new {start,end} object
+        return typeof v === 'object' ? formatTimeRange(v.start, v.end) : formatTimeCourse(v)
+      }
+      return entries.map(([day, v]) => {
+        const timeStr = typeof v === 'object' ? formatTimeRange(v.start, v.end) : formatTimeCourse(v)
+        return `${DAY_SHORT[day] || day.slice(0,3)} ${timeStr}`
+      }).join('  ·  ')
     }
-    return section.meeting_time ? formatTimeCourse(section.meeting_time) : null
+    return formatTimeRange(section.meeting_time, section.end_time)
   }
 
   return (
@@ -716,27 +746,49 @@ function SectionsPanel({ courseId, sections, onSectionsChange }) {
 
               {form.use_per_day && form.meeting_days.length > 1 ? (
                 <div className="space-y-2">
+                  <div className="flex items-center gap-3 text-[10px] font-semibold text-gray-400 uppercase tracking-widest">
+                    <span className="w-10" />
+                    <span className="w-32">Start</span>
+                    <span className="w-32">End</span>
+                  </div>
                   {form.meeting_days.map(day => (
                     <div key={day} className="flex items-center gap-3">
                       <span className="text-xs font-medium text-gray-600 w-10">{DAY_SHORT[day] || day}</span>
                       <input
                         type="time"
-                        className="input text-sm w-36"
-                        value={form.day_times[day] || ''}
-                        onChange={e => setDayTime(day, e.target.value)}
+                        className="input text-sm w-32"
+                        value={form.day_times[day]?.start || ''}
+                        onChange={e => setDayTimeField(day, 'start', e.target.value)}
+                      />
+                      <input
+                        type="time"
+                        className="input text-sm w-32"
+                        value={form.day_times[day]?.end || ''}
+                        onChange={e => setDayTimeField(day, 'end', e.target.value)}
                       />
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="w-40">
-                  <label className="label text-xs">Time</label>
-                  <input
-                    type="time"
-                    className="input text-sm"
-                    value={form.meeting_time}
-                    onChange={e => setForm(f => ({ ...f, meeting_time: e.target.value }))}
-                  />
+                <div className="flex items-end gap-3">
+                  <div className="w-36">
+                    <label className="label text-xs">Start time</label>
+                    <input
+                      type="time"
+                      className="input text-sm"
+                      value={form.meeting_time}
+                      onChange={e => setForm(f => ({ ...f, meeting_time: e.target.value }))}
+                    />
+                  </div>
+                  <div className="w-36">
+                    <label className="label text-xs">End time</label>
+                    <input
+                      type="time"
+                      className="input text-sm"
+                      value={form.end_time}
+                      onChange={e => setForm(f => ({ ...f, end_time: e.target.value }))}
+                    />
+                  </div>
                 </div>
               )}
             </div>
