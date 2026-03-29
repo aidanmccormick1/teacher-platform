@@ -429,7 +429,9 @@ function WeekGrid({ sections, courses, onDeleteSection }) {
                       >
                         <p className="font-semibold truncate leading-tight">{section.name}</p>
                         {section.meeting_time && (
-                          <p className="opacity-70 mt-0.5">{formatTime(section.meeting_time)}</p>
+                          <p className="opacity-70 mt-0.5">
+                            {formatTime(section.meeting_time)}{section.end_time ? ` \u2013 ${formatTime(section.end_time)}` : ''}
+                          </p>
                         )}
                         {section.room && (
                           <p className="opacity-60">Rm {section.room}</p>
@@ -461,6 +463,7 @@ function AddClassModal({ courses, onClose, onCreated }) {
     name:         '',
     meeting_days: [],
     meeting_time: '',
+    end_time:     '',
     room:         '',
   })
   const [loading, setLoading] = useState(false)
@@ -481,7 +484,7 @@ function AddClassModal({ courses, onClose, onCreated }) {
     setError(null)
     const { data, error: dbError } = await supabase
       .from('sections')
-      .insert({ ...form, meeting_time: form.meeting_time || null })
+      .insert({ ...form, meeting_time: form.meeting_time || null, end_time: form.end_time || null })
       .select()
       .single()
     setLoading(false)
@@ -561,14 +564,23 @@ function AddClassModal({ courses, onClose, onCreated }) {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-3 gap-3">
           <div>
-            <label className="label">Time</label>
+            <label className="label">Start time</label>
             <input
               type="time"
               className="input"
               value={form.meeting_time}
               onChange={e => setForm(f => ({ ...f, meeting_time: e.target.value }))}
+            />
+          </div>
+          <div>
+            <label className="label">End time</label>
+            <input
+              type="time"
+              className="input"
+              value={form.end_time}
+              onChange={e => setForm(f => ({ ...f, end_time: e.target.value }))}
             />
           </div>
           <div>
@@ -672,7 +684,7 @@ function CourseScheduleCard({ course, sections, colorClass, onAddSection, onDele
                   {section.meeting_time && (
                     <span className="text-xs text-gray-400 flex items-center gap-1">
                       <ClockIcon className="w-3 h-3" />
-                      {formatTime(section.meeting_time)}
+                      {formatTime(section.meeting_time)}{section.end_time ? ` \u2013 ${formatTime(section.end_time)}` : ''}
                     </span>
                   )}
                   {section.room && (
@@ -724,7 +736,7 @@ function CourseScheduleCard({ course, sections, colorClass, onAddSection, onDele
 
 function InlineAddSection({ courseId, onCreated, onCancel }) {
   const ALL_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'A-Day', 'B-Day']
-  const [form, setForm] = useState({ name: '', meeting_days: [], meeting_time: '', room: '' })
+  const [form, setForm] = useState({ name: '', meeting_days: [], meeting_time: '', end_time: '', room: '' })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
@@ -743,7 +755,7 @@ function InlineAddSection({ courseId, onCreated, onCancel }) {
     setError(null)
     const { data, error: dbError } = await supabase
       .from('sections')
-      .insert({ ...form, course_id: courseId, meeting_time: form.meeting_time || null })
+      .insert({ ...form, course_id: courseId, meeting_time: form.meeting_time || null, end_time: form.end_time || null })
       .select()
       .single()
     setLoading(false)
@@ -801,14 +813,25 @@ function InlineAddSection({ courseId, onCreated, onCancel }) {
         </div>
       </div>
 
-      <div className="w-40">
-        <label className="label text-xs">Time</label>
-        <input
-          type="time"
-          className="input text-sm"
-          value={form.meeting_time}
-          onChange={e => setForm(f => ({ ...f, meeting_time: e.target.value }))}
-        />
+      <div className="flex items-end gap-3">
+        <div className="w-36">
+          <label className="label text-xs">Start time</label>
+          <input
+            type="time"
+            className="input text-sm"
+            value={form.meeting_time}
+            onChange={e => setForm(f => ({ ...f, meeting_time: e.target.value }))}
+          />
+        </div>
+        <div className="w-36">
+          <label className="label text-xs">End time</label>
+          <input
+            type="time"
+            className="input text-sm"
+            value={form.end_time}
+            onChange={e => setForm(f => ({ ...f, end_time: e.target.value }))}
+          />
+        </div>
       </div>
 
       {error && <p className="text-xs text-red-600 bg-red-50 rounded px-2 py-1">{error}</p>}
