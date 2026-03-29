@@ -213,8 +213,8 @@ export default function DashboardPage() {
                 value={sections.length}
                 sub="classes"
                 icon={<CalendarDaysIcon className="w-4 h-4" />}
-                accent="text-indigo-600"
-                bg="bg-indigo-50"
+                accent="text-navy-700"
+                bg="bg-navy-50"
               />
               <StatCard
                 label="Courses"
@@ -369,7 +369,7 @@ function ClassCard({ section, color, isNext, navigate }) {
               </span>
             )}
             {isNext && (
-              <span className="text-[11px] font-semibold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">
+              <span className="text-[11px] font-semibold text-navy-700 bg-navy-50 px-2 py-0.5 rounded-full">
                 Up next
               </span>
             )}
@@ -509,14 +509,14 @@ function WeekSidebar({ weekByDay, todayName, courseColorMap, courses, navigate }
                   ${isSelected
                     ? 'bg-navy-800 text-white'
                     : isToday
-                    ? 'bg-indigo-50 text-indigo-700'
+                    ? 'bg-navy-50 text-navy-700'
                     : 'text-gray-400 hover:text-gray-700 hover:bg-gray-50'
                   }
                 `}
               >
                 {SHORT_DAYS[day]}
                 {count > 0 && !isSelected && (
-                  <span className={`absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full ${isToday ? 'bg-indigo-400' : 'bg-gray-300'}`} />
+                  <span className={`absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full ${isToday ? 'bg-navy-500' : 'bg-gray-300'}`} />
                 )}
               </button>
             )
@@ -592,7 +592,7 @@ function WeekSidebar({ weekByDay, todayName, courseColorMap, courses, navigate }
           {selectedDay === todayName && ' today'}
         </p>
         {selectedDay === todayName && daySections.length > 0 && (
-          <span className="text-[10px] bg-indigo-50 text-indigo-600 font-semibold px-2 py-0.5 rounded-full">Today</span>
+          <span className="text-[10px] bg-navy-50 text-navy-700 font-semibold px-2 py-0.5 rounded-full">Today</span>
         )}
       </div>
     </div>
@@ -618,7 +618,7 @@ function StatCard({ label, value, sub, icon, accent, bg, compact }) {
 function SetupPrompt({ navigate, courses }) {
   return (
     <div className="rounded-2xl overflow-hidden">
-      <div className="bg-gradient-to-br from-navy-800 via-navy-700 to-violet-700 text-white p-7">
+      <div className="bg-gradient-to-br from-navy-900 via-navy-800 to-navy-700 text-white p-7">
         <div className="flex items-start gap-4">
           <div className="w-12 h-12 rounded-2xl bg-white/15 flex items-center justify-center shrink-0 backdrop-blur-sm">
             <SparklesIcon className="w-6 h-6" />
@@ -676,61 +676,95 @@ function SetupPrompt({ navigate, courses }) {
 function FreeDay({ sections, courses, courseColorMap, navigate }) {
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long' })
   const todayIdx = WEEKDAYS.indexOf(today)
-  const tomorrowDay = WEEKDAYS[todayIdx + 1]
   const courseLookup = {}
   courses.forEach(c => { courseLookup[c.id] = c })
 
-  const tomorrow = tomorrowDay
-    ? sections.filter(s => s.meeting_days?.includes(tomorrowDay))
-        .sort((a, b) => (a.meeting_time || '').localeCompare(b.meeting_time || ''))
-    : []
+  // Find next school day that has classes
+  let nextDayLabel = null
+  let nextDaySections = []
+  for (let offset = 1; offset <= 7; offset++) {
+    const checkDay = WEEKDAYS[(todayIdx + offset) % 5]
+    if (!checkDay) continue
+    const found = sections
+      .filter(s => s.meeting_days?.includes(checkDay))
+      .sort((a, b) => (a.meeting_time || '').localeCompare(b.meeting_time || ''))
+    if (found.length > 0) {
+      nextDayLabel = offset === 1 ? `Tomorrow — ${checkDay}` : checkDay
+      nextDaySections = found
+      break
+    }
+  }
+
+  const isWeekend = today === 'Saturday' || today === 'Sunday'
 
   return (
     <div className="space-y-4">
-      <div className="bg-white rounded-2xl border border-gray-100 p-6 text-center">
-        <div className="w-12 h-12 rounded-full bg-emerald-50 flex items-center justify-center mx-auto mb-3">
-          <CheckSolid className="w-6 h-6 text-emerald-500" />
+      {/* Status card */}
+      <div className="bg-white rounded-2xl border border-gray-100 p-6">
+        <div className="flex items-start gap-4">
+          <div className="w-11 h-11 rounded-full bg-navy-50 flex items-center justify-center shrink-0">
+            <CheckSolid className="w-5 h-5 text-navy-700" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h3 className="font-bold text-gray-900">No classes today</h3>
+            <p className="text-sm text-gray-400 mt-0.5">
+              {isWeekend ? 'Enjoy your weekend!' : 'You have the day free — a good time to plan ahead.'}
+            </p>
+            {!isWeekend && (
+              <div className="flex gap-2 mt-4">
+                <button
+                  onClick={() => navigate('/curriculum')}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-navy-800 bg-navy-50 rounded-lg hover:bg-navy-100 transition-colors"
+                >
+                  <BookOpenIcon className="w-3.5 h-3.5" />
+                  Plan curriculum
+                </button>
+                <button
+                  onClick={() => navigate('/schedule')}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-gray-600 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors border border-gray-200"
+                >
+                  <CalendarDaysIcon className="w-3.5 h-3.5" />
+                  View schedule
+                </button>
+              </div>
+            )}
+          </div>
         </div>
-        <h3 className="font-bold text-gray-900">No classes today</h3>
-        <p className="text-sm text-gray-400 mt-1">
-          {today === 'Saturday' || today === 'Sunday'
-            ? 'Enjoy your weekend!'
-            : 'Looks like you have the day free.'}
-        </p>
       </div>
 
-      {tomorrow.length > 0 && (
+      {/* Next Up */}
+      {nextDaySections.length > 0 && (
         <div>
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">
-            Tomorrow — {tomorrowDay}
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2.5">
+            Next Up — {nextDayLabel}
           </p>
           <div className="space-y-2">
-            {tomorrow.map(section => {
+            {nextDaySections.map(section => {
               const color  = courseColorMap[section.course_id]
               const course = courseLookup[section.course_id]
               return (
-                <div key={section.id} className="bg-white rounded-xl border border-gray-100 px-4 py-3 flex items-center gap-3">
-                  <div className={`w-2 h-2 rounded-full ${color?.dot || 'bg-gray-300'}`} />
+                <div
+                  key={section.id}
+                  onClick={() => navigate('/schedule')}
+                  className="bg-white rounded-xl border border-gray-100 px-4 py-3 flex items-center gap-3 cursor-pointer hover:shadow-sm transition-shadow"
+                >
+                  <div className={`w-2.5 h-2.5 rounded-full ${color?.dot || 'bg-gray-300'}`} />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-gray-800">{section.name}</p>
                     <p className="text-xs text-gray-400">
                       {course?.name}
-                      {section.meeting_time && ` · ${formatTime(section.meeting_time)}`}
+                      {section.meeting_time && (
+                        <span className="text-gray-300"> · {formatTime(section.meeting_time)}</span>
+                      )}
                     </p>
                   </div>
+                  <ChevronRightIcon className="w-3.5 h-3.5 text-gray-200 shrink-0" />
                 </div>
               )
             })}
           </div>
         </div>
       )}
-
-      <button
-        onClick={() => navigate('/schedule')}
-        className="w-full py-3 border border-dashed border-gray-200 rounded-xl text-sm text-gray-400 hover:border-gray-300 hover:text-gray-600 transition-colors"
-      >
-        View full schedule
-      </button>
     </div>
   )
 }

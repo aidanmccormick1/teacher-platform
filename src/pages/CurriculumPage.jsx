@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { supabase } from '@/lib/supabase'
+import { toast } from 'sonner'
 import {
   PlusIcon,
   BookOpenIcon,
@@ -10,6 +11,8 @@ import {
   TrashIcon,
   ExclamationTriangleIcon,
   CheckIcon,
+  MagnifyingGlassIcon,
+  AdjustmentsHorizontalIcon,
 } from '@heroicons/react/24/outline'
 
 const SUBJECTS = [
@@ -30,6 +33,8 @@ export default function CurriculumPage() {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
   const [showNewCourse, setShowNewCourse] = useState(false)
+  const [search, setSearch] = useState('')
+  const [sortBy, setSortBy] = useState('recent') // 'recent' | 'alpha' | 'subject'
 
   useEffect(() => { document.title = 'Curriculum | TeacherOS' }, [])
 
@@ -57,10 +62,31 @@ export default function CurriculumPage() {
     setLoading(false)
   }
 
+  // Filtered + sorted view
+  const visibleCourses = useMemo(() => {
+    let list = [...courses]
+    if (search.trim()) {
+      const q = search.toLowerCase()
+      list = list.filter(c =>
+        c.name?.toLowerCase().includes(q) ||
+        c.subject?.toLowerCase().includes(q) ||
+        c.grade_level?.toLowerCase().includes(q)
+      )
+    }
+    if (sortBy === 'alpha') {
+      list.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+    } else if (sortBy === 'subject') {
+      list.sort((a, b) => (a.subject || '').localeCompare(b.subject || ''))
+    }
+    // 'recent' keeps Supabase default (created_at DESC)
+    return list
+  }, [courses, search, sortBy])
+
   async function deleteCourse(id) {
     if (!confirm('Delete this course and all its lessons?')) return
     await supabase.from('courses').delete().eq('id', id)
     setCourses(prev => prev.filter(c => c.id !== id))
+    toast.success('Course deleted')
   }
 
   async function duplicateCourse(course) {
@@ -100,6 +126,7 @@ export default function CurriculumPage() {
       }
     }
     await loadCourses()
+    toast.success('Course duplicated')
     navigate(`/courses/${newCourse.id}`)
   }
 
@@ -128,6 +155,43 @@ export default function CurriculumPage() {
           New course
         </button>
       </div>
+
+      {/* Search + sort — only show when there are courses */}
+      {!loading && !loadError && courses.length > 0 && (
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300" aria-hidden="true" />
+            <input
+              className="input pl-9 text-sm"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search courses..."
+              aria-label="Search courses"
+            />
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            {[
+              { key: 'recent', label: 'Recent' },
+              { key: 'alpha',  label: 'A–Z' },
+              { key: 'subject', label: 'Subject' },
+            ].map(opt => (
+              <button
+                key={opt.key}
+                onClick={() => setSortBy(opt.key)}
+                className={`px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-all ${
+                  sortBy === opt.key
+                    ? 'bg-navy-800 text-white border-navy-800'
+                    : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'
+                }`}
+                aria-pressed={sortBy === opt.key}
+                title={`Sort by ${opt.label}`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <div className="space-y-3">
@@ -166,8 +230,15 @@ export default function CurriculumPage() {
           </button>
         </div>
       ) : (
+        {visibleCourses.length === 0 && search.trim() && (
+          <div className="card p-6 text-center">
+            <MagnifyingGlassIcon className="w-6 h-6 text-gray-200 mx-auto mb-2" />
+            <p className="text-sm text-gray-400">No courses match "{search}"</p>
+            <button onClick={() => setSearch('')} className="text-xs text-navy-700 hover:underline mt-1">Clear search</button>
+          </div>
+        )}
         <div className="space-y-2">
-          {courses.map(course => {
+          {visibleCourses.map(course => {
             const unitCount = course.units?.[0]?.count ?? 0
             return (
               <div
@@ -198,16 +269,18 @@ export default function CurriculumPage() {
                   <button
                     className="btn-ghost p-1.5"
                     onClick={e => { e.stopPropagation(); duplicateCourse(course) }}
-                    title="Duplicate"
+                    title="Duplicate course"
+                    aria-label={`Duplicate ${course.name}`}
                   >
-                    <DocumentDuplicateIcon className="w-4 h-4" />
+                    <DocumentDuplicateIcon className="w-4 h-4" aria-hidden="true" />
                   </button>
                   <button
                     className="btn-ghost p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50"
                     onClick={e => { e.stopPropagation(); deleteCourse(course.id) }}
-                    title="Delete"
+                    title="Delete course"
+                    aria-label={`Delete ${course.name}`}
                   >
-                    <TrashIcon className="w-4 h-4" />
+                    <TrashIcon className="w-4 h-4" aria-hidden="true" />
                   </button>
                 </div>
                 <ChevronRightIcon className="w-4 h-4 text-gray-300 shrink-0" />

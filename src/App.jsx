@@ -1,5 +1,6 @@
 import { Suspense, lazy } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
+import { Toaster } from 'sonner'
 import { AuthProvider, useAuth } from '@/context/AuthContext'
 
 // Pages — immediate load (critical)
@@ -123,6 +124,13 @@ export default function App() {
   return (
     <AuthProvider>
       <AppRoutes />
+      <Toaster
+        position="bottom-right"
+        toastOptions={{
+          style: { borderRadius: '12px', fontSize: '13px' },
+          duration: 3500,
+        }}
+      />
     </AuthProvider>
   )
 }
