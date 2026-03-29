@@ -141,7 +141,7 @@ export default function CurriculumPage() {
       'Art': 'bg-pink-50 text-pink-700',
       'Music': 'bg-orange-50 text-orange-700',
       'Physical Education': 'bg-cyan-50 text-cyan-700',
-      'Computer Science': 'bg-indigo-50 text-indigo-700',
+      'Computer Science': 'bg-navy-50 text-navy-700',
     }
     return map[subject] || 'bg-gray-100 text-gray-600'
   }
@@ -211,7 +211,7 @@ export default function CurriculumPage() {
           <p className="text-sm text-gray-400 mb-4">There was a problem connecting. Try refreshing.</p>
           <button
             onClick={() => { setLoadError(false); setLoading(true); loadCourses() }}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-xl hover:bg-indigo-700"
+            className="btn-primary"
           >
             Try again
           </button>
@@ -230,14 +230,15 @@ export default function CurriculumPage() {
           </button>
         </div>
       ) : (
-        {visibleCourses.length === 0 && search.trim() && (
-          <div className="card p-6 text-center">
-            <MagnifyingGlassIcon className="w-6 h-6 text-gray-200 mx-auto mb-2" />
-            <p className="text-sm text-gray-400">No courses match "{search}"</p>
-            <button onClick={() => setSearch('')} className="text-xs text-navy-700 hover:underline mt-1">Clear search</button>
-          </div>
-        )}
-        <div className="space-y-2">
+        <>
+          {visibleCourses.length === 0 && search.trim() && (
+            <div className="card p-6 text-center">
+              <MagnifyingGlassIcon className="w-6 h-6 text-gray-200 mx-auto mb-2" />
+              <p className="text-sm text-gray-400">No courses match &ldquo;{search}&rdquo;</p>
+              <button onClick={() => setSearch('')} className="text-xs text-navy-700 hover:underline mt-1">Clear search</button>
+            </div>
+          )}
+          <div className="space-y-2">
           {visibleCourses.map(course => {
             const unitCount = course.units?.[0]?.count ?? 0
             return (
@@ -287,7 +288,8 @@ export default function CurriculumPage() {
               </div>
             )
           })}
-        </div>
+          </div>
+        </>
       )}
 
       {showNewCourse && (
@@ -336,7 +338,7 @@ function NewCourseModal({ profile, onClose, onCreated }) {
         {/* Progress bar */}
         <div className="h-1 bg-gray-100">
           <div
-            className="h-1 bg-indigo-500 transition-all duration-300"
+            className="h-1 bg-navy-500 transition-all duration-300"
             style={{ width: step === 1 ? '50%' : '100%' }}
           />
         </div>

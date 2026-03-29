@@ -245,8 +245,8 @@ export default function CoursePage() {
           {/* Planner prompt when no units */}
           {units.length === 0 && !showPlanner && (
             <div className="card p-6 flex items-center gap-4 border-dashed border-2 border-gray-200 bg-gray-50">
-              <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center shrink-0">
-                <CalendarDaysIcon className="w-5 h-5 text-indigo-500" />
+              <div className="w-10 h-10 rounded-xl bg-navy-50 flex items-center justify-center shrink-0">
+                <CalendarDaysIcon className="w-5 h-5 text-navy-600" />
               </div>
               <div className="flex-1 min-w-0">
                 <p className="font-semibold text-gray-900 text-sm">Plan your year</p>
@@ -268,7 +268,7 @@ export default function CoursePage() {
               onClick={() => setShowPlanner(true)}
               className="w-full text-left card p-4 flex items-center gap-3 border-dashed border-gray-200 hover:bg-gray-50 transition-colors"
             >
-              <CalendarDaysIcon className="w-4 h-4 text-indigo-400 shrink-0" />
+              <CalendarDaysIcon className="w-4 h-4 text-navy-500 shrink-0" />
               <span className="text-sm text-gray-500">Continue planning your year month by month</span>
               <ChevronRightIcon className="w-4 h-4 text-gray-300 ml-auto" />
             </button>
@@ -304,13 +304,13 @@ export default function CoursePage() {
                     </div>
                     <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
                       <button
-                        className="btn-ghost p-1.5 text-indigo-400 hover:bg-indigo-50"
+                        className="btn-ghost p-1.5 text-navy-500 hover:bg-navy-50"
                         onClick={() => aiGenerateLessons(unit)}
                         disabled={aiLoading === unit.id}
                         title="Suggest lessons"
                       >
                         {aiLoading === unit.id
-                          ? <span className="w-4 h-4 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin block" />
+                          ? <span className="w-4 h-4 border-2 border-navy-400 border-t-transparent rounded-full animate-spin block" />
                           : <SparklesIcon className="w-4 h-4" />
                         }
                       </button>
@@ -449,13 +449,13 @@ function LessonRow({ lesson, idx, courseId, color, onDelete, onReload }) {
         </button>
         <div className="flex items-center gap-1 shrink-0">
           <button
-            className="btn-ghost p-1 text-indigo-400 hover:bg-indigo-50"
+            className="btn-ghost p-1 text-navy-500 hover:bg-navy-50"
             onClick={aiGenerateSegments}
             disabled={aiLoading}
             title="Suggest segments"
           >
             {aiLoading
-              ? <span className="w-3.5 h-3.5 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin block" />
+              ? <span className="w-3.5 h-3.5 border-2 border-navy-400 border-t-transparent rounded-full animate-spin block" />
               : <SparklesIcon className="w-3.5 h-3.5" />
             }
           </button>
@@ -597,7 +597,7 @@ function SectionsPanel({ courseId, sections, onSectionsChange }) {
         </div>
         <button
           onClick={() => setShowAdd(v => !v)}
-          className="flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-800 transition-colors"
+          className="flex items-center gap-1 text-xs font-medium text-navy-700 hover:text-navy-800 transition-colors"
         >
           <PlusIcon className="w-3.5 h-3.5" />
           Add period
@@ -704,7 +704,7 @@ function SectionsPanel({ courseId, sections, onSectionsChange }) {
               {form.meeting_days.length > 1 && (
                 <label className="flex items-center gap-2 cursor-pointer w-fit">
                   <div
-                    className={`w-8 h-4.5 rounded-full transition-colors relative ${form.use_per_day ? 'bg-indigo-500' : 'bg-gray-200'}`}
+                    className={`w-8 h-4.5 rounded-full transition-colors relative ${form.use_per_day ? 'bg-navy-500' : 'bg-gray-200'}`}
                     style={{ height: '18px', width: '32px' }}
                     onClick={() => setForm(f => ({ ...f, use_per_day: !f.use_per_day }))}
                   >
@@ -946,7 +946,7 @@ function StandardsPanel({ courseId, course, units }) {
           <div
             className={clsx(
               'border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors',
-              dragOver ? 'border-indigo-400 bg-indigo-50' : 'border-gray-200 hover:border-gray-300 bg-gray-50'
+              dragOver ? 'border-navy-400 bg-navy-50' : 'border-gray-200 hover:border-gray-300 bg-gray-50'
             )}
             onClick={() => fileRef.current?.click()}
             onDragOver={e => { e.preventDefault(); setDragOver(true) }}
@@ -966,7 +966,7 @@ function StandardsPanel({ courseId, course, units }) {
           </div>
         ) : (
           <div className="flex items-center gap-3 bg-gray-50 rounded-xl px-4 py-3">
-            <DocumentTextIcon className="w-5 h-5 text-indigo-500 shrink-0" />
+            <DocumentTextIcon className="w-5 h-5 text-navy-600 shrink-0" />
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-gray-800 truncate">{file.name}</p>
               {analyzing && <p className="text-xs text-gray-400 mt-0.5">Reading standards...</p>}
@@ -993,7 +993,7 @@ function StandardsPanel({ courseId, course, units }) {
               <button
                 onClick={analyzeAlignment}
                 disabled={analyzing}
-                className="flex items-center gap-1.5 text-xs font-semibold text-white bg-indigo-600 px-3 py-1.5 rounded-lg hover:bg-indigo-700 disabled:opacity-40"
+                className="flex items-center gap-1.5 text-xs font-semibold text-white bg-navy-800 px-3 py-1.5 rounded-lg hover:bg-navy-900 disabled:opacity-40"
               >
                 <SparklesIcon className="w-3.5 h-3.5" />
                 Analyze alignment
@@ -1004,7 +1004,7 @@ function StandardsPanel({ courseId, course, units }) {
             {standards.map((std, i) => (
               <div key={i} className="px-4 py-2.5 flex items-start gap-3">
                 {std.code && (
-                  <span className="text-xs font-mono font-semibold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded shrink-0 mt-0.5">
+                  <span className="text-xs font-mono font-semibold text-navy-700 bg-navy-50 px-1.5 py-0.5 rounded shrink-0 mt-0.5">
                     {std.code}
                   </span>
                 )}
@@ -1049,7 +1049,7 @@ function StandardsPanel({ courseId, course, units }) {
                         {item.coverage === 'strong' ? 'Well covered' : item.coverage === 'partial' ? 'Partially covered' : 'Gap'}
                       </span>
                       {item.standard_code && (
-                        <span className="text-xs font-mono text-indigo-600">{item.standard_code}</span>
+                        <span className="text-xs font-mono text-navy-700">{item.standard_code}</span>
                       )}
                     </div>
                     <p className="text-xs text-gray-600">{item.note}</p>
@@ -1083,8 +1083,6 @@ function StandardsPanel({ courseId, course, units }) {
 }
 
 // ─── Course Planner — redesigned ──────────────────────────────────
-
-const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
 
 function CoursePlanner({ course, onDone, onSkip }) {
   const [step, setStep] = useState(1)
@@ -1285,7 +1283,7 @@ function CoursePlanner({ course, onDone, onSkip }) {
                   type="button"
                   onClick={() => generateForMonth(mt)}
                   disabled={!mt.topic.trim() || isGenerating || !!generating}
-                  className="shrink-0 px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5 min-w-[80px] justify-center"
+                  className="shrink-0 px-3 py-1.5 text-xs font-semibold text-white bg-navy-800 rounded-lg hover:bg-navy-900 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5 min-w-[80px] justify-center"
                 >
                   {isGenerating
                     ? <><span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" /> Building</>
