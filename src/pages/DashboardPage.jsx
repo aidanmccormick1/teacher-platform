@@ -20,9 +20,14 @@ import {
   ArrowPathIcon,
   SunIcon,
   MoonIcon,
+  PencilSquareIcon,
+  ListBulletIcon,
 } from '@heroicons/react/24/outline'
 import { CheckCircleIcon as CheckSolid } from '@heroicons/react/24/solid'
 import { format } from 'date-fns'
+import DailyDigest from '@/components/DailyDigest'
+import ClassNotesDrawer from '@/components/ClassNotesDrawer'
+import InClassTracker from '@/components/InClassTracker'
 
 const PERIOD_COLORS = [
   { bg: 'bg-blue-500',    light: 'bg-blue-50',    border: 'border-blue-200',   text: 'text-blue-700',   dot: 'bg-blue-400',   ring: 'ring-blue-200',   pill: 'bg-blue-100 text-blue-700' },
@@ -44,16 +49,19 @@ function colorFor(i) {
 export default function DashboardPage() {
   const { profile } = useAuth()
   const navigate    = useNavigate()
-  const [sections, setSections]     = useState([])
+  const [sections, setSections]       = useState([])
   const [allSections, setAllSections] = useState([])
-  const [courses, setCourses]       = useState([])
-  const [loading, setLoading]       = useState(true)
-  const [loadError, setLoadError]   = useState(false)
-  const [now, setNow]               = useState(new Date())
+  const [courses, setCourses]         = useState([])
+  const [lessonsBySectionId, setLessonsBySectionId] = useState({})
+  const [loading, setLoading]         = useState(true)
+  const [loadError, setLoadError]     = useState(false)
+  const [now, setNow]                 = useState(new Date())
+  // Notes drawer state
+  const [notesSection, setNotesSection] = useState(null)
 
   useEffect(() => { document.title = 'Dashboard | Cacio EDU' }, [])
 
-  // Keep "now" ticking so "Now" badge stays accurate
+  // Keep "now" ticking so badges stay accurate
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 60_000)
     return () => clearInterval(t)
@@ -78,7 +86,7 @@ export default function DashboardPage() {
 
     const { data: courseData } = await supabase
       .from('courses')
-      .select('id, name, subject, grade_level, sections(id, name, meeting_days, meeting_time, room, course_id)')
+      .select('id, name, subject, grade_level, sections(id, name, meeting_days, meeting_time, room, course_id, end_time)')
       .eq('teacher_id', profile.id)
       .order('id')
 
@@ -105,6 +113,7 @@ export default function DashboardPage() {
     let progressBySection = {}
 
     if (sectionIds.length > 0) {
+      // Load lesson progress
       const { data: progressData } = await supabase
         .from('lesson_progress')
         .select('section_id, lesson_id, status, last_segment_completed_index, date_taught, lessons(title, order_index, units(title, order_index))')
@@ -114,6 +123,30 @@ export default function DashboardPage() {
       ;(progressData || []).forEach(p => {
         if (!progressBySection[p.section_id]) progressBySection[p.section_id] = p
       })
+
+      // Load lessons for today's sections (for the tracker)
+      const { data: lessonsData } = await supabase
+        .from('lessons')
+        .select('id, title, order_index, unit_id, units!inner(course_id)')
+        .in('units.course_id', courseData.map(c => c.id))
+        .order('order_index')
+
+      if (lessonsData) {
+        // Group lessons by section via course — pick the first unit's lessons per course
+        const lessonsByCourse = {}
+        lessonsData.forEach(l => {
+          const cid = l.units?.course_id
+          if (!cid) return
+          if (!lessonsByCourse[cid]) lessonsByCourse[cid] = []
+          lessonsByCourse[cid].push(l)
+        })
+        const map = {}
+        todaySections.forEach(s => {
+          const course = courseLookup[s.course_id]
+          if (course) map[s.id] = lessonsByCourse[course.id] || []
+        })
+        setLessonsBySectionId(map)
+      }
     }
 
     const enriched = todaySections.map(section => ({
@@ -135,8 +168,7 @@ export default function DashboardPage() {
 
   const todayLabel  = format(new Date(), 'EEEE, MMMM d')
   const greeting    = getGreeting()
-  const greetIcon   = greeting === 'morning' ? SunIcon : greeting === 'afternoon' ? SunIcon : MoonIcon
-  const GreetIcon   = greetIcon
+  const GreetIcon   = greeting === 'evening' ? MoonIcon : SunIcon
   const firstName   = profile?.full_name?.split(' ')[0] ||
     (profile?.email ? profile.email.split('@')[0].replace(/[^a-zA-Z]/g, '') : null)
   const displayName = firstName
@@ -148,11 +180,9 @@ export default function DashboardPage() {
   const currentIdx  = sections.findIndex(s => s.isNow)
   const nextIdx     = currentIdx >= 0 ? currentIdx + 1 : 0
 
-  // Build course color map once
   const courseColorMap = {}
   courses.forEach((course, idx) => { courseColorMap[course.id] = colorFor(idx) })
 
-  // Week schedule: group allSections by day
   const weekByDay = {}
   WEEKDAYS.forEach(d => { weekByDay[d] = [] })
   allSections.forEach(s => {
@@ -165,8 +195,16 @@ export default function DashboardPage() {
   })
   const todayName = format(new Date(), 'EEEE')
 
+  // Find the notes-section's course for the drawer
+  const notesCourse = notesSection
+    ? courses.find(c => c.id === notesSection.course_id)
+    : null
+  const notesColor = notesSection
+    ? courseColorMap[notesSection.course_id]
+    : null
+
   return (
-    <div className="space-y-6 pb-10">
+    <div className="space-y-5 pb-10">
       {/* ── Header ── */}
       <div className="flex items-start justify-between gap-4">
         <div>
@@ -203,106 +241,125 @@ export default function DashboardPage() {
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-          {/* ── Left column: today + stats ── */}
-          <div className="lg:col-span-2 space-y-5">
-            {/* Stats row */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <StatCard
-                label="Today"
-                value={sections.length}
-                sub="classes"
-                icon={<CalendarDaysIcon className="w-4 h-4" />}
-                accent="text-navy-700"
-                bg="bg-navy-50"
-              />
-              <StatCard
-                label="Courses"
-                value={courses.length}
-                sub="total"
-                icon={<BookOpenIcon className="w-4 h-4" />}
-                accent="text-emerald-600"
-                bg="bg-emerald-50"
-              />
-              <StatCard
-                label="Now"
-                value={sections.some(s => s.isNow) ? sections.find(s => s.isNow).name : '—'}
-                sub={sections.some(s => s.isNow) ? 'in session' : 'no class'}
-                icon={<ClockIcon className="w-4 h-4" />}
-                accent="text-amber-600"
-                bg="bg-amber-50"
-                compact
-              />
-              <StatCard
-                label="Done"
-                value={sections.filter(s => {
-                  if (!s.meeting_time) return false
-                  const [h, m] = s.meeting_time.split(':').map(Number)
-                  const end = new Date()
-                  end.setHours(h, m + 55, 0, 0)
-                  return new Date() > end
-                }).length}
-                sub="today"
-                icon={<CheckSolid className="w-4 h-4" />}
-                accent="text-teal-600"
-                bg="bg-teal-50"
-              />
-            </div>
+        <>
+          {/* ── Daily Digest strip ── */}
+          <DailyDigest sections={sections} courses={courses} />
 
-            {/* Today's classes */}
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Today's Classes</p>
-                <button
-                  onClick={() => navigate('/schedule')}
-                  className="text-xs text-navy-700 font-semibold hover:underline flex items-center gap-1"
-                >
-                  Edit schedule
-                  <ChevronRightIcon className="w-3 h-3" />
-                </button>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            {/* ── Left column ── */}
+            <div className="lg:col-span-2 space-y-5">
+              {/* Stats row */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <StatCard
+                  label="Today"
+                  value={sections.length}
+                  sub="classes"
+                  icon={<CalendarDaysIcon className="w-4 h-4" />}
+                  accent="text-navy-700"
+                  bg="bg-navy-50"
+                />
+                <StatCard
+                  label="Courses"
+                  value={courses.length}
+                  sub="total"
+                  icon={<BookOpenIcon className="w-4 h-4" />}
+                  accent="text-emerald-600"
+                  bg="bg-emerald-50"
+                />
+                <StatCard
+                  label="Now"
+                  value={sections.some(s => s.isNow) ? sections.find(s => s.isNow).name : '—'}
+                  sub={sections.some(s => s.isNow) ? 'in session' : 'no class'}
+                  icon={<ClockIcon className="w-4 h-4" />}
+                  accent="text-amber-600"
+                  bg="bg-amber-50"
+                  compact
+                />
+                <StatCard
+                  label="Done"
+                  value={sections.filter(s => {
+                    if (!s.meeting_time) return false
+                    const [h, m] = s.meeting_time.split(':').map(Number)
+                    const end = new Date()
+                    end.setHours(h, m + 55, 0, 0)
+                    return new Date() > end
+                  }).length}
+                  sub="today"
+                  icon={<CheckSolid className="w-4 h-4" />}
+                  accent="text-teal-600"
+                  bg="bg-teal-50"
+                />
               </div>
 
-              <div className="space-y-2.5">
-                {sections.map((section, i) => {
-                  const color  = courseColorMap[section.course_id]
-                  const isNext = !section.isNow && i === nextIdx && !sections[0]?.isNow
-                  return (
-                    <ClassCard
-                      key={section.id}
-                      section={section}
-                      color={color}
-                      isNext={isNext}
-                      navigate={navigate}
-                    />
-                  )
-                })}
+              {/* Today's classes */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Today's Classes</p>
+                  <button
+                    onClick={() => navigate('/schedule')}
+                    className="text-xs text-navy-700 font-semibold hover:underline flex items-center gap-1"
+                  >
+                    Edit schedule
+                    <ChevronRightIcon className="w-3 h-3" />
+                  </button>
+                </div>
+
+                <div className="space-y-2.5">
+                  {sections.map((section, i) => {
+                    const color  = courseColorMap[section.course_id]
+                    const isNext = !section.isNow && i === nextIdx && !sections[0]?.isNow
+                    const lessons = lessonsBySectionId[section.id] || []
+                    return (
+                      <ClassCard
+                        key={section.id}
+                        section={section}
+                        color={color}
+                        isNext={isNext}
+                        lessons={lessons}
+                        onOpenNotes={() => setNotesSection(section)}
+                        navigate={navigate}
+                      />
+                    )
+                  })}
+                </div>
               </div>
+
+              {/* Progress timeline */}
+              <DayTimeline sections={sections} courseColorMap={courseColorMap} />
             </div>
 
-            {/* Progress timeline */}
-            <DayTimeline sections={sections} courseColorMap={courseColorMap} />
+            {/* ── Right column ── */}
+            <div className="lg:col-span-1">
+              <WeekSidebar
+                weekByDay={weekByDay}
+                todayName={todayName}
+                courseColorMap={courseColorMap}
+                courses={courses}
+                navigate={navigate}
+              />
+            </div>
           </div>
+        </>
+      )}
 
-          {/* ── Right column: weekly schedule sidebar ── */}
-          <div className="lg:col-span-1">
-            <WeekSidebar
-              weekByDay={weekByDay}
-              todayName={todayName}
-              courseColorMap={courseColorMap}
-              courses={courses}
-              navigate={navigate}
-            />
-          </div>
-        </div>
+      {/* ── Class Notes Drawer ── */}
+      {notesSection && (
+        <ClassNotesDrawer
+          section={notesSection}
+          course={notesCourse}
+          color={notesColor}
+          onClose={() => setNotesSection(null)}
+        />
       )}
     </div>
   )
 }
 
 // ── Class Card ─────────────────────────────────────────────────────────────
-function ClassCard({ section, color, isNext, navigate }) {
+function ClassCard({ section, color, isNext, lessons, onOpenNotes, navigate }) {
   const { course, isNow, currentLesson } = section
   const lessonTitle = currentLesson?.lessons?.title
+  const [showTracker, setShowTracker] = useState(false)
 
   // Calculate progress through class if "now"
   let progressPct = 0
@@ -316,9 +373,8 @@ function ClassCard({ section, color, isNext, navigate }) {
 
   return (
     <div
-      onClick={() => navigate('/schedule')}
       className={`
-        relative rounded-2xl overflow-hidden cursor-pointer transition-all duration-200
+        relative rounded-2xl overflow-hidden transition-all duration-200
         ${isNow
           ? 'shadow-lg shadow-amber-100/60 ring-1 ring-amber-200'
           : 'bg-white border border-gray-100 hover:border-gray-200 hover:shadow-md'
@@ -339,7 +395,11 @@ function ClassCard({ section, color, isNext, navigate }) {
       {/* Left color bar */}
       <div className={`absolute left-0 top-0 bottom-0 w-[3px] ${color?.bg || 'bg-gray-300'}`} />
 
-      <div className="pl-4 pr-4 py-3.5 flex items-center gap-4">
+      {/* Main card row — clicking navigates to schedule */}
+      <div
+        className="pl-4 pr-4 py-3.5 flex items-center gap-4 cursor-pointer"
+        onClick={() => navigate('/schedule')}
+      >
         {/* Time block */}
         <div className="text-center shrink-0 w-12">
           {section.meeting_time ? (
@@ -384,18 +444,45 @@ function ClassCard({ section, color, isNext, navigate }) {
               </span>
             )}
           </div>
-          {lessonTitle && (
-            <div className="mt-1.5 flex items-center gap-1.5">
-              <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${color?.dot || 'bg-gray-300'}`} />
-              <p className="text-[11px] text-gray-400 truncate">
-                Last: <span className="text-gray-600 font-medium">{lessonTitle}</span>
-              </p>
-            </div>
-          )}
+        </div>
+
+        {/* Action buttons — stop propagation so they don't navigate */}
+        <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+          {/* Notes button */}
+          <button
+            onClick={onOpenNotes}
+            className="p-1.5 rounded-lg text-gray-300 hover:text-navy-700 hover:bg-navy-50 transition-all"
+            title="Class notes"
+          >
+            <PencilSquareIcon className="w-4 h-4" />
+          </button>
+
+          {/* Tracker toggle */}
+          <button
+            onClick={() => setShowTracker(p => !p)}
+            className={`p-1.5 rounded-lg transition-all ${showTracker ? `${color?.light || 'bg-gray-50'} ${color?.text || 'text-gray-700'}` : 'text-gray-300 hover:text-navy-700 hover:bg-navy-50'}`}
+            title="Lesson tracker"
+          >
+            <ListBulletIcon className="w-4 h-4" />
+          </button>
         </div>
 
         <ChevronRightIcon className="w-4 h-4 text-gray-200 shrink-0" />
       </div>
+
+      {/* Inline tracker — shown when expanded */}
+      {showTracker && (
+        <div className="px-5 pb-4 border-t border-gray-50">
+          <div className="pt-3">
+            <InClassTracker
+              section={section}
+              lessons={lessons}
+              color={color}
+              compact={true}
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -404,7 +491,6 @@ function ClassCard({ section, color, isNext, navigate }) {
 function DayTimeline({ sections, courseColorMap }) {
   if (!sections.some(s => s.meeting_time)) return null
 
-  // Earliest / latest times to determine scale
   const times = sections
     .filter(s => s.meeting_time)
     .map(s => {
@@ -412,7 +498,7 @@ function DayTimeline({ sections, courseColorMap }) {
       return h * 60 + m
     })
   const minT = Math.min(...times) - 30
-  const maxT = Math.max(...times) + 85 // +55 min class + buffer
+  const maxT = Math.max(...times) + 85
   const span = maxT - minT || 1
 
   const nowMin = new Date().getHours() * 60 + new Date().getMinutes()
@@ -424,10 +510,8 @@ function DayTimeline({ sections, courseColorMap }) {
       <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Day Timeline</p>
 
       <div className="relative h-8">
-        {/* Track */}
         <div className="absolute inset-y-[13px] left-0 right-0 h-1.5 bg-gray-100 rounded-full" />
 
-        {/* Class blocks */}
         {sections.filter(s => s.meeting_time).map(s => {
           const [h, m] = s.meeting_time.split(':').map(Number)
           const startMin = h * 60 + m
@@ -444,7 +528,6 @@ function DayTimeline({ sections, courseColorMap }) {
           )
         })}
 
-        {/* Now indicator */}
         {showNow && (
           <div
             className="absolute top-0 w-0.5 h-8 bg-red-400 rounded-full"
@@ -455,7 +538,6 @@ function DayTimeline({ sections, courseColorMap }) {
         )}
       </div>
 
-      {/* Time labels */}
       <div className="flex justify-between mt-1.5">
         <span className="text-[10px] text-gray-300 font-medium">
           {Math.floor((minT + 30) / 60)}:{String((minT + 30) % 60).padStart(2, '0')}
@@ -476,13 +558,11 @@ function WeekSidebar({ weekByDay, todayName, courseColorMap, courses, navigate }
 
   const daySections = weekByDay[selectedDay] || []
 
-  // Build course lookup
   const courseLookup = {}
   courses.forEach(c => { courseLookup[c.id] = c })
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden sticky top-5">
-      {/* Header */}
       <div className="px-4 pt-4 pb-3 border-b border-gray-50">
         <div className="flex items-center justify-between mb-3">
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Week Schedule</p>
@@ -494,7 +574,6 @@ function WeekSidebar({ weekByDay, todayName, courseColorMap, courses, navigate }
           </button>
         </div>
 
-        {/* Day tabs */}
         <div className="flex gap-1">
           {WEEKDAYS.map(day => {
             const isToday = day === todayName
@@ -524,7 +603,6 @@ function WeekSidebar({ weekByDay, todayName, courseColorMap, courses, navigate }
         </div>
       </div>
 
-      {/* Day sections list */}
       <div className="p-3">
         {daySections.length === 0 ? (
           <div className="py-8 text-center">
@@ -555,10 +633,8 @@ function WeekSidebar({ weekByDay, todayName, courseColorMap, courses, navigate }
                   `}
                   onClick={() => navigate('/schedule')}
                 >
-                  {/* Color dot */}
                   <div className={`w-2 h-2 rounded-full shrink-0 ${color?.dot || 'bg-gray-300'}`} />
 
-                  {/* Info */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5">
                       {isNow && (
@@ -572,7 +648,6 @@ function WeekSidebar({ weekByDay, todayName, courseColorMap, courses, navigate }
                     </p>
                   </div>
 
-                  {/* Room */}
                   {section.room && (
                     <span className="text-[10px] text-gray-300 font-medium shrink-0 group-hover:text-gray-400">
                       Rm {section.room}
@@ -585,7 +660,6 @@ function WeekSidebar({ weekByDay, todayName, courseColorMap, courses, navigate }
         )}
       </div>
 
-      {/* Footer: class count */}
       <div className="px-4 py-3 border-t border-gray-50 flex items-center justify-between">
         <p className="text-[11px] text-gray-400">
           {daySections.length} {daySections.length === 1 ? 'class' : 'classes'}
@@ -627,8 +701,8 @@ function SetupPrompt({ navigate, courses }) {
             <h2 className="font-bold text-lg tracking-tight">Build your schedule</h2>
             <p className="text-sm text-white/70 mt-1.5 leading-relaxed">
               {courses.length === 0
-                ? "Add your courses first, then use AI to build your full weekly schedule in under 2 minutes."
-                : "You have courses set up. Paste your schedule text or snap a photo and AI will build it for you."
+                ? "Add your courses first, then build your full weekly schedule in under 2 minutes."
+                : "You have courses set up. Paste your schedule text or snap a photo to build it automatically."
               }
             </p>
           </div>
@@ -649,16 +723,15 @@ function SetupPrompt({ navigate, courses }) {
               className="flex items-center gap-2 px-4 py-2.5 bg-white text-navy-800 text-sm font-semibold rounded-xl hover:bg-gray-50 transition-colors shadow-sm"
             >
               <CalendarDaysIcon className="w-4 h-4" />
-              Build with AI
+              Build schedule
             </button>
           )}
         </div>
       </div>
 
-      {/* Feature hints */}
       <div className="grid grid-cols-3 divide-x divide-gray-100 border border-t-0 border-gray-100 rounded-b-2xl overflow-hidden">
         {[
-          { icon: '✦', text: 'AI text parser' },
+          { icon: '✦', text: 'Text parser' },
           { icon: '⌗', text: 'Photo import' },
           { icon: '⊞', text: 'Manual entry' },
         ].map(f => (
@@ -679,7 +752,6 @@ function FreeDay({ sections, courses, courseColorMap, navigate }) {
   const courseLookup = {}
   courses.forEach(c => { courseLookup[c.id] = c })
 
-  // Find next school day that has classes
   let nextDayLabel = null
   let nextDaySections = []
   for (let offset = 1; offset <= 7; offset++) {
@@ -699,7 +771,6 @@ function FreeDay({ sections, courses, courseColorMap, navigate }) {
 
   return (
     <div className="space-y-4">
-      {/* Status card */}
       <div className="bg-white rounded-2xl border border-gray-100 p-6">
         <div className="flex items-start gap-4">
           <div className="w-11 h-11 rounded-full bg-navy-50 flex items-center justify-center shrink-0">
@@ -732,7 +803,6 @@ function FreeDay({ sections, courses, courseColorMap, navigate }) {
         </div>
       </div>
 
-      {/* Next Up */}
       {nextDaySections.length > 0 && (
         <div>
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2.5">
@@ -772,40 +842,44 @@ function FreeDay({ sections, courses, courseColorMap, navigate }) {
 // ── Loading Skeleton ────────────────────────────────────────────────────────
 function LoadingSkeleton() {
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-      <div className="lg:col-span-2 space-y-5">
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {[1,2,3,4].map(i => (
-            <div key={i} className="bg-white rounded-2xl border border-gray-100 p-4 animate-pulse">
-              <div className="w-7 h-7 bg-gray-100 rounded-lg mb-2.5" />
-              <div className="h-6 bg-gray-100 rounded w-1/2 mb-1" />
-              <div className="h-3 bg-gray-100 rounded w-2/3" />
-            </div>
-          ))}
-        </div>
-        <div className="space-y-2.5">
-          {[1, 2, 3].map(i => (
-            <div key={i} className="bg-white rounded-2xl border border-gray-100 p-4 animate-pulse">
-              <div className="flex gap-4">
-                <div className="w-12 h-10 bg-gray-100 rounded-lg" />
-                <div className="flex-1 space-y-2">
-                  <div className="h-4 bg-gray-100 rounded w-1/3" />
-                  <div className="h-3 bg-gray-100 rounded w-1/2" />
+    <div className="space-y-4">
+      {/* Digest skeleton */}
+      <div className="bg-white rounded-2xl border border-gray-100 p-4 animate-pulse h-16" />
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <div className="lg:col-span-2 space-y-5">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {[1,2,3,4].map(i => (
+              <div key={i} className="bg-white rounded-2xl border border-gray-100 p-4 animate-pulse">
+                <div className="w-7 h-7 bg-gray-100 rounded-lg mb-2.5" />
+                <div className="h-6 bg-gray-100 rounded w-1/2 mb-1" />
+                <div className="h-3 bg-gray-100 rounded w-2/3" />
+              </div>
+            ))}
+          </div>
+          <div className="space-y-2.5">
+            {[1, 2, 3].map(i => (
+              <div key={i} className="bg-white rounded-2xl border border-gray-100 p-4 animate-pulse">
+                <div className="flex gap-4">
+                  <div className="w-12 h-10 bg-gray-100 rounded-lg" />
+                  <div className="flex-1 space-y-2">
+                    <div className="h-4 bg-gray-100 rounded w-1/3" />
+                    <div className="h-3 bg-gray-100 rounded w-1/2" />
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
-      </div>
-      <div className="lg:col-span-1">
-        <div className="bg-white rounded-2xl border border-gray-100 p-4 animate-pulse space-y-3">
-          <div className="h-4 bg-gray-100 rounded w-1/2" />
-          <div className="flex gap-1">
-            {[1,2,3,4,5].map(i => <div key={i} className="flex-1 h-7 bg-gray-100 rounded-lg" />)}
+            ))}
           </div>
-          {[1,2,3].map(i => (
-            <div key={i} className="h-12 bg-gray-50 rounded-xl" />
-          ))}
+        </div>
+        <div className="lg:col-span-1">
+          <div className="bg-white rounded-2xl border border-gray-100 p-4 animate-pulse space-y-3">
+            <div className="h-4 bg-gray-100 rounded w-1/2" />
+            <div className="flex gap-1">
+              {[1,2,3,4,5].map(i => <div key={i} className="flex-1 h-7 bg-gray-100 rounded-lg" />)}
+            </div>
+            {[1,2,3].map(i => (
+              <div key={i} className="h-12 bg-gray-50 rounded-xl" />
+            ))}
+          </div>
         </div>
       </div>
     </div>
