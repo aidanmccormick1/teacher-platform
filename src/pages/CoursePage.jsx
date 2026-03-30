@@ -331,6 +331,7 @@ export default function CoursePage() {
                           lesson={lesson}
                           idx={lIdx}
                           courseId={courseId}
+                          sections={sections}
                           color={color}
                           onDelete={() => deleteLesson(unit.id, lesson.id)}
                           onReload={loadCourse}
@@ -364,12 +365,22 @@ export default function CoursePage() {
 
 // ─── Lesson Row ────────────────────────────────────────────────────
 
-function LessonRow({ lesson, idx, courseId, color, onDelete, onReload }) {
+function LessonRow({ lesson, idx, courseId, sections, color, onDelete, onReload }) {
   const navigate = useNavigate()
   const [expanded, setExpanded] = useState(false)
   const [segments, setSegments] = useState(lesson.lesson_segments || [])
   const [segLoaded, setSegLoaded] = useState(false)
   const [aiLoading, setAiLoading] = useState(false)
+  const [showSectionPicker, setShowSectionPicker] = useState(false)
+
+  function handleTrack() {
+    if (!sections?.length) return
+    if (sections.length === 1) {
+      navigate(`/sections/${sections[0].id}/lessons/${lesson.id}`)
+    } else {
+      setShowSectionPicker(v => !v)
+    }
+  }
 
   async function loadSegments() {
     if (segLoaded) return
@@ -448,6 +459,15 @@ function LessonRow({ lesson, idx, courseId, color, onDelete, onReload }) {
           )}
         </button>
         <div className="flex items-center gap-1 shrink-0">
+          {sections?.length > 0 && (
+            <button
+              className="btn-ghost p-1 text-navy-500 hover:bg-navy-50"
+              onClick={handleTrack}
+              title="Track this lesson"
+            >
+              <ChevronRightIcon className="w-3.5 h-3.5" />
+            </button>
+          )}
           <button
             className="btn-ghost p-1 text-navy-500 hover:bg-navy-50"
             onClick={aiGenerateSegments}
@@ -464,6 +484,23 @@ function LessonRow({ lesson, idx, courseId, color, onDelete, onReload }) {
           </button>
         </div>
       </div>
+
+      {/* Section picker — shown when course has multiple sections */}
+      {showSectionPicker && sections?.length > 1 && (
+        <div className="mx-4 mb-2 rounded-xl border border-navy-100 bg-navy-50/60 divide-y divide-navy-100 overflow-hidden">
+          <p className="px-3 py-2 text-[11px] font-semibold text-navy-700 uppercase tracking-wide">Which period?</p>
+          {sections.map(s => (
+            <button
+              key={s.id}
+              className="w-full text-left px-3 py-2.5 text-xs text-gray-700 hover:bg-navy-100 flex items-center justify-between transition-colors"
+              onClick={() => navigate(`/sections/${s.id}/lessons/${lesson.id}`)}
+            >
+              <span>{s.name}</span>
+              <ChevronRightIcon className="w-3.5 h-3.5 text-gray-400" />
+            </button>
+          ))}
+        </div>
+      )}
 
       {expanded && (
         <div className="bg-gray-50 px-4 pb-3 space-y-1.5 ml-7">

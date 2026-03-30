@@ -430,7 +430,7 @@ function WeekGrid({ sections, courses, onDeleteSection }) {
                         <p className="font-semibold truncate leading-tight">{section.name}</p>
                         {section.meeting_time && (
                           <p className="opacity-70 mt-0.5">
-                            {formatTime(section.meeting_time)}{section.end_time ? ` \u2013 ${formatTime(section.end_time)}` : ''}
+                            {formatTime(section.meeting_time)}{section.end_time ? ` – ${formatTime(section.end_time)}` : ''}
                           </p>
                         )}
                         {section.room && (
@@ -465,9 +465,13 @@ function AddClassModal({ courses, onClose, onCreated }) {
     meeting_time: '',
     end_time:     '',
     room:         '',
+    day_times:    {},
+    use_per_day:  false,
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+
+  const ALL_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'A-Day', 'B-Day']
 
   function toggleDay(day) {
     setForm(f => ({
@@ -478,13 +482,32 @@ function AddClassModal({ courses, onClose, onCreated }) {
     }))
   }
 
+  function setDayTimeField(day, field, value) {
+    setForm(f => ({
+      ...f,
+      day_times: {
+        ...f.day_times,
+        [day]: { ...(f.day_times[day] || {}), [field]: value },
+      },
+    }))
+  }
+
   async function handleCreate(e) {
     e.preventDefault()
     setLoading(true)
     setError(null)
+    const sectionData = {
+      course_id:    form.course_id,
+      name:         form.name,
+      meeting_days: form.meeting_days,
+      meeting_time: form.use_per_day ? null : (form.meeting_time || null),
+      end_time:     form.use_per_day ? null : (form.end_time || null),
+      day_times:    form.use_per_day ? form.day_times : null,
+      room:         form.room || null,
+    }
     const { data, error: dbError } = await supabase
       .from('sections')
-      .insert({ ...form, meeting_time: form.meeting_time || null, end_time: form.end_time || null })
+      .insert(sectionData)
       .select()
       .single()
     setLoading(false)
@@ -496,8 +519,6 @@ function AddClassModal({ courses, onClose, onCreated }) {
       onClose()
     }
   }
-
-  const ALL_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'A-Day', 'B-Day']
 
   return (
     <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-4 bg-black/40">
@@ -558,31 +579,102 @@ function AddClassModal({ courses, onClose, onCreated }) {
                     : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
                 }`}
               >
-                {day.length > 3 ? day.slice(0, 3) : day}
+                {DAY_SHORT[day] || (day.length > 3 ? day.slice(0, 3) : day)}
               </button>
             ))}
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-3">
-          <div>
-            <label className="label">Start time</label>
-            <input
-              type="time"
-              className="input"
-              value={form.meeting_time}
-              onChange={e => setForm(f => ({ ...f, meeting_time: e.target.value }))}
-            />
+        {/* Time section — matches SectionsPanel in CoursePage */}
+        {form.meeting_days.length > 0 && (
+          <div className="space-y-2">
+            {form.meeting_days.length > 1 && (
+              <label className="flex items-center gap-2 cursor-pointer w-fit">
+                <div
+                  className={`rounded-full transition-colors relative ${form.use_per_day ? 'bg-navy-500' : 'bg-gray-200'}`}
+                  style={{ height: '18px', width: '32px' }}
+                  onClick={() => setForm(f => ({ ...f, use_per_day: !f.use_per_day }))}
+                >
+                  <div className={`absolute top-0.5 w-3.5 h-3.5 bg-white rounded-full shadow transition-transform ${form.use_per_day ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                </div>
+                <span className="text-xs text-gray-500">Different times per day</span>
+              </label>
+            )}
+
+            {form.use_per_day && form.meeting_days.length > 1 ? (
+              <div className="space-y-2">
+                <div className="flex items-center gap-3 text-[10px] font-semibold text-gray-400 uppercase tracking-widest">
+                  <span className="w-10" />
+                  <span className="w-32">Start</span>
+                  <span className="w-32">End</span>
+                </div>
+                {form.meeting_days.map(day => (
+                  <div key={day} className="flex items-center gap-3">
+                    <span className="text-xs font-medium text-gray-600 w-10">{DAY_SHORT[day] || day}</span>
+                    <input
+                      type="time"
+                      className="input text-sm w-32"
+                      value={form.day_times[day]?.start || ''}
+                      onChange={e => setDayTimeField(day, 'start', e.target.value)}
+                    />
+                    <input
+                      type="time"
+                      className="input text-sm w-32"
+                      value={form.day_times[day]?.end || ''}
+                      onChange={e => setDayTimeField(day, 'end', e.target.value)}
+                    />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="label">Start time</label>
+                  <input
+                    type="time"
+                    className="input"
+                    value={form.meeting_time}
+                    onChange={e => setForm(f => ({ ...f, meeting_time: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="label">End time</label>
+                  <input
+                    type="time"
+                    className="input"
+                    value={form.end_time}
+                    onChange={e => setForm(f => ({ ...f, end_time: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="label">Room</label>
+                  <input
+                    className="input"
+                    value={form.room}
+                    onChange={e => setForm(f => ({ ...f, room: e.target.value }))}
+                    placeholder="204"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Room field when per-day mode is on (no space in the grid) */}
+            {form.use_per_day && form.meeting_days.length > 1 && (
+              <div>
+                <label className="label">Room</label>
+                <input
+                  className="input"
+                  value={form.room}
+                  onChange={e => setForm(f => ({ ...f, room: e.target.value }))}
+                  placeholder="204"
+                />
+              </div>
+            )}
           </div>
-          <div>
-            <label className="label">End time</label>
-            <input
-              type="time"
-              className="input"
-              value={form.end_time}
-              onChange={e => setForm(f => ({ ...f, end_time: e.target.value }))}
-            />
-          </div>
+        )}
+
+        {/* Room when no days selected yet */}
+        {form.meeting_days.length === 0 && (
           <div>
             <label className="label">Room</label>
             <input
@@ -592,7 +684,7 @@ function AddClassModal({ courses, onClose, onCreated }) {
               placeholder="204"
             />
           </div>
-        </div>
+        )}
 
         <div className="flex gap-3">
           <button type="button" className="btn-secondary flex-1" onClick={onClose}>Cancel</button>
@@ -684,7 +776,7 @@ function CourseScheduleCard({ course, sections, colorClass, onAddSection, onDele
                   {section.meeting_time && (
                     <span className="text-xs text-gray-400 flex items-center gap-1">
                       <ClockIcon className="w-3 h-3" />
-                      {formatTime(section.meeting_time)}{section.end_time ? ` \u2013 ${formatTime(section.end_time)}` : ''}
+                      {formatTime(section.meeting_time)}{section.end_time ? ` – ${formatTime(section.end_time)}` : ''}
                     </span>
                   )}
                   {section.room && (
@@ -736,7 +828,15 @@ function CourseScheduleCard({ course, sections, colorClass, onAddSection, onDele
 
 function InlineAddSection({ courseId, onCreated, onCancel }) {
   const ALL_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'A-Day', 'B-Day']
-  const [form, setForm] = useState({ name: '', meeting_days: [], meeting_time: '', end_time: '', room: '' })
+  const [form, setForm] = useState({
+    name: '',
+    meeting_days: [],
+    meeting_time: '',
+    end_time: '',
+    room: '',
+    day_times: {},
+    use_per_day: false,
+  })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
@@ -749,18 +849,56 @@ function InlineAddSection({ courseId, onCreated, onCancel }) {
     }))
   }
 
+  function setDayTimeField(day, field, value) {
+    setForm(f => ({
+      ...f,
+      day_times: {
+        ...f.day_times,
+        [day]: { ...(f.day_times[day] || {}), [field]: value },
+      },
+    }))
+  }
+
   async function handleCreate(e) {
     e.preventDefault()
     setLoading(true)
     setError(null)
+
+    const sectionData = {
+      course_id: courseId,
+      name: form.name,
+      meeting_days: form.meeting_days,
+      meeting_time: form.use_per_day ? null : (form.meeting_time || null),
+      end_time: form.use_per_day ? null : (form.end_time || null),
+      day_times: form.use_per_day ? form.day_times : null,
+      room: form.room || null,
+    }
+
     const { data, error: dbError } = await supabase
       .from('sections')
-      .insert({ ...form, course_id: courseId, meeting_time: form.meeting_time || null, end_time: form.end_time || null })
+      .insert(sectionData)
       .select()
       .single()
+
     setLoading(false)
     if (dbError) {
-      setError(dbError.message || 'Failed to add section')
+      if (dbError.message?.includes('day_times') || dbError.message?.includes('end_time')) {
+        const fallback = {
+          course_id: courseId,
+          name: form.name,
+          meeting_days: form.meeting_days,
+          meeting_time: form.meeting_time || null,
+          room: form.room || null,
+        }
+        const { data: d2, error: e2 } = await supabase.from('sections').insert(fallback).select().single()
+        if (e2) {
+          setError(e2.message || 'Failed to add section')
+        } else if (d2) {
+          onCreated(d2)
+        }
+      } else {
+        setError(dbError.message || 'Failed to add section')
+      }
     } else if (data) {
       onCreated(data)
     }
@@ -777,7 +915,7 @@ function InlineAddSection({ courseId, onCreated, onCancel }) {
             className="input text-sm"
             value={form.name}
             onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-            placeholder="Period 1, Block A, 6th hour..."
+            placeholder="Period 1, Block A..."
             required
             autoFocus
           />
@@ -813,26 +951,71 @@ function InlineAddSection({ courseId, onCreated, onCancel }) {
         </div>
       </div>
 
-      <div className="flex items-end gap-3">
-        <div className="w-36">
-          <label className="label text-xs">Start time</label>
-          <input
-            type="time"
-            className="input text-sm"
-            value={form.meeting_time}
-            onChange={e => setForm(f => ({ ...f, meeting_time: e.target.value }))}
-          />
+      {/* Time section */}
+      {form.meeting_days.length > 0 && (
+        <div className="space-y-2">
+          {form.meeting_days.length > 1 && (
+            <label className="flex items-center gap-2 cursor-pointer w-fit">
+              <div
+                className={`w-8 h-4.5 rounded-full transition-colors relative ${form.use_per_day ? 'bg-navy-500' : 'bg-gray-200'}`}
+                style={{ height: '18px', width: '32px' }}
+                onClick={() => setForm(f => ({ ...f, use_per_day: !f.use_per_day }))}
+              >
+                <div className={`absolute top-0.5 w-3.5 h-3.5 bg-white rounded-full shadow transition-transform ${form.use_per_day ? 'translate-x-4' : 'translate-x-0.5'}`} />
+              </div>
+              <span className="text-xs text-gray-500">Different times per day</span>
+            </label>
+          )}
+
+          {form.use_per_day && form.meeting_days.length > 1 ? (
+            <div className="space-y-2">
+              <div className="flex items-center gap-3 text-[10px] font-semibold text-gray-400 uppercase tracking-widest">
+                <span className="w-10" />
+                <span className="w-32">Start</span>
+                <span className="w-32">End</span>
+              </div>
+              {form.meeting_days.map(day => (
+                <div key={day} className="flex items-center gap-3">
+                  <span className="text-xs font-medium text-gray-600 w-10">{DAY_SHORT[day] || day}</span>
+                  <input
+                    type="time"
+                    className="input text-sm w-32"
+                    value={form.day_times[day]?.start || ''}
+                    onChange={e => setDayTimeField(day, 'start', e.target.value)}
+                  />
+                  <input
+                    type="time"
+                    className="input text-sm w-32"
+                    value={form.day_times[day]?.end || ''}
+                    onChange={e => setDayTimeField(day, 'end', e.target.value)}
+                  />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="flex items-end gap-3">
+              <div className="w-36">
+                <label className="label text-xs">Start time</label>
+                <input
+                  type="time"
+                  className="input text-sm"
+                  value={form.meeting_time}
+                  onChange={e => setForm(f => ({ ...f, meeting_time: e.target.value }))}
+                />
+              </div>
+              <div className="w-36">
+                <label className="label text-xs">End time</label>
+                <input
+                  type="time"
+                  className="input text-sm"
+                  value={form.end_time}
+                  onChange={e => setForm(f => ({ ...f, end_time: e.target.value }))}
+                />
+              </div>
+            </div>
+          )}
         </div>
-        <div className="w-36">
-          <label className="label text-xs">End time</label>
-          <input
-            type="time"
-            className="input text-sm"
-            value={form.end_time}
-            onChange={e => setForm(f => ({ ...f, end_time: e.target.value }))}
-          />
-        </div>
-      </div>
+      )}
 
       {error && <p className="text-xs text-red-600 bg-red-50 rounded px-2 py-1">{error}</p>}
 
@@ -846,7 +1029,7 @@ function InlineAddSection({ courseId, onCreated, onCancel }) {
         </button>
         <button
           type="submit"
-          disabled={loading || !form.name}
+          disabled={loading || !form.name || form.meeting_days.length === 0}
           className="px-3 py-1.5 text-xs font-semibold text-white bg-navy-800 rounded-lg hover:bg-navy-900 disabled:opacity-40"
         >
           {loading ? 'Adding...' : 'Add period'}
