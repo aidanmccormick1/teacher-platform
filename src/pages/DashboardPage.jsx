@@ -27,7 +27,6 @@ import { CheckCircleIcon as CheckSolid } from '@heroicons/react/24/solid'
 import { format } from 'date-fns'
 import DailyDigest from '@/components/DailyDigest'
 import ClassNotesDrawer from '@/components/ClassNotesDrawer'
-import InClassTracker from '@/components/InClassTracker'
 
 const PERIOD_COLORS = [
   { bg: 'bg-blue-500',    light: 'bg-blue-50',    border: 'border-blue-200',   text: 'text-blue-700',   dot: 'bg-blue-400',   ring: 'ring-blue-200',   pill: 'bg-blue-100 text-blue-700' },
@@ -142,7 +141,7 @@ export default function DashboardPage() {
       // Load lessons for today's sections (for the tracker)
       const { data: lessonsData } = await supabase
         .from('lessons')
-        .select('id, title, order_index, unit_id, units!inner(course_id)')
+        .select('id, title, order_index, unit_id, units!inner(id, title, course_id, order_index)')
         .in('units.course_id', courseData.map(c => c.id))
         .order('order_index')
 
@@ -374,56 +373,60 @@ export default function DashboardPage() {
 // ── Class Card ─────────────────────────────────────────────────────────────
 function ClassCard({ section, color, isNext, lessons, onOpenNotes, navigate }) {
   const { course, isNow, currentLesson, carryOver } = section
-  const lessonTitle = currentLesson?.lessons?.title
-  const [showTracker, setShowTracker] = useState(false)
+  const [expanded, setExpanded] = useState(isNow) // auto-expand the "now" class
 
-  // Calculate progress through class if "now"
-  let progressPct = 0
+  // Calculate time-in-class progress bar for "Now" card
+  let timePct = 0
   if (isNow && section.meeting_time) {
     const [h, m] = section.meeting_time.split(':').map(Number)
-    const start = new Date()
-    start.setHours(h, m, 0, 0)
+    const start = new Date(); start.setHours(h, m, 0, 0)
+    const duration = section.end_time
+      ? (() => { const [eh, em] = section.end_time.split(':').map(Number); return (eh * 60 + em) - (h * 60 + m) })()
+      : 55
     const elapsed = (Date.now() - start.getTime()) / 1000 / 60
-    progressPct = Math.min(100, Math.max(0, (elapsed / 55) * 100))
+    timePct = Math.min(100, Math.max(0, (elapsed / duration) * 100))
   }
 
+  // Figure out which lesson is current/next
+  const currentLessonId = currentLesson?.lesson_id
+  const currentLessonObj = lessons.find(l => l.id === currentLessonId) || lessons[0] || null
+  const currentUnitTitle = currentLessonObj?.units?.title || null
+  const currentUnitIdx   = currentLessonObj?.units?.order_index ?? null
+
+  // Carry-over from previous class
+  const hasCarryOver = !!(carryOver?.lessons?.id)
+
   return (
-    <div
-      className={`
-        relative rounded-2xl overflow-hidden transition-all duration-200
-        ${isNow
-          ? 'shadow-lg shadow-amber-100/60 ring-1 ring-amber-200'
-          : 'bg-white border border-gray-100 hover:border-gray-200 hover:shadow-md'
-        }
-      `}
-      style={isNow ? { background: 'white' } : {}}
-    >
-      {/* "Now" progress bar at top */}
+    <div className={`
+      relative rounded-2xl overflow-hidden transition-all duration-200 bg-white
+      ${isNow
+        ? 'shadow-md shadow-amber-100/50 ring-1 ring-amber-200'
+        : 'border border-gray-100 hover:border-gray-200 hover:shadow-sm'
+      }
+    `}>
+      {/* Time-in-class progress bar */}
       {isNow && (
-        <div className="absolute top-0 left-0 right-0 h-0.5 bg-gray-100">
-          <div
-            className="h-full bg-amber-400 transition-all duration-1000"
-            style={{ width: `${progressPct}%` }}
-          />
+        <div className="absolute top-0 left-0 right-0 h-0.5 bg-gray-100 z-10">
+          <div className="h-full bg-amber-400 transition-all duration-[60s]" style={{ width: `${timePct}%` }} />
         </div>
       )}
 
       {/* Left color bar */}
       <div className={`absolute left-0 top-0 bottom-0 w-[3px] ${color?.bg || 'bg-gray-300'}`} />
 
-      {/* Main card row — clicking navigates to schedule */}
+      {/* ── Header row (always visible) ── */}
       <div
-        className="pl-4 pr-4 py-3.5 flex items-center gap-4 cursor-pointer"
-        onClick={() => navigate('/schedule')}
+        className="pl-4 pr-3 py-3.5 flex items-center gap-3 cursor-pointer select-none"
+        onClick={() => setExpanded(v => !v)}
       >
         {/* Time block */}
-        <div className="text-center shrink-0 w-12">
+        <div className="text-center shrink-0 w-11">
           {section.meeting_time ? (
             <>
-              <p className="text-sm font-bold text-gray-900 leading-none">
-                {formatTime(section.meeting_time).replace(' AM', '').replace(' PM', '')}
+              <p className="text-[13px] font-bold text-gray-900 leading-none">
+                {formatTime(section.meeting_time).replace(' AM','').replace(' PM','')}
               </p>
-              <p className="text-[11px] text-gray-400 mt-0.5 font-medium">
+              <p className="text-[10px] text-gray-400 mt-0.5 font-medium">
                 {formatTime(section.meeting_time).includes('AM') ? 'AM' : 'PM'}
               </p>
             </>
@@ -432,8 +435,7 @@ function ClassCard({ section, color, isNext, lessons, onOpenNotes, navigate }) {
           )}
         </div>
 
-        {/* Divider */}
-        <div className="w-px h-9 bg-gray-100 shrink-0" />
+        <div className="w-px h-8 bg-gray-100 shrink-0" />
 
         {/* Class info */}
         <div className="flex-1 min-w-0">
@@ -444,82 +446,102 @@ function ClassCard({ section, color, isNext, lessons, onOpenNotes, navigate }) {
                 Now
               </span>
             )}
-            {isNext && (
-              <span className="text-[11px] font-semibold text-navy-700 bg-navy-50 px-2 py-0.5 rounded-full">
-                Up next
-              </span>
+            {isNext && !isNow && (
+              <span className="text-[11px] font-semibold text-navy-700 bg-navy-50 px-2 py-0.5 rounded-full">Up next</span>
             )}
-            <p className="font-semibold text-gray-900 text-[13px] leading-snug">{section.name}</p>
+            {hasCarryOver && !isNow && (
+              <span className="text-[11px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full">Carry-over</span>
+            )}
+            <p className="font-semibold text-gray-900 text-[13px] truncate">{section.name}</p>
           </div>
-          <div className="flex items-center gap-3 mt-0.5 flex-wrap">
-            <p className="text-[12px] text-gray-500 font-medium">{course?.name}</p>
+          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+            <p className="text-[12px] text-gray-500 font-medium truncate">{course?.name}</p>
             {section.room && (
-              <span className="flex items-center gap-0.5 text-[11px] text-gray-400">
+              <span className="flex items-center gap-0.5 text-[11px] text-gray-400 shrink-0">
                 <MapPinIcon className="w-3 h-3" />
-                Rm {section.room}
+                {section.room}
               </span>
             )}
           </div>
         </div>
 
-        {/* Action buttons — stop propagation so they don't navigate */}
-        <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
-          {/* Notes button */}
-          <button
-            onClick={onOpenNotes}
-            className="p-1.5 rounded-lg text-gray-300 hover:text-navy-700 hover:bg-navy-50 transition-all"
-            title="Class notes"
-          >
-            <PencilSquareIcon className="w-4 h-4" />
-          </button>
-
-          {/* Tracker toggle */}
-          <button
-            onClick={() => setShowTracker(p => !p)}
-            className={`p-1.5 rounded-lg transition-all ${showTracker ? `${color?.light || 'bg-gray-50'} ${color?.text || 'text-gray-700'}` : 'text-gray-300 hover:text-navy-700 hover:bg-navy-50'}`}
-            title="Lesson tracker"
-          >
-            <ListBulletIcon className="w-4 h-4" />
-          </button>
-        </div>
-
-        <ChevronRightIcon className="w-4 h-4 text-gray-200 shrink-0" />
+        {/* Expand chevron */}
+        <ChevronRightIcon className={`w-4 h-4 text-gray-300 shrink-0 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`} />
       </div>
 
-      {/* Inline tracker — shown when expanded */}
-      {showTracker && (
-        <div className="px-5 pb-4 border-t border-gray-50">
-          <div className="pt-3">
-            <InClassTracker
-              section={section}
-              lessons={lessons}
-              color={color}
-              compact={true}
-            />
+      {/* ── Expanded lesson panel ── */}
+      {expanded && (
+        <div className="border-t border-gray-100">
+
+          {/* Carry-over banner */}
+          {hasCarryOver && (
+            <div className="mx-4 mt-3 flex items-start gap-2 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2.5">
+              <ArrowPathIcon className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold text-amber-800">
+                  Didn't finish "{carryOver.lessons.title}" last class
+                </p>
+                {carryOver.carry_over_note && (
+                  <p className="text-xs text-amber-600 mt-0.5">{carryOver.carry_over_note}</p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Lesson on deck */}
+          {lessons.length > 0 ? (
+            <div className="px-4 pt-3 pb-1">
+              {currentUnitTitle && (
+                <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest mb-1">
+                  {currentUnitIdx != null ? `Unit ${currentUnitIdx + 1}: ` : ''}{currentUnitTitle}
+                </p>
+              )}
+              {currentLessonObj ? (
+                <div className={`rounded-xl border px-3.5 py-2.5 ${color?.light || 'bg-gray-50'} ${color?.border || 'border-gray-100'}`}>
+                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-0.5">
+                    {currentLesson ? 'Current lesson' : 'Up next'}
+                  </p>
+                  <p className={`text-[13px] font-semibold leading-snug ${color?.text || 'text-gray-800'}`}>
+                    {currentLessonObj.title}
+                  </p>
+                  <p className="text-[11px] text-gray-400 mt-0.5">
+                    Lesson {lessons.indexOf(currentLessonObj) + 1} of {lessons.length}
+                  </p>
+                </div>
+              ) : (
+                <p className="text-xs text-gray-400 py-1">No lesson progress yet today.</p>
+              )}
+            </div>
+          ) : (
+            <div className="px-4 pt-3 pb-1">
+              <p className="text-xs text-gray-400">No lessons in curriculum yet.</p>
+            </div>
+          )}
+
+          {/* Action buttons */}
+          <div className="px-4 pt-3 pb-4 flex items-center gap-2">
+            {/* Open full tracker */}
+            {currentLessonObj && (
+              <button
+                className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-semibold text-white transition-colors ${color?.bg?.replace('bg-', 'bg-') || 'bg-navy-700'} hover:opacity-90`}
+                style={{ background: color ? undefined : '#1e3a5f' }}
+                onClick={() => navigate(`/sections/${section.id}/lessons/${currentLessonObj.id}`)}
+              >
+                <ListBulletIcon className="w-4 h-4" />
+                {hasCarryOver ? 'Continue lesson tracker' : 'Open lesson tracker'}
+              </button>
+            )}
+
+            {/* Notes */}
+            <button
+              onClick={onOpenNotes}
+              className="p-2.5 rounded-xl border border-gray-100 text-gray-400 hover:text-navy-700 hover:border-navy-100 hover:bg-navy-50 transition-all"
+              title="Class notes"
+            >
+              <PencilSquareIcon className="w-4 h-4" />
+            </button>
           </div>
         </div>
-      )}
-
-      {/* Carry-over prompt — shown when previous class left something unfinished */}
-      {carryOver && carryOver.lessons?.id && (
-        <button
-          className="w-full flex items-start gap-2.5 px-4 py-2.5 border-t border-amber-100 bg-amber-50 hover:bg-amber-100 transition-colors text-left"
-          onClick={e => {
-            e.stopPropagation()
-            navigate(`/sections/${section.id}/lessons/${carryOver.lessons.id}`)
-          }}
-        >
-          <ArrowPathIcon className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
-          <div className="flex-1 min-w-0">
-            <p className="text-xs font-semibold text-amber-800">
-              Didn't finish "{carryOver.lessons.title}" last class — continue today?
-            </p>
-            {carryOver.carry_over_note && (
-              <p className="text-xs text-amber-600 mt-0.5 truncate">{carryOver.carry_over_note}</p>
-            )}
-          </div>
-          <ChevronRightIcon className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
-        </button>
       )}
     </div>
   )
