@@ -520,19 +520,23 @@ function ClassCard({ section, color, isNext, lessons, onOpenNotes, navigate }) {
 
           {/* Action buttons */}
           <div className="px-4 pt-3 pb-4 flex items-center gap-2">
-            {/* Open full tracker */}
-            {currentLessonObj && (
+            {currentLessonObj ? (
               <button
-                className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-semibold text-white transition-colors ${color?.bg?.replace('bg-', 'bg-') || 'bg-navy-700'} hover:opacity-90`}
-                style={{ background: color ? undefined : '#1e3a5f' }}
+                className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-semibold text-white bg-navy-800 hover:bg-navy-900 transition-colors"
                 onClick={() => navigate(`/sections/${section.id}/lessons/${currentLessonObj.id}`)}
               >
                 <ListBulletIcon className="w-4 h-4" />
                 {hasCarryOver ? 'Continue lesson tracker' : 'Open lesson tracker'}
               </button>
+            ) : (
+              <button
+                className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-semibold text-gray-500 bg-gray-50 border border-gray-200 hover:bg-gray-100 transition-colors"
+                onClick={() => navigate('/curriculum')}
+              >
+                <BookOpenIcon className="w-4 h-4" />
+                Add lessons in Curriculum
+              </button>
             )}
-
-            {/* Notes */}
             <button
               onClick={onOpenNotes}
               className="p-2.5 rounded-xl border border-gray-100 text-gray-400 hover:text-navy-700 hover:border-navy-100 hover:bg-navy-50 transition-all"
