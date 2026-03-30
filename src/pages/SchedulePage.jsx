@@ -1017,6 +1017,72 @@ function InlineAddSection({ courseId, onCreated, onCancel }) {
         </div>
       )}
 
+      {/* Time slots */}
+      {!form.use_different_times ? (
+        <div className="flex items-end gap-3">
+          <div className="w-36">
+            <label className="label text-xs">Start time</label>
+            <input
+              type="time"
+              className="input text-sm"
+              value={form.meeting_time}
+              onChange={e => setForm(f => ({ ...f, meeting_time: e.target.value }))}
+            />
+          </div>
+          <div className="w-36">
+            <label className="label text-xs">End time</label>
+            <input
+              type="time"
+              className="input text-sm"
+              value={form.end_time}
+              onChange={e => setForm(f => ({ ...f, end_time: e.target.value }))}
+            />
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-2 bg-white p-3 rounded-lg border border-gray-200">
+          {timeSections.map((ts, idx) => (
+            <div key={idx} className="flex items-end gap-2">
+              <div className="flex-1">
+                <label className="label text-xs">Start</label>
+                <input
+                  type="time"
+                  className="input text-sm"
+                  value={ts.meeting_time}
+                  onChange={e => updateTimeSlot(idx, 'meeting_time', e.target.value)}
+                />
+              </div>
+              <div className="flex-1">
+                <label className="label text-xs">End</label>
+                <input
+                  type="time"
+                  className="input text-sm"
+                  value={ts.end_time}
+                  onChange={e => updateTimeSlot(idx, 'end_time', e.target.value)}
+                />
+              </div>
+              {timeSections.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => removeTimeSlot(idx)}
+                  className="text-gray-400 hover:text-red-400 p-1.5 transition-colors"
+                >
+                  <XMarkIcon className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          ))}
+          <button
+            type="button"
+            onClick={addTimeSlot}
+            className="flex items-center gap-1.5 text-xs font-medium text-navy-700 hover:text-navy-800 transition-colors w-full justify-center py-1.5 border border-dashed border-navy-200 rounded-lg"
+          >
+            <PlusIcon className="w-3 h-3" />
+            Add another time
+          </button>
+        </div>
+      )}
+
       {error && <p className="text-xs text-red-600 bg-red-50 rounded px-2 py-1">{error}</p>}
 
       <div className="flex gap-2">
