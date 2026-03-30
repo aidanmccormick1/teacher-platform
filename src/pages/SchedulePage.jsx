@@ -736,7 +736,8 @@ function CourseScheduleCard({ course, sections, colorClass, onAddSection, onDele
 
 function InlineAddSection({ courseId, onCreated, onCancel }) {
   const ALL_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'A-Day', 'B-Day']
-  const [form, setForm] = useState({ name: '', meeting_days: [], meeting_time: '', end_time: '', room: '' })
+  const [form, setForm] = useState({ name: '', meeting_days: [], meeting_time: '', end_time: '', room: '', use_different_times: false })
+  const [timeSections, setTimeSections] = useState([{ meeting_time: '', end_time: '' }])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
@@ -749,20 +750,69 @@ function InlineAddSection({ courseId, onCreated, onCancel }) {
     }))
   }
 
+  function addTimeSlot() {
+    setTimeSections(prev => [...prev, { meeting_time: '', end_time: '' }])
+  }
+
+  function removeTimeSlot(idx) {
+    setTimeSections(prev => prev.filter((_, i) => i !== idx))
+  }
+
+  function updateTimeSlot(idx, field, value) {
+    setTimeSections(prev => prev.map((item, i) => i === idx ? { ...item, [field]: value } : item))
+  }
+
   async function handleCreate(e) {
     e.preventDefault()
     setLoading(true)
     setError(null)
-    const { data, error: dbError } = await supabase
-      .from('sections')
-      .insert({ ...form, course_id: courseId, meeting_time: form.meeting_time || null, end_time: form.end_time || null })
-      .select()
-      .single()
-    setLoading(false)
-    if (dbError) {
-      setError(dbError.message || 'Failed to add section')
-    } else if (data) {
-      onCreated(data)
+
+    // If using different times per day, create multiple sections
+    if (form.use_different_times && timeSections.length > 1) {
+      const createdSections = []
+      for (let i = 0; i < timeSections.length; i++) {
+        const { meeting_time, end_time } = timeSections[i]
+        const { data, error: dbError } = await supabase
+          .from('sections')
+          .insert({
+            course_id: courseId,
+            name: `${form.name} (${i + 1})`,
+            meeting_days: form.meeting_days,
+            meeting_time: meeting_time || null,
+            end_time: end_time || null,
+            room: form.room || null,
+          })
+          .select()
+          .single()
+        if (dbError) { console.error('Error creating section:', dbError); continue }
+        if (data) { createdSections.push(data) }
+      }
+      setLoading(false)
+      if (createdSections.length > 0) {
+        onCreated(createdSections[0])
+      } else {
+        setError('Failed to create sections')
+      }
+    } else {
+      // Single time slot
+      const { data, error: dbError } = await supabase
+        .from('sections')
+        .insert({
+          course_id: courseId,
+          name: form.name,
+          meeting_days: form.meeting_days,
+          meeting_time: form.meeting_time || null,
+          end_time: form.end_time || null,
+          room: form.room || null,
+        })
+        .select()
+        .single()
+      setLoading(false)
+      if (dbError) {
+        setError(dbError.message || 'Failed to add section')
+      } else if (data) {
+        onCreated(data)
+      }
     }
   }
 
@@ -813,26 +863,85 @@ function InlineAddSection({ courseId, onCreated, onCancel }) {
         </div>
       </div>
 
-      <div className="flex items-end gap-3">
-        <div className="w-36">
-          <label className="label text-xs">Start time</label>
-          <input
-            type="time"
-            className="input text-sm"
-            value={form.meeting_time}
-            onChange={e => setForm(f => ({ ...f, meeting_time: e.target.value }))}
-          />
-        </div>
-        <div className="w-36">
-          <label className="label text-xs">End time</label>
-          <input
-            type="time"
-            className="input text-sm"
-            value={form.end_time}
-            onChange={e => setForm(f => ({ ...f, end_time: e.target.value }))}
-          />
-        </div>
+      {/* Toggle for different times */}
+      <div className="flex items-center gap-2 p-2 bg-white rounded-lg border border-gray-200">
+        <input
+          type="checkbox"
+          id="use_different_times"
+          checked={form.use_different_times}
+          onChange={e => setForm(f => ({ ...f, use_different_times: e.target.checked }))}
+          className="w-4 h-4 rounded accent-navy-700"
+        />
+        <label htmlFor="use_different_times" className="text-xs font-medium text-gray-700 cursor-pointer">
+          Different times per day
+        </label>
       </div>
+
+      {/* Time slots */}
+      {!form.use_different_times ? (
+        <div className="flex items-end gap-3">
+          <div className="w-36">
+            <label className="label text-xs">Start time</label>
+            <input
+              type="time"
+              className="input text-sm"
+              value={form.meeting_time}
+              onChange={e => setForm(f => ({ ...f, meeting_time: e.target.value }))}
+            />
+          </div>
+          <div className="w-36">
+            <label className="label text-xs">End time</label>
+            <input
+              type="time"
+              className="input text-sm"
+              value={form.end_time}
+              onChange={e => setForm(f => ({ ...f, end_time: e.target.value }))}
+            />
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-2 bg-white p-3 rounded-lg border border-gray-200">
+          {timeSections.map((ts, idx) => (
+            <div key={idx} className="flex items-end gap-2">
+              <div className="flex-1">
+                <label className="label text-xs">Start</label>
+                <input
+                  type="time"
+                  className="input text-sm"
+                  value={ts.meeting_time}
+                  onChange={e => updateTimeSlot(idx, 'meeting_time', e.target.value)}
+                />
+              </div>
+              <div className="flex-1">
+                <label className="label text-xs">End</label>
+                <input
+                  type="time"
+                  className="input text-sm"
+                  value={ts.end_time}
+                  onChange={e => updateTimeSlot(idx, 'end_time', e.target.value)}
+                />
+              </div>
+              {timeSections.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => removeTimeSlot(idx)}
+                  className="text-gray-400 hover:text-red-400 p-1.5 transition-colors"
+                >
+                  <XMarkIcon className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          ))}
+          <button
+            type="button"
+            onClick={addTimeSlot}
+            className="flex items-center gap-1.5 text-xs font-medium text-navy-700 hover:text-navy-800 transition-colors w-full justify-center py-1.5 border border-dashed border-navy-200 rounded-lg"
+          >
+            <PlusIcon className="w-3 h-3" />
+            Add another time
+          </button>
+        </div>
+      )}
 
       {error && <p className="text-xs text-red-600 bg-red-50 rounded px-2 py-1">{error}</p>}
 
@@ -846,7 +955,7 @@ function InlineAddSection({ courseId, onCreated, onCancel }) {
         </button>
         <button
           type="submit"
-          disabled={loading || !form.name}
+          disabled={loading || !form.name || form.meeting_days.length === 0}
           className="px-3 py-1.5 text-xs font-semibold text-white bg-navy-800 rounded-lg hover:bg-navy-900 disabled:opacity-40"
         >
           {loading ? 'Adding...' : 'Add period'}
