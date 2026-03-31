@@ -334,7 +334,7 @@ export default function CoursePage() {
                 <p className="text-xs text-gray-400 mt-0.5">Map out units month by month and we'll help fill in the lessons.</p>
               </div>
               <div className="flex gap-2 shrink-0">
-                <button className="btn-secondary text-sm" onClick={addUnit}>Add unit</button>
+                <button className="btn-secondary text-sm" onClick={() => setIsAddingUnit(true)}>Add unit</button>
                 <button className="btn-primary text-sm" onClick={() => setShowPlanner(true)}>Plan year</button>
               </div>
             </div>
