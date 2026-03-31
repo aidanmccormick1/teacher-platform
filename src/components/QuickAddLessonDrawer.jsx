@@ -94,14 +94,15 @@ export default function QuickAddLessonDrawer({ unitId, unitTitle, onClose, onAdd
               <p className="text-[11px] text-gray-400 mt-1.5 leading-relaxed">Number of scheduled periods this lesson requires to complete.</p>
             </div>
             <div>
-              <label className="label text-sm text-gray-700">Target Date (Optional)</label>
+              <label className="label text-sm text-gray-700">Target Date</label>
               <input 
                 type="date"
+                required
                 className="input focus:ring-2 focus:ring-navy-500" 
                 value={targetDate} 
                 onChange={e => setTargetDate(e.target.value)} 
               />
-              <p className="text-[11px] text-gray-400 mt-1.5 leading-relaxed">Leave blank to let the Smart Schedule automatically slot this lesson into the next available period.</p>
+              <p className="text-[11px] text-gray-400 mt-1.5 leading-relaxed">Specify the target date for this lesson.</p>
             </div>
           </form>
         </div>

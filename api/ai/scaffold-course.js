@@ -7,15 +7,19 @@
 
 import { createClient } from '@supabase/supabase-js'
 
-const supabase = createClient(
-  process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-)
-
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' })
   }
+
+  const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  
+  if (!supabaseUrl || !supabaseKey) {
+    return res.status(500).json({ error: 'Supabase credentials missing on the server' })
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseKey)
 
   const { courseId, subject, gradeLevel, goals, month, topic, examDate, mode } = req.body
 
@@ -211,6 +215,6 @@ Generate a full course structure with 4-5 units, each with 4-6 lessons.`
     }
   } catch (err) {
     console.error('scaffold-course error:', err)
-    return res.status(500).json({ error: 'Internal error' })
+    return res.status(500).json({ error: `Internal error: ${err.message}` })
   }
 }

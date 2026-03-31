@@ -94,6 +94,6 @@ Generate a lesson outline of 4-6 sequential lessons for this unit.`
     return res.status(200).json({ lessons: lessons })
   } catch (err) {
     console.error('generate-unit-outline error:', err)
-    return res.status(500).json({ error: 'Internal error', lessons: [] })
+    return res.status(500).json({ error: `Internal error: ${err.message}`, lessons: [] })
   }
 }
