@@ -15,32 +15,6 @@ import {
 } from '@heroicons/react/24/outline'
 import { formatTime } from '@/lib/dateUtils'
 
-// Curated tips — feel like helpful reminders, not AI output
-const TIPS = [
-  "Check in with students in the first 5 minutes — sets the tone for the whole period.",
-  "Leave 3–5 minutes at the end of class for a quick exit ticket or recap.",
-  "If a lesson runs long, note what to carry over so tomorrow starts strong.",
-  "Cold-calling is more effective when students know it's coming — give a heads-up.",
-  "One clear objective per lesson is usually better than three vague ones.",
-  "Varying seating arrangements even once a week can shift classroom energy.",
-  "A short review of yesterday's material before new content improves retention.",
-  "Transitions between activities are where disruptions happen — plan them explicitly.",
-  "Writing the agenda on the board reduces 'what are we doing today?' questions.",
-  "If a student seems off, a brief 1-on-1 at the door can do more than a lecture.",
-  "Assign roles in group work to keep all students accountable.",
-  "Praise specific behaviors, not just results — 'I noticed you revised that twice.'",
-  "Fewer, richer assignments tend to produce better work than frequent low-stakes tasks.",
-  "A short stretch or movement break mid-period can reset focus, especially after lunch.",
-  "Update your grade book at the end of the week, not mid-sprint — keeps it accurate.",
-]
-
-function getDailyTip() {
-  // Deterministic: same tip all day, rotates daily
-  const dayOfYear = Math.floor(
-    (Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000
-  )
-  return TIPS[dayOfYear % TIPS.length]
-}
 
 function getNextClass(sections) {
   const now = new Date()
@@ -87,7 +61,7 @@ export default function DailyDigest({ sections, courses }) {
     return () => clearInterval(t)
   }, [])
 
-  const tip = getDailyTip()
+
   const nextClass = getNextClass(sections)
   const remaining = getClassesRemaining(sections)
   const countdown = nextClass ? getCountdown(nextClass.meeting_time) : null
@@ -160,14 +134,7 @@ export default function DailyDigest({ sections, courses }) {
           </div>
         </div>
 
-        {/* Tip of the day */}
-        <div className="flex-[2] px-4 py-3.5 hidden sm:block min-w-0">
-          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest mb-1.5 flex items-center gap-1">
-            <AcademicCapIcon className="w-3 h-3" />
-            Daily reminder
-          </p>
-          <p className="text-[12px] text-gray-600 leading-relaxed line-clamp-2">{tip}</p>
-        </div>
+
       </div>
     </div>
   )

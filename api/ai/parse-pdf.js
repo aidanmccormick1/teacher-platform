@@ -24,20 +24,11 @@ export default async function handler(req, res) {
   // (PDF parsing requires a library — this route accepts pre-extracted text from the client)
   const documentText = rawText || '[PDF text extraction happens client-side — see materials upload component]'
 
-  const prompt = `You are a curriculum expert. Extract the key topics and lesson structure from this document.
-
-Document content:
+  const systemPrompt = `You are a curriculum expert. Extract key topics and lesson structures.`
+  const userPrompt = `Document content:
 """
 ${documentText.slice(0, 4000)}
 """
-
-Return ONLY a valid JSON array with this shape (no markdown, no extra text):
-[
-  {
-    "title": "Lesson or topic title",
-    "description": "Brief description of what this covers"
-  }
-]
 
 Extract 5-15 lessons or major topics. If the document doesn't seem to be curriculum content, return an empty array.`
 
@@ -50,9 +41,38 @@ Extract 5-15 lessons or major topics. If the document doesn't seem to be curricu
       },
       body: JSON.stringify({
         model: 'gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }],
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
         temperature: 0.3,
         max_tokens: 2000,
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "extracted_lessons",
+            strict: true,
+            schema: {
+              type: "object",
+              properties: {
+                lessons: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      title: { type: "string" },
+                      description: { type: "string" }
+                    },
+                    required: ["title", "description"],
+                    additionalProperties: false
+                  }
+                }
+              },
+              required: ["lessons"],
+              additionalProperties: false
+            }
+          }
+        }
       }),
     })
 
@@ -61,17 +81,17 @@ Extract 5-15 lessons or major topics. If the document doesn't seem to be curricu
     }
 
     const data = await response.json()
-    const text = data.choices?.[0]?.message?.content?.trim() || '[]'
+    const text = data.choices?.[0]?.message?.content?.trim() || '{"lessons":[]}'
 
     let lessons = []
     try {
-      lessons = JSON.parse(text)
+      const parsed = JSON.parse(text)
+      lessons = parsed.lessons || []
     } catch {
-      const match = text.match(/\[[\s\S]*\]/)
-      if (match) lessons = JSON.parse(match[0])
+      lessons = []
     }
 
-    return res.status(200).json({ lessons: Array.isArray(lessons) ? lessons : [] })
+    return res.status(200).json({ lessons: lessons })
   } catch (err) {
     console.error('parse-pdf error:', err)
     return res.status(500).json({ error: 'Internal error', lessons: [] })

@@ -28,10 +28,10 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'OpenAI API key not configured' })
   }
 
-  let prompt
+  let systemPrompt = `You are a K-12 curriculum design expert. Create pedagogically sound unit plans with sequential lessons.`
+  let userPrompt = ''
 
   if (mode === 'month' && month && topic) {
-    // Single-month mode: generate one unit with lessons for a specific month
     const context = [
       subject    && `Subject: ${subject}`,
       gradeLevel && `Grade level: ${gradeLevel}`,
@@ -39,27 +39,11 @@ export default async function handler(req, res) {
       examDate   && `Key date: ${examDate}`,
     ].filter(Boolean).join('\n')
 
-    prompt = `You are a K-12 curriculum design expert.
-${context}
+    userPrompt = `${context}
 Month: ${month}
 Topic for this month: ${topic}
 
-Generate a single curriculum unit for this month, with 4-8 lessons.
-
-Return ONLY valid JSON (no markdown, no extra text) in this exact shape:
-{
-  "title": "${month}: ${topic}",
-  "description": "Brief description of what students will cover this month",
-  "lessons": [
-    {
-      "title": "Lesson title",
-      "description": "What students will learn",
-      "duration_minutes": 50
-    }
-  ]
-}
-
-Make lessons specific to the topic, pedagogically sequenced, and appropriate for the grade level.`
+Generate a single curriculum unit for this month, with 4-6 lessons.`
   } else {
     // Full course mode: generate 4-6 units with lessons
     const context = [
@@ -69,26 +53,8 @@ Make lessons specific to the topic, pedagogically sequenced, and appropriate for
       examDate   && `Key date: ${examDate}`,
     ].filter(Boolean).join('\n')
 
-    prompt = `You are a K-12 curriculum design expert.
-${context}
-Generate a full course structure with 4-6 units, each with 5-8 lessons.
-
-Return ONLY a valid JSON array (no markdown, no extra text) in this exact shape:
-[
-  {
-    "title": "Unit 1: Introduction",
-    "description": "Overview of the unit",
-    "lessons": [
-      {
-        "title": "Lesson title",
-        "description": "What students will learn",
-        "duration_minutes": 50
-      }
-    ]
-  }
-]
-
-Make it pedagogically sound, with clear progression and varied lesson types.`
+    userPrompt = `${context}
+Generate a full course structure with 4-5 units, each with 4-6 lessons.`
   }
 
   try {
@@ -100,10 +66,51 @@ Make it pedagogically sound, with clear progression and varied lesson types.`
       },
       body: JSON.stringify({
         model: 'gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.7,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        temperature: 0.5,
         max_tokens: 3000,
-        response_format: { type: 'json_object' },
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "course_structure",
+            strict: true,
+            schema: {
+              type: "object",
+              properties: {
+                units: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      title: { type: "string" },
+                      description: { type: "string" },
+                      lessons: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            title: { type: "string" },
+                            description: { type: "string" },
+                            duration_minutes: { type: "number" }
+                          },
+                          required: ["title", "description", "duration_minutes"],
+                          additionalProperties: false
+                        }
+                      }
+                    },
+                    required: ["title", "description", "lessons"],
+                    additionalProperties: false
+                  }
+                }
+              },
+              required: ["units"],
+              additionalProperties: false
+            }
+          }
+        }
       }),
     })
 
@@ -114,25 +121,22 @@ Make it pedagogically sound, with clear progression and varied lesson types.`
     }
 
     const data = await response.json()
-    let text = data.choices?.[0]?.message?.content?.trim() || ''
+    let text = data.choices?.[0]?.message?.content?.trim() || '{"units":[]}'
+
+    let units = []
+    try {
+      const parsed = JSON.parse(text)
+      units = parsed.units || []
+    } catch {
+      units = []
+    }
+
+    if (units.length === 0) {
+      return res.status(200).json({ units: [] })
+    }
 
     if (mode === 'month') {
-      // Expect a single object
-      let unit = null
-      try {
-        const parsed = JSON.parse(text)
-        // Handle if AI wrapped it in an array or nested it
-        unit = Array.isArray(parsed) ? parsed[0] : (parsed.unit || parsed)
-      } catch {
-        const match = text.match(/\{[\s\S]*\}/)
-        if (match) {
-          try { unit = JSON.parse(match[0]) } catch {}
-        }
-      }
-
-      if (!unit || !unit.title) {
-        return res.status(200).json({ units: [] })
-      }
+      const unit = units[0]
 
       // Count existing units for this course to set order_index
       const { count } = await supabase
@@ -172,21 +176,7 @@ Make it pedagogically sound, with clear progression and varied lesson types.`
       return res.status(200).json({ units: [unit] })
 
     } else {
-      // Full course mode — expect array
-      let units = []
-      try {
-        const parsed = JSON.parse(text)
-        units = Array.isArray(parsed) ? parsed : (parsed.units || [])
-      } catch {
-        const match = text.match(/\[[\s\S]*\]/)
-        if (match) {
-          try { units = JSON.parse(match[0]) } catch {}
-        }
-      }
-
-      if (!Array.isArray(units) || units.length === 0) {
-        return res.status(200).json({ units: [] })
-      }
+      // Full course mode
 
       for (let uIdx = 0; uIdx < units.length; uIdx++) {
         const unit = units[uIdx]

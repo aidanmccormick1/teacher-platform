@@ -24,21 +24,10 @@ export default async function handler(req, res) {
     gradeLevel && `Grade level: ${gradeLevel}`,
   ].filter(Boolean).join('\n')
 
-  const prompt = `You are a K-12 curriculum expert.
-${context}
+  const systemPrompt = `You are a K-12 curriculum expert. Extract structural lesson plans. Keep descriptions very concise.`
+  const userPrompt = `${context}
 A teacher is planning a unit called "${unitTitle}".
-Generate a lesson outline of 5-8 lessons for this unit.
-
-Return ONLY a valid JSON array with this exact shape (no markdown, no extra text):
-[
-  {
-    "title": "Introduction to Ancient Egypt",
-    "description": "Brief overview of what students will learn in this lesson",
-    "duration_minutes": 50
-  }
-]
-
-Make the lessons sequential and build on each other. Include variety: direct instruction, exploration, discussion, assessment.`
+Generate a lesson outline of 4-6 sequential lessons for this unit.`
 
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -49,9 +38,39 @@ Make the lessons sequential and build on each other. Include variety: direct ins
       },
       body: JSON.stringify({
         model: 'gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.7,
-        max_tokens: 1200,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        temperature: 0.5,
+        max_tokens: 600,
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "unit_outline",
+            strict: true,
+            schema: {
+              type: "object",
+              properties: {
+                lessons: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      title: { type: "string" },
+                      description: { type: "string" },
+                      duration_minutes: { type: "number" }
+                    },
+                    required: ["title", "description", "duration_minutes"],
+                    additionalProperties: false
+                  }
+                }
+              },
+              required: ["lessons"],
+              additionalProperties: false
+            }
+          }
+        }
       }),
     })
 
@@ -62,17 +81,17 @@ Make the lessons sequential and build on each other. Include variety: direct ins
     }
 
     const data = await response.json()
-    const text = data.choices?.[0]?.message?.content?.trim() || '[]'
+    const text = data.choices?.[0]?.message?.content?.trim() || '{"lessons":[]}'
 
     let lessons = []
     try {
-      lessons = JSON.parse(text)
+      const parsed = JSON.parse(text)
+      lessons = parsed.lessons || []
     } catch {
-      const match = text.match(/\[[\s\S]*\]/)
-      if (match) lessons = JSON.parse(match[0])
+      lessons = []
     }
 
-    return res.status(200).json({ lessons: Array.isArray(lessons) ? lessons : [] })
+    return res.status(200).json({ lessons: lessons })
   } catch (err) {
     console.error('generate-unit-outline error:', err)
     return res.status(500).json({ error: 'Internal error', lessons: [] })

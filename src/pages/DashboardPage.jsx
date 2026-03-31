@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { supabase } from '@/lib/supabase'
@@ -110,8 +110,8 @@ export default function DashboardPage() {
     const todaySections = allSectionsList.filter(s => doesSectionMeetToday(s.meeting_days))
     const sectionIds = todaySections.map(s => s.id)
     let progressBySection = {}
-
     let carryOverBySection = {}
+    let todayNotesBySection = {}
 
     if (sectionIds.length > 0) {
       // Load lesson progress (today)
@@ -123,6 +123,17 @@ export default function DashboardPage() {
 
       ;(progressData || []).forEach(p => {
         if (!progressBySection[p.section_id]) progressBySection[p.section_id] = p
+      })
+
+      const TODAY_STR = format(new Date(), 'yyyy-MM-dd')
+      const { data: notesData } = await supabase
+        .from('class_notes')
+        .select('section_id, content')
+        .in('section_id', sectionIds)
+        .eq('date', TODAY_STR)
+      
+      ;(notesData || []).forEach(n => {
+        todayNotesBySection[n.section_id] = n.content
       })
 
       // Load carry-over notes — most recent in_progress record per section with a note
@@ -169,6 +180,7 @@ export default function DashboardPage() {
       isNow: isClassNow(section.meeting_time),
       currentLesson: progressBySection[section.id] || null,
       carryOver: carryOverBySection[section.id] || null,
+      todayNote: todayNotesBySection[section.id] || '',
     }))
 
     enriched.sort((a, b) => {
@@ -372,8 +384,41 @@ export default function DashboardPage() {
 
 // ── Class Card ─────────────────────────────────────────────────────────────
 function ClassCard({ section, color, isNext, lessons, onOpenNotes, navigate }) {
-  const { course, isNow, currentLesson, carryOver } = section
+  const { profile } = useAuth()
+  const { course, isNow, currentLesson, carryOver, todayNote } = section
   const [expanded, setExpanded] = useState(isNow) // auto-expand the "now" class
+  const [note, setNote] = useState(todayNote || '')
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const saveTimer = useRef(null)
+
+  const autoSaveNote = async (text) => {
+    if (!profile) return
+    setSaving(true)
+    const TODAY = format(new Date(), 'yyyy-MM-dd')
+    const { error } = await supabase
+      .from('class_notes')
+      .upsert({
+        teacher_id: profile.id,
+        section_id: section.id,
+        date: TODAY,
+        content: text,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'teacher_id,section_id,date' })
+    setSaving(false)
+    if (!error) {
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    }
+  }
+
+  const handleNoteChange = (e) => {
+    const text = e.target.value
+    setNote(text)
+    setSaved(false)
+    clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(() => autoSaveNote(text), 800)
+  }
 
   // Calculate time-in-class progress bar for "Now" card
   let timePct = 0
@@ -540,10 +585,30 @@ function ClassCard({ section, color, isNext, lessons, onOpenNotes, navigate }) {
             <button
               onClick={onOpenNotes}
               className="p-2.5 rounded-xl border border-gray-100 text-gray-400 hover:text-navy-700 hover:border-navy-100 hover:bg-navy-50 transition-all"
-              title="Class notes"
+              title="Historical Notes Log"
             >
-              <PencilSquareIcon className="w-4 h-4" />
+              <CalendarDaysIcon className="w-4 h-4" />
             </button>
+          </div>
+          
+          {/* Inline Daily Note */}
+          <div className="px-4 pb-4">
+            <div className={`rounded-xl border relative focus-within:ring-2 focus-within:ring-navy-100 transition-all ${color?.light || 'bg-gray-50'} ${color?.border || 'border-gray-100'}`}>
+              <textarea
+                value={note}
+                onChange={handleNoteChange}
+                placeholder="Type period notes, to-dos, or missing assignments..."
+                className="w-full bg-transparent resize-none text-[13px] text-gray-800 placeholder-gray-400 p-3 pb-8 focus:outline-none min-h-[75px] leading-relaxed"
+              />
+              <div className="absolute bottom-2 right-2.5 flex items-center gap-2">
+                {saving && <span className="text-[10px] font-medium text-gray-400 animate-pulse">Saving...</span>}
+                {saved && !saving && (
+                  <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-600">
+                    <CheckCircleIcon className="w-3.5 h-3.5" /> Saved
+                  </span>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}

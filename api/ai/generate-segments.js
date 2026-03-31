@@ -19,21 +19,9 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'OpenAI API key not configured' })
   }
 
-  const prompt = `You are a K-12 curriculum expert.
-A teacher is creating a lesson called "${lessonTitle}"${gradeLevel ? ` for grade ${gradeLevel} students` : ''}.
-Generate 4-6 lesson segments that structure this lesson well.
-
-Return ONLY a valid JSON array with this exact shape (no markdown, no extra text):
-[
-  {
-    "title": "Warm-up",
-    "description": "Brief description of what happens in this segment",
-    "duration_minutes": 5
-  }
-]
-
-Typical segments include: Warm-up, Review, Direct Instruction, Guided Practice, Independent Practice, Discussion, Activity, Exit Ticket.
-Make durations realistic and specific to the content.`
+  const systemPrompt = `You are a K-12 curriculum expert. Structure lessons into sequential segments.`
+  const userPrompt = `A teacher is creating a lesson called "${lessonTitle}"${gradeLevel ? ` for grade ${gradeLevel} students` : ''}.
+Generate 3-5 lesson segments that structure this lesson well.`
 
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -44,9 +32,39 @@ Make durations realistic and specific to the content.`
       },
       body: JSON.stringify({
         model: 'gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.7,
-        max_tokens: 800,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        temperature: 0.5,
+        max_tokens: 500,
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "lesson_segments",
+            strict: true,
+            schema: {
+              type: "object",
+              properties: {
+                segments: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      title: { type: "string" },
+                      description: { type: "string" },
+                      duration_minutes: { type: "number" }
+                    },
+                    required: ["title", "description", "duration_minutes"],
+                    additionalProperties: false
+                  }
+                }
+              },
+              required: ["segments"],
+              additionalProperties: false
+            }
+          }
+        }
       }),
     })
 
@@ -57,18 +75,17 @@ Make durations realistic and specific to the content.`
     }
 
     const data = await response.json()
-    const text = data.choices?.[0]?.message?.content?.trim() || '[]'
+    const text = data.choices?.[0]?.message?.content?.trim() || '{"segments":[]}'
 
     let segments = []
     try {
-      segments = JSON.parse(text)
+      const parsed = JSON.parse(text)
+      segments = parsed.segments || []
     } catch {
-      // Try to extract JSON array from text
-      const match = text.match(/\[[\s\S]*\]/)
-      if (match) segments = JSON.parse(match[0])
+      segments = []
     }
 
-    return res.status(200).json({ segments: Array.isArray(segments) ? segments : [] })
+    return res.status(200).json({ segments: segments })
   } catch (err) {
     console.error('generate-segments error:', err)
     return res.status(500).json({ error: 'Internal error', segments: [] })

@@ -23,9 +23,8 @@ export default async function handler(req, res) {
     return `Unit ${i + 1}: ${u.title}${lessons}`
   }).join('\n')
 
-  const prompt = `You are a curriculum alignment expert.
-
-Course: ${subject || 'Unknown subject'} ${gradeLevel ? `Grade ${gradeLevel}` : ''}
+  const systemPrompt = `You are a curriculum alignment expert. Compare standards against curriculum.`
+  const userPrompt = `Course: ${subject || 'Unknown subject'} ${gradeLevel ? `Grade ${gradeLevel}` : ''}
 
 Standards:
 ${stdText}
@@ -33,23 +32,7 @@ ${stdText}
 Current curriculum units:
 ${unitsText}
 
-Analyze how well the curriculum covers the standards. Return ONLY valid JSON:
-{
-  "overview": "2-3 sentence summary of overall alignment",
-  "alignments": [
-    {
-      "standard_code": "CCSS.X.1",
-      "coverage": "strong",
-      "note": "Brief explanation of how/where this is covered"
-    }
-  ],
-  "gaps": [
-    "Brief description of a standard not covered"
-  ]
-}
-
-coverage must be one of: "strong", "partial", "missing"
-Include up to 10 alignments and up to 5 gaps. Be specific and useful.`
+Analyze how well the curriculum covers the standards. Include up to 10 alignments and up to 5 gaps. Be specific and useful.`
 
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -57,10 +40,44 @@ Include up to 10 alignments and up to 5 gaps. Be specific and useful.`
       headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: 'gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }],
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
         temperature: 0.3,
         max_tokens: 2000,
-        response_format: { type: 'json_object' },
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "standards_analysis",
+            strict: true,
+            schema: {
+              type: "object",
+              properties: {
+                overview: { type: "string" },
+                alignments: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      standard_code: { type: "string" },
+                      coverage: { type: "string", enum: ["strong", "partial", "missing"] },
+                      note: { type: "string" }
+                    },
+                    required: ["standard_code", "coverage", "note"],
+                    additionalProperties: false
+                  }
+                },
+                gaps: {
+                  type: "array",
+                  items: { type: "string" }
+                }
+              },
+              required: ["overview", "alignments", "gaps"],
+              additionalProperties: false
+            }
+          }
+        }
       }),
     })
 
