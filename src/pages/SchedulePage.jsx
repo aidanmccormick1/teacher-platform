@@ -553,16 +553,27 @@ function AddClassModal({ courses, onClose, onCreated }) {
           </select>
         </div>
 
-        <div>
-          <label className="label">Section name</label>
-          <input
-            className="input"
-            value={form.name}
-            onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-            placeholder="Period 1, 6A, Block B..."
-            required
-            autoFocus
-          />
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="label">Section name</label>
+            <input
+              className="input"
+              value={form.name}
+              onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+              placeholder="Period 1, 6A, Block B..."
+              required
+              autoFocus
+            />
+          </div>
+          <div>
+            <label className="label">Room</label>
+            <input
+              className="input"
+              value={form.room}
+              onChange={e => setForm(f => ({ ...f, room: e.target.value }))}
+              placeholder="204"
+            />
+          </div>
         </div>
 
         <div>
@@ -627,8 +638,8 @@ function AddClassModal({ courses, onClose, onCreated }) {
                 ))}
               </div>
             ) : (
-              <div className="grid grid-cols-3 gap-3">
-                <div>
+              <div className="flex items-end gap-3">
+                <div className="flex-1">
                   <label className="label">Start time</label>
                   <input
                     type="time"
@@ -637,7 +648,7 @@ function AddClassModal({ courses, onClose, onCreated }) {
                     onChange={e => setForm(f => ({ ...f, meeting_time: e.target.value }))}
                   />
                 </div>
-                <div>
+                <div className="flex-1">
                   <label className="label">End time</label>
                   <input
                     type="time"
@@ -646,43 +657,8 @@ function AddClassModal({ courses, onClose, onCreated }) {
                     onChange={e => setForm(f => ({ ...f, end_time: e.target.value }))}
                   />
                 </div>
-                <div>
-                  <label className="label">Room</label>
-                  <input
-                    className="input"
-                    value={form.room}
-                    onChange={e => setForm(f => ({ ...f, room: e.target.value }))}
-                    placeholder="204"
-                  />
-                </div>
               </div>
             )}
-
-            {/* Room field when per-day mode is on (no space in the grid) */}
-            {form.use_per_day && form.meeting_days.length > 1 && (
-              <div>
-                <label className="label">Room</label>
-                <input
-                  className="input"
-                  value={form.room}
-                  onChange={e => setForm(f => ({ ...f, room: e.target.value }))}
-                  placeholder="204"
-                />
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Room when no days selected yet */}
-        {form.meeting_days.length === 0 && (
-          <div>
-            <label className="label">Room</label>
-            <input
-              className="input"
-              value={form.room}
-              onChange={e => setForm(f => ({ ...f, room: e.target.value }))}
-              placeholder="204"
-            />
           </div>
         )}
 

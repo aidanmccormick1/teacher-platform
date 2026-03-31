@@ -48,7 +48,7 @@ Make the lessons sequential and build on each other. Include variety: direct ins
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-5.4-nano',
+        model: 'gpt-4o-mini',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.7,
         max_tokens: 1200,
