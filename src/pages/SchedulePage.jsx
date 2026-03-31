@@ -17,6 +17,7 @@ import {
   ChatBubbleBottomCenterTextIcon,
   BookOpenIcon,
   ExclamationTriangleIcon,
+  CalendarDaysIcon,
 } from '@heroicons/react/24/outline'
 
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
@@ -464,6 +465,8 @@ function AddClassModal({ courses, onClose, onCreated }) {
     meeting_days: [],
     meeting_time: '',
     end_time:     '',
+    start_date:   '',
+    end_date:     '',
     room:         '',
     day_times:    {},
     use_per_day:  false,
@@ -502,6 +505,8 @@ function AddClassModal({ courses, onClose, onCreated }) {
       meeting_days: form.meeting_days,
       meeting_time: form.use_per_day ? null : (form.meeting_time || null),
       end_time:     form.use_per_day ? null : (form.end_time || null),
+      start_date:   form.start_date || null,
+      end_date:     form.end_date || null,
       day_times:    form.use_per_day ? form.day_times : null,
       room:         form.room || null,
     }
@@ -572,6 +577,29 @@ function AddClassModal({ courses, onClose, onCreated }) {
               value={form.room}
               onChange={e => setForm(f => ({ ...f, room: e.target.value }))}
               placeholder="204"
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="label">Term Start Date</label>
+            <input
+              type="date"
+              className="input"
+              value={form.start_date}
+              onChange={e => setForm(f => ({ ...f, start_date: e.target.value }))}
+              required
+            />
+          </div>
+          <div>
+            <label className="label">Term End Date</label>
+            <input
+              type="date"
+              className="input"
+              value={form.end_date}
+              onChange={e => setForm(f => ({ ...f, end_date: e.target.value }))}
+              required
             />
           </div>
         </div>
@@ -809,6 +837,8 @@ function InlineAddSection({ courseId, onCreated, onCancel }) {
     meeting_days: [],
     meeting_time: '',
     end_time: '',
+    start_date: '',
+    end_date: '',
     room: '',
     day_times: {},
     use_per_day: false,
@@ -846,6 +876,8 @@ function InlineAddSection({ courseId, onCreated, onCancel }) {
       meeting_days: form.meeting_days,
       meeting_time: form.use_per_day ? null : (form.meeting_time || null),
       end_time: form.use_per_day ? null : (form.end_time || null),
+      start_date: form.start_date || null,
+      end_date: form.end_date || null,
       day_times: form.use_per_day ? form.day_times : null,
       room: form.room || null,
     }
@@ -903,6 +935,29 @@ function InlineAddSection({ courseId, onCreated, onCancel }) {
             value={form.room}
             onChange={e => setForm(f => ({ ...f, room: e.target.value }))}
             placeholder="204"
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="label text-xs">Term Start Date</label>
+          <input
+            type="date"
+            className="input text-sm"
+            value={form.start_date}
+            onChange={e => setForm(f => ({ ...f, start_date: e.target.value }))}
+            required
+          />
+        </div>
+        <div>
+          <label className="label text-xs">Term End Date</label>
+          <input
+            type="date"
+            className="input text-sm"
+            value={form.end_date}
+            onChange={e => setForm(f => ({ ...f, end_date: e.target.value }))}
+            required
           />
         </div>
       </div>
@@ -993,71 +1048,7 @@ function InlineAddSection({ courseId, onCreated, onCancel }) {
         </div>
       )}
 
-      {/* Time slots */}
-      {!form.use_different_times ? (
-        <div className="flex items-end gap-3">
-          <div className="w-36">
-            <label className="label text-xs">Start time</label>
-            <input
-              type="time"
-              className="input text-sm"
-              value={form.meeting_time}
-              onChange={e => setForm(f => ({ ...f, meeting_time: e.target.value }))}
-            />
-          </div>
-          <div className="w-36">
-            <label className="label text-xs">End time</label>
-            <input
-              type="time"
-              className="input text-sm"
-              value={form.end_time}
-              onChange={e => setForm(f => ({ ...f, end_time: e.target.value }))}
-            />
-          </div>
-        </div>
-      ) : (
-        <div className="space-y-2 bg-white p-3 rounded-lg border border-gray-200">
-          {timeSections.map((ts, idx) => (
-            <div key={idx} className="flex items-end gap-2">
-              <div className="flex-1">
-                <label className="label text-xs">Start</label>
-                <input
-                  type="time"
-                  className="input text-sm"
-                  value={ts.meeting_time}
-                  onChange={e => updateTimeSlot(idx, 'meeting_time', e.target.value)}
-                />
-              </div>
-              <div className="flex-1">
-                <label className="label text-xs">End</label>
-                <input
-                  type="time"
-                  className="input text-sm"
-                  value={ts.end_time}
-                  onChange={e => updateTimeSlot(idx, 'end_time', e.target.value)}
-                />
-              </div>
-              {timeSections.length > 1 && (
-                <button
-                  type="button"
-                  onClick={() => removeTimeSlot(idx)}
-                  className="text-gray-400 hover:text-red-400 p-1.5 transition-colors"
-                >
-                  <XMarkIcon className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-          ))}
-          <button
-            type="button"
-            onClick={addTimeSlot}
-            className="flex items-center gap-1.5 text-xs font-medium text-navy-700 hover:text-navy-800 transition-colors w-full justify-center py-1.5 border border-dashed border-navy-200 rounded-lg"
-          >
-            <PlusIcon className="w-3 h-3" />
-            Add another time
-          </button>
-        </div>
-      )}
+
 
       {error && <p className="text-xs text-red-600 bg-red-50 rounded px-2 py-1">{error}</p>}
 
@@ -1081,6 +1072,95 @@ function InlineAddSection({ courseId, onCreated, onCancel }) {
   )
 }
 
+// ─── Holidays Modal ────────────────────────────────────────────────────────
+function HolidaysModal({ onClose }) {
+  const { profile } = useAuth()
+  const [holidays, setHolidays] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [date, setDate] = useState('')
+  const [name, setName] = useState('')
+
+  useEffect(() => {
+    if (profile) loadHolidays()
+  }, [profile])
+
+  async function loadHolidays() {
+    setLoading(true)
+    const { data } = await supabase
+      .from('school_holidays')
+      .select('*')
+      .eq('teacher_id', profile.id)
+      .order('date', { ascending: true })
+    setHolidays(data || [])
+    setLoading(false)
+  }
+
+  async function handleAdd(e) {
+    e.preventDefault()
+    if (!date || !name) return
+    const { data } = await supabase
+      .from('school_holidays')
+      .insert({ teacher_id: profile.id, date, name })
+      .select()
+      .single()
+    if (data) {
+      setHolidays(prev => [...prev, data].sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime()))
+      setName('')
+      setDate('')
+    }
+  }
+
+  async function handleDelete(id) {
+    await supabase.from('school_holidays').delete().eq('id', id)
+    setHolidays(prev => prev.filter(h => h.id !== id))
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 space-y-4 max-h-[80vh] flex flex-col">
+        <div className="flex items-center justify-between shrink-0">
+          <h3 className="font-semibold text-gray-900">Manage Holidays & PD Days</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <XMarkIcon className="w-5 h-5" />
+          </button>
+        </div>
+        <form onSubmit={handleAdd} className="flex gap-2 items-end shrink-0 py-2">
+          <div className="flex-1">
+            <label className="label text-xs">Date</label>
+            <input type="date" required className="input text-sm" value={date} onChange={e => setDate(e.target.value)} />
+          </div>
+          <div className="flex-1">
+            <label className="label text-xs">Holiday Name</label>
+            <input required className="input text-sm" placeholder="e.g. Winter Break" value={name} onChange={e => setName(e.target.value)} />
+          </div>
+          <button type="submit" className="btn-primary py-2 px-3 text-sm h-[38px]">+</button>
+        </form>
+        <div className="flex-1 overflow-y-auto min-h-[200px] border-t border-gray-100 pt-3">
+          {loading ? (
+            <p className="text-sm text-gray-500 text-center py-4">Loading...</p>
+          ) : holidays.length === 0 ? (
+            <p className="text-sm text-gray-500 text-center py-4">No holidays added yet.</p>
+          ) : (
+            <ul className="space-y-2 pb-2">
+              {holidays.map(h => (
+                <li key={h.id} className="flex items-center justify-between p-2 rounded-lg bg-gray-50 border border-gray-100">
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">{h.name}</p>
+                    <p className="text-xs text-gray-500">{new Date(h.date).toLocaleDateString(undefined, { timeZone: 'UTC' })}</p>
+                  </div>
+                  <button onClick={() => handleDelete(h.id)} className="text-gray-400 hover:text-red-500 p-1">
+                    <TrashIcon className="w-4 h-4" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Main Page ─────────────────────────────────────────────────────────────
 
 export default function SchedulePage() {
@@ -1090,6 +1170,7 @@ export default function SchedulePage() {
   const [loading, setLoading]   = useState(true)
   const [showTutorial, setShowTutorial]   = useState(false)
   const [showAIBuilder, setShowAIBuilder] = useState(false)
+  const [showHolidays, setShowHolidays]   = useState(false)
   const [parsedSchedule, setParsedSchedule] = useState(null)
   const [saving, setSaving] = useState(false)
   const [loadError, setLoadError] = useState(false)
@@ -1239,6 +1320,11 @@ export default function SchedulePage() {
         />
       )}
 
+      {/* Holidays modal */}
+      {showHolidays && (
+        <HolidaysModal onClose={() => setShowHolidays(false)} />
+      )}
+
       {/* Review parsed schedule */}
       {parsedSchedule && (
         <ParsedScheduleReview
@@ -1269,13 +1355,22 @@ export default function SchedulePage() {
         </div>
 
         {!loading && courses.length > 0 && (
-          <button
-            onClick={() => setShowAIBuilder(true)}
-            className="flex items-center gap-1.5 px-3 py-2 bg-navy-800 text-white text-xs font-semibold rounded-xl hover:bg-navy-900 transition-colors shrink-0"
-          >
-            <SparklesIcon className="w-3.5 h-3.5" />
-            AI Builder
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setShowHolidays(true)}
+              className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 text-gray-700 text-xs font-semibold rounded-xl hover:bg-gray-50 transition-colors shrink-0 shadow-sm"
+            >
+              <CalendarDaysIcon className="w-3.5 h-3.5" />
+              Manage Holidays
+            </button>
+            <button
+              onClick={() => setShowAIBuilder(true)}
+              className="flex items-center gap-1.5 px-3 py-2 bg-navy-800 text-white text-xs font-semibold rounded-xl hover:bg-navy-900 transition-colors shrink-0 shadow-sm"
+            >
+              <SparklesIcon className="w-3.5 h-3.5" />
+              AI Builder
+            </button>
+          </div>
         )}
       </div>
 

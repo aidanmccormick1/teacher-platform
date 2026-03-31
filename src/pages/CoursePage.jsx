@@ -21,6 +21,9 @@ import {
   Bars3Icon,
 } from '@heroicons/react/24/outline'
 import clsx from 'clsx'
+import QuickAddLessonDrawer from '@/components/QuickAddLessonDrawer'
+import CalendarView from '@/components/CalendarView'
+import YearTimeline from '@/components/YearTimeline'
 
 function formatTimeCourse(t) {
   if (!t) return ''
@@ -67,12 +70,32 @@ export default function CoursePage() {
   const [aiLoading, setAiLoading] = useState(null)
   const [activeTab, setActiveTab] = useState('units') // 'units' | 'timeline' | 'standards'
   const [showPlanner, setShowPlanner] = useState(false)
+  const [calendarView, setCalendarView] = useState(false)
+
+  // Inline edit states
+  const [isAddingUnit, setIsAddingUnit] = useState(false)
+  const [newUnitTitle, setNewUnitTitle] = useState('')
+  const [renamingUnitId, setRenamingUnitId] = useState(null)
+  const [renameUnitTitle, setRenameUnitTitle] = useState('')
+  const [quickAddUnit, setQuickAddUnit] = useState(null)
+
+  const unitInputRef = useRef(null)
+  const renameInputRef = useRef(null)
+  const lessonInputRef = useRef(null)
 
   useEffect(() => {
     document.title = course ? `${course.name} | TeacherOS` : 'Course | TeacherOS'
   }, [course])
 
   useEffect(() => { loadCourse() }, [courseId])
+
+  useEffect(() => {
+    if (isAddingUnit) unitInputRef.current?.focus()
+  }, [isAddingUnit])
+
+  useEffect(() => {
+    if (renamingUnitId) renameInputRef.current?.focus()
+  }, [renamingUnitId])
 
   async function loadCourse() {
     const [courseRes, unitsRes, sectionsRes] = await Promise.all([
@@ -97,9 +120,13 @@ export default function CoursePage() {
 
   // ─── Units ────────────────────────────────────────────────────
 
-  async function addUnit() {
-    const title = prompt('Unit title:')
-    if (!title) return
+  async function handleAddUnit(e) {
+    if (e) e.preventDefault()
+    if (!newUnitTitle.trim()) {
+      setIsAddingUnit(false)
+      return
+    }
+    const title = newUnitTitle.trim()
     const nextIndex = units.length
     const { data } = await supabase
       .from('units')
@@ -108,6 +135,8 @@ export default function CoursePage() {
       .single()
     setUnits(prev => [...prev, { ...data, lessons: [] }])
     setExpandedUnits(prev => ({ ...prev, [data.id]: true }))
+    setNewUnitTitle('')
+    setIsAddingUnit(false)
   }
 
   async function deleteUnit(unitId) {
@@ -116,11 +145,17 @@ export default function CoursePage() {
     setUnits(prev => prev.filter(u => u.id !== unitId))
   }
 
-  async function renameUnit(unitId, currentTitle) {
-    const title = prompt('Rename unit:', currentTitle)
-    if (!title || title === currentTitle) return
-    await supabase.from('units').update({ title }).eq('id', unitId)
-    setUnits(prev => prev.map(u => u.id === unitId ? { ...u, title } : u))
+  async function handleRenameUnit(e) {
+    if (e) e.preventDefault()
+    if (!renameUnitTitle.trim() || !renamingUnitId) {
+      setRenamingUnitId(null)
+      return
+    }
+    const title = renameUnitTitle.trim()
+    await supabase.from('units').update({ title }).eq('id', renamingUnitId)
+    setUnits(prev => prev.map(u => u.id === renamingUnitId ? { ...u, title } : u))
+    setRenamingUnitId(null)
+    setRenameUnitTitle('')
   }
 
   async function aiGenerateLessons(unit) {
@@ -156,9 +191,14 @@ export default function CoursePage() {
 
   // ─── Lessons ──────────────────────────────────────────────────
 
-  async function addLesson(unitId) {
-    const title = prompt('Lesson title:')
-    if (!title) return
+  async function handleAddLesson(e) {
+    if (e) e.preventDefault()
+    if (!newLessonTitle.trim() || !addingLessonToUnit) {
+      setAddingLessonToUnit(null)
+      return
+    }
+    const title = newLessonTitle.trim()
+    const unitId = addingLessonToUnit
     const unit = units.find(u => u.id === unitId)
     const nextIndex = unit?.lessons.length || 0
     const { data } = await supabase
@@ -169,6 +209,8 @@ export default function CoursePage() {
     setUnits(prev => prev.map(u =>
       u.id === unitId ? { ...u, lessons: [...u.lessons, { ...data, lesson_segments: [] }] } : u
     ))
+    setAddingLessonToUnit(null)
+    setNewLessonTitle('')
   }
 
   async function deleteLesson(unitId, lessonId) {
@@ -206,10 +248,27 @@ export default function CoursePage() {
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {activeTab === 'units' && (
-            <button className="btn-primary gap-1.5" onClick={addUnit}>
-              <PlusIcon className="w-4 h-4" />
-              Add unit
-            </button>
+            isAddingUnit ? (
+              <form onSubmit={handleAddUnit} className="flex items-center gap-2">
+                <input
+                  ref={unitInputRef}
+                  className="input py-1.5 text-sm w-48"
+                  placeholder="New unit title..."
+                  value={newUnitTitle}
+                  onChange={e => setNewUnitTitle(e.target.value)}
+                  onKeyDown={e => e.key === 'Escape' && setIsAddingUnit(false)}
+                />
+                <button type="submit" className="btn-primary py-1.5 px-3 text-xs">Save</button>
+                <button type="button" onClick={() => setIsAddingUnit(false)} className="btn-secondary py-1.5 px-3 text-xs">
+                  <XMarkIcon className="w-4 h-4" />
+                </button>
+              </form>
+            ) : (
+              <button className="btn-primary gap-1.5" onClick={() => setIsAddingUnit(true)}>
+                <PlusIcon className="w-4 h-4" />
+                Add unit
+              </button>
+            )
           )}
         </div>
       </div>
@@ -242,7 +301,26 @@ export default function CoursePage() {
       {/* Tab content */}
       {activeTab === 'units' && (
         <>
-          {/* Planner prompt when no units */}
+          <div className="flex justify-end pt-2 pb-2">
+            <div className="bg-gray-100/80 p-1 rounded-lg inline-flex border border-gray-200/60 shadow-inner">
+              <button 
+                onClick={() => setCalendarView(false)} 
+                className={clsx("px-4 py-1.5 text-xs font-semibold rounded-md transition-all", !calendarView ? 'bg-white shadow text-navy-800' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-200/50')}
+              >
+                Unit View
+              </button>
+              <button 
+                onClick={() => setCalendarView(true)} 
+                className={clsx("px-4 py-1.5 text-xs font-semibold rounded-md transition-all", calendarView ? 'bg-white shadow text-navy-800' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-200/50')}
+              >
+                Calendar View
+              </button>
+            </div>
+          </div>
+
+          {!calendarView ? (
+            <>
+              {/* Planner prompt when no units */}
           {units.length === 0 && !showPlanner && (
             <div className="card p-6 flex items-center gap-4 border-dashed border-2 border-gray-200 bg-gray-50">
               <div className="w-10 h-10 rounded-xl bg-navy-50 flex items-center justify-center shrink-0">
@@ -295,12 +373,27 @@ export default function CoursePage() {
                       !expandedUnits[unit.id] && '-rotate-90'
                     )} />
                     <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-gray-900 text-sm">
-                        Unit {uIdx + 1}: {unit.title}
-                      </p>
-                      <p className="text-xs text-gray-400 mt-0.5">
-                        {unit.lessons.length} lesson{unit.lessons.length !== 1 ? 's' : ''}
-                      </p>
+                      {renamingUnitId === unit.id ? (
+                        <form onSubmit={handleRenameUnit} onClick={e => e.stopPropagation()}>
+                          <input
+                            ref={renameInputRef}
+                            className="input py-1 text-sm w-full max-w-sm"
+                            value={renameUnitTitle}
+                            onChange={e => setRenameUnitTitle(e.target.value)}
+                            onBlur={() => setRenamingUnitId(null)}
+                            onKeyDown={e => e.key === 'Escape' && setRenamingUnitId(null)}
+                          />
+                        </form>
+                      ) : (
+                        <>
+                          <p className="font-semibold text-gray-900 text-sm">
+                            Unit {uIdx + 1}: {unit.title}
+                          </p>
+                          <p className="text-xs text-gray-400 mt-0.5">
+                            {unit.lessons.length} lesson{unit.lessons.length !== 1 ? 's' : ''}
+                          </p>
+                        </>
+                      )}
                     </div>
                     <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
                       <button
@@ -314,7 +407,14 @@ export default function CoursePage() {
                           : <SparklesIcon className="w-4 h-4" />
                         }
                       </button>
-                      <button className="btn-ghost p-1.5" onClick={() => renameUnit(unit.id, unit.title)} title="Rename">
+                      <button 
+                        className="btn-ghost p-1.5" 
+                        onClick={() => {
+                          setRenamingUnitId(unit.id)
+                          setRenameUnitTitle(unit.title)
+                        }} 
+                        title="Rename"
+                      >
                         <PencilSquareIcon className="w-4 h-4" />
                       </button>
                       <button className="btn-ghost p-1.5 text-red-400 hover:bg-red-50" onClick={() => deleteUnit(unit.id)} title="Delete">
@@ -338,7 +438,7 @@ export default function CoursePage() {
                         />
                       ))}
                       <div className="px-4 py-3 bg-gray-50 border-t border-gray-100">
-                        <button className="btn-ghost gap-1.5 text-xs" onClick={() => addLesson(unit.id)}>
+                        <button className="btn-ghost gap-1.5 text-xs text-navy-600 hover:bg-navy-50" onClick={() => setQuickAddUnit(unit)}>
                           <PlusIcon className="w-3.5 h-3.5" />
                           Add lesson
                         </button>
@@ -349,6 +449,24 @@ export default function CoursePage() {
               )
             })}
           </div>
+            </>
+          ) : (
+            <CalendarView 
+              course={course} 
+              sections={sections} 
+              units={units} 
+              onReload={loadCourse} 
+            />
+          )}
+
+          {quickAddUnit && (
+            <QuickAddLessonDrawer
+              unitId={quickAddUnit.id}
+              unitTitle={quickAddUnit.title}
+              onClose={() => setQuickAddUnit(null)}
+              onAdded={() => loadCourse()}
+            />
+          )}
         </>
       )}
 
@@ -372,6 +490,15 @@ function LessonRow({ lesson, idx, courseId, sections, color, onDelete, onReload 
   const [segLoaded, setSegLoaded] = useState(false)
   const [aiLoading, setAiLoading] = useState(false)
   const [showSectionPicker, setShowSectionPicker] = useState(false)
+
+  // Inline edit states
+  const [isAddingSegment, setIsAddingSegment] = useState(false)
+  const [newSegmentTitle, setNewSegmentTitle] = useState('')
+  const segmentInputRef = useRef(null)
+
+  useEffect(() => {
+    if (isAddingSegment) segmentInputRef.current?.focus()
+  }, [isAddingSegment])
 
   function handleTrack() {
     if (!sections?.length) return
@@ -398,15 +525,21 @@ function LessonRow({ lesson, idx, courseId, sections, color, onDelete, onReload 
     setExpanded(v => !v)
   }
 
-  async function addSegment() {
-    const title = prompt('Segment title (e.g. "Warm-up", "Activity 1"):')
-    if (!title) return
+  async function handleAddSegment(e) {
+    if (e) e.preventDefault()
+    if (!newSegmentTitle.trim()) {
+      setIsAddingSegment(false)
+      return
+    }
+    const title = newSegmentTitle.trim()
     const { data } = await supabase
       .from('lesson_segments')
       .insert({ lesson_id: lesson.id, title, order_index: segments.length })
       .select()
       .single()
     setSegments(prev => [...prev, data])
+    setNewSegmentTitle('')
+    setIsAddingSegment(false)
   }
 
   async function deleteSegment(segId) {
@@ -456,6 +589,18 @@ function LessonRow({ lesson, idx, courseId, sections, color, onDelete, onReload 
           </span>
           {segCount > 0 && (
             <span className="badge-gray shrink-0 text-xs">{segCount} seg</span>
+          )}
+          {lesson.duration_periods > 1 && (
+            <span className="badge-gray shrink-0 text-xs">{lesson.duration_periods} periods</span>
+          )}
+          {lesson.target_date ? (
+            <span className="flex items-center shrink-0" title="Target Date Set">
+              <CalendarDaysIcon className="w-4 h-4 text-emerald-500" />
+            </span>
+          ) : (
+            <span className="flex items-center shrink-0" title="Unscheduled (Floating)">
+              <ExclamationTriangleIcon className="w-4 h-4 text-amber-500" />
+            </span>
           )}
         </button>
         <div className="flex items-center gap-1 shrink-0">
@@ -514,10 +659,28 @@ function LessonRow({ lesson, idx, courseId, sections, color, onDelete, onReload 
               </button>
             </div>
           ))}
-          <button className="btn-ghost gap-1.5 text-xs mt-1" onClick={addSegment}>
-            <PlusIcon className="w-3 h-3" />
-            Add segment
-          </button>
+          {isAddingSegment ? (
+            <form onSubmit={handleAddSegment} className="flex items-center gap-2">
+              <input
+                ref={segmentInputRef}
+                className="input py-1.5 text-xs flex-1"
+                placeholder="New segment title..."
+                value={newSegmentTitle}
+                onChange={e => setNewSegmentTitle(e.target.value)}
+                onBlur={() => !newSegmentTitle && setIsAddingSegment(false)}
+                onKeyDown={e => e.key === 'Escape' && setIsAddingSegment(false)}
+              />
+              <button type="submit" className="btn-primary py-1.5 px-3 text-xs">Save</button>
+              <button type="button" onClick={() => setIsAddingSegment(false)} className="btn-secondary py-1.5 px-3 text-xs">
+                <XMarkIcon className="w-3.5 h-3.5" />
+              </button>
+            </form>
+          ) : (
+            <button className="btn-ghost gap-1.5 text-xs mt-1" onClick={() => setIsAddingSegment(true)}>
+              <PlusIcon className="w-3 h-3" />
+              Add segment
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -533,6 +696,8 @@ function SectionsPanel({ courseId, sections, onSectionsChange }) {
     meeting_days: [],
     meeting_time: '',
     end_time: '',
+    start_date: '',
+    end_date: '',
     room: '',
     // per-day overrides: { Monday: { start: '09:00', end: '09:55' }, Friday: { start: '10:00', end: '10:55' } }
     day_times: {},
@@ -579,6 +744,8 @@ function SectionsPanel({ courseId, sections, onSectionsChange }) {
       meeting_days: form.meeting_days,
       meeting_time: form.use_per_day ? null : (form.meeting_time || null),
       end_time:     form.use_per_day ? null : (form.end_time || null),
+      start_date:   form.start_date || null,
+      end_date:     form.end_date || null,
       day_times:    form.use_per_day ? form.day_times : null,
       room:         form.room || null,
     }
@@ -744,6 +911,29 @@ function SectionsPanel({ courseId, sections, onSectionsChange }) {
             </div>
           </div>
 
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label text-xs">Term Start Date</label>
+              <input
+                type="date"
+                className="input text-sm"
+                value={form.start_date}
+                onChange={e => setForm(f => ({ ...f, start_date: e.target.value }))}
+                required
+              />
+            </div>
+            <div>
+              <label className="label text-xs">Term End Date</label>
+              <input
+                type="date"
+                className="input text-sm"
+                value={form.end_date}
+                onChange={e => setForm(f => ({ ...f, end_date: e.target.value }))}
+                required
+              />
+            </div>
+          </div>
+
           <div>
             <label className="label text-xs">Meeting days</label>
             <div className="flex flex-wrap gap-1.5">
@@ -847,87 +1037,7 @@ function SectionsPanel({ courseId, sections, onSectionsChange }) {
   )
 }
 
-// ─── Year Timeline — Atlas-inspired ───────────────────────────────
 
-function YearTimeline({ units, course }) {
-  // We use start_date / end_date on units if they exist, otherwise distribute evenly
-  const schoolYear = buildSchoolYear()
-
-  if (units.length === 0) {
-    return (
-      <div className="card p-10 text-center">
-        <CalendarDaysIcon className="w-8 h-8 text-gray-200 mx-auto mb-3" />
-        <p className="text-sm text-gray-400">No units yet. Add units to see them on the timeline.</p>
-      </div>
-    )
-  }
-
-  // Assign each unit a rough time slice across the year
-  const totalLessons = units.reduce((s, u) => s + u.lessons.length, 0) || units.length
-  let lessonCursor = 0
-
-  const unitSlices = units.map((unit, i) => {
-    const lessons = Math.max(unit.lessons.length, 1)
-    const startPct = totalLessons > 0 ? (lessonCursor / totalLessons) * 100 : (i / units.length) * 100
-    lessonCursor += lessons
-    const endPct = totalLessons > 0 ? (lessonCursor / totalLessons) * 100 : ((i + 1) / units.length) * 100
-    return { unit, startPct, endPct, color: colorForUnit(i) }
-  })
-
-  return (
-    <div className="card overflow-hidden">
-      {/* Month header */}
-      <div className="px-5 pt-4 pb-2">
-        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Year at a glance</p>
-        <div className="flex" style={{ gap: 0 }}>
-          {schoolYear.map(m => (
-            <div key={m} className="flex-1 text-center">
-              <span className="text-xs text-gray-400 font-medium">{m}</span>
-            </div>
-          ))}
-        </div>
-
-        {/* Timeline bar */}
-        <div className="relative mt-2 mb-1">
-          <div className="h-8 bg-gray-100 rounded-xl overflow-hidden flex">
-            {unitSlices.map(({ unit, startPct, endPct, color }) => (
-              <div
-                key={unit.id}
-                className={`h-full ${color.bg} flex items-center px-2 overflow-hidden relative group cursor-pointer`}
-                style={{ width: `${endPct - startPct}%` }}
-                title={unit.title}
-              >
-                <span className="text-white text-xs font-semibold truncate leading-tight">
-                  {unit.title}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Unit legend */}
-      <div className="border-t border-gray-100 px-5 py-3 space-y-1">
-        {unitSlices.map(({ unit, color }, i) => (
-          <div key={unit.id} className="flex items-center gap-3 py-1.5">
-            <div className={`w-3 h-3 rounded-sm ${color.bg} shrink-0`} />
-            <span className="text-sm text-gray-700 font-medium flex-1 truncate">
-              Unit {i + 1}: {unit.title}
-            </span>
-            <span className="text-xs text-gray-400 shrink-0">
-              {unit.lessons.length} lesson{unit.lessons.length !== 1 ? 's' : ''}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function buildSchoolYear() {
-  // Default Aug - May school year months
-  return ['Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May']
-}
 
 // ─── Standards Panel ──────────────────────────────────────────────
 
