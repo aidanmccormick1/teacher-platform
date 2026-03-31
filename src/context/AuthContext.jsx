@@ -46,23 +46,11 @@ export function AuthProvider({ children }) {
 
   async function fetchProfile(userId) {
     try {
-      // Try with extended fields first; fall back to base fields if columns don't exist yet
       let { data, error } = await supabase
         .from('users')
-        .select('id, email, full_name, role, school_id, onboarded, created_at, phone, work_email, personal_email')
+        .select('*')
         .eq('id', userId)
         .single()
-
-      if (error?.code === '42703' || error?.message?.includes('column')) {
-        // Column doesn't exist yet — fall back to base fields
-        const fallback = await supabase
-          .from('users')
-          .select('id, email, full_name, role, school_id, onboarded, created_at')
-          .eq('id', userId)
-          .single()
-        data = fallback.data
-        error = fallback.error
-      }
 
       if (!error && data) setProfile(data)
     } catch (_) {

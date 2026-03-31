@@ -13,18 +13,37 @@ export default function QuickAddLessonDrawer({ unitId, unitTitle, onClose, onAdd
     if (!title.trim()) return
     setLoading(true)
 
-    const { data: lessonData } = await supabase
+    const payload = {
+      unit_id: unitId,
+      title: title.trim(),
+      duration_periods: (duration === '' || isNaN(duration)) ? 1 : duration,
+      target_date: targetDate || null,
+      order_index: 999
+    }
+
+    const { data: lessonData, error } = await supabase
       .from('lessons')
-      .insert({
-        unit_id: unitId,
-        title: title.trim(),
-        duration_periods: duration,
-        target_date: targetDate || null,
-        // Insert at the end by default; order indexing usually handled by mapping
-        order_index: 999 
-      })
+      .insert(payload)
       .select()
       .single()
+
+    if (error) {
+      console.error('Error adding lesson:', error)
+      if (error.code === '42703' || error.message?.includes('duration_periods') || error.message?.includes('column')) {
+        delete payload.duration_periods
+        const { data: fallbackData, error: fallbackError } = await supabase.from('lessons').insert(payload).select().single()
+        setLoading(false)
+        if (fallbackError) {
+          alert('Failed to add lesson: ' + fallbackError.message)
+        } else if (fallbackData) {
+          onAdded(fallbackData)
+          onClose()
+        }
+        return
+      } else {
+        alert('Failed to add lesson: ' + error.message)
+      }
+    }
 
     setLoading(false)
     if (lessonData) {
@@ -70,7 +89,7 @@ export default function QuickAddLessonDrawer({ unitId, unitTitle, onClose, onAdd
                 required 
                 className="input cursor-ns-resize focus:ring-2 focus:ring-navy-500" 
                 value={duration} 
-                onChange={e => setDuration(parseInt(e.target.value) || 1)} 
+                onChange={e => setDuration(e.target.value === '' ? '' : parseInt(e.target.value))} 
               />
               <p className="text-[11px] text-gray-400 mt-1.5 leading-relaxed">Number of scheduled periods this lesson requires to complete.</p>
             </div>
