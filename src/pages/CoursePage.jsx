@@ -19,6 +19,7 @@ import {
   DocumentTextIcon,
   ChevronLeftIcon,
   Bars3Icon,
+  ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline'
 import clsx from 'clsx'
 import QuickAddLessonDrawer from '@/components/QuickAddLessonDrawer'
@@ -77,6 +78,8 @@ export default function CoursePage() {
   const [newUnitTitle, setNewUnitTitle] = useState('')
   const [renamingUnitId, setRenamingUnitId] = useState(null)
   const [renameUnitTitle, setRenameUnitTitle] = useState('')
+  const [addingLessonToUnit, setAddingLessonToUnit] = useState(null)
+  const [newLessonTitle, setNewLessonTitle] = useState('')
   const [quickAddUnit, setQuickAddUnit] = useState(null)
 
   const unitInputRef = useRef(null)
