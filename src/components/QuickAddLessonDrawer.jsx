@@ -29,8 +29,9 @@ export default function QuickAddLessonDrawer({ unitId, unitTitle, onClose, onAdd
 
     if (error) {
       console.error('Error adding lesson:', error)
-      if (error.code === '42703' || error.message?.includes('duration_periods') || error.message?.includes('column')) {
+      if (error.code === '42703' || error.message?.includes('duration_periods') || error.message?.includes('column') || error.message?.includes('target_date')) {
         delete payload.duration_periods
+        delete payload.target_date
         const { data: fallbackData, error: fallbackError } = await supabase.from('lessons').insert(payload).select().single()
         setLoading(false)
         if (fallbackError) {
