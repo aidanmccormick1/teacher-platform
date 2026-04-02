@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
+import { toast } from 'sonner'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { supabase } from '@/lib/supabase'
@@ -1442,6 +1443,9 @@ export default function SchedulePage() {
           {totalSections > 0 && (
             <WeekGridCollapsible sections={sections} courses={courses} onDeleteSection={deleteSection} />
           )}
+
+          {/* School Calendar — day off sync */}
+          <CalendarSync userId={profile?.id} />
         </div>
       )}
     </div>
@@ -1477,4 +1481,108 @@ function fileToBase64(file) {
     reader.onerror = reject
     reader.readAsDataURL(file)
   })
+}
+
+// ─── School Calendar Sync ─────────────────────────────────────────────────────
+
+function CalendarSync({ userId }) {
+  const [text, setText] = useState('')
+  const [syncing, setSyncing] = useState(false)
+  const [holidays, setHolidays] = useState([])
+
+  useEffect(() => {
+    if (!userId) return
+    supabase.from('school_holidays').select('*').order('date', { ascending: true })
+      .then(({ data }) => setHolidays(data || []))
+  }, [userId])
+
+  async function handleSync() {
+    if (!text.trim()) {
+      toast.error('Paste your calendar text first')
+      return
+    }
+    setSyncing(true)
+    try {
+      const res = await fetch('/api/ai/parse-calendar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      })
+      if (!res.ok) throw new Error('Failed to parse calendar')
+      const { holidays: newHolidays } = await res.json()
+      if (!newHolidays?.length) {
+        toast.error('No dates found in that text.')
+        setSyncing(false)
+        return
+      }
+      const inserts = newHolidays.map(h => ({ teacher_id: userId, name: h.name, date: h.date }))
+      const { error } = await supabase.from('school_holidays').insert(inserts)
+      if (error) throw error
+      toast.success(`Synced ${newHolidays.length} days off!`)
+      setText('')
+      const { data } = await supabase.from('school_holidays').select('*').order('date', { ascending: true })
+      setHolidays(data || [])
+    } catch (err) {
+      console.error(err)
+      toast.error(err.message || 'Sync failed')
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  async function handleDelete(id) {
+    await supabase.from('school_holidays').delete().eq('id', id)
+    setHolidays(prev => prev.filter(h => h.id !== id))
+  }
+
+  return (
+    <div className="card p-5 space-y-4">
+      <div>
+        <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">School Calendar</h3>
+        <p className="text-sm text-gray-500">
+          Paste your district's list of holidays and breaks. The assistant extracts the dates so your course planner auto-excludes them.
+        </p>
+      </div>
+
+      <textarea
+        className="input text-sm resize-none h-24"
+        placeholder="e.g. Thanksgiving Break Nov 24-26, Winter Break Dec 20-Jan 3..."
+        value={text}
+        onChange={e => setText(e.target.value)}
+        disabled={syncing}
+      />
+
+      <button
+        onClick={handleSync}
+        disabled={syncing || !text.trim()}
+        className="btn-secondary w-full text-sm"
+      >
+        {syncing ? 'Scanning dates…' : 'Sync breaks & holidays'}
+      </button>
+
+      {holidays.length > 0 && (
+        <div className="pt-4 border-t border-gray-100">
+          <p className="text-xs font-semibold text-gray-900 mb-2">Synced days off ({holidays.length})</p>
+          <div className="max-h-40 overflow-y-auto space-y-0.5 pr-1">
+            {holidays.map(h => (
+              <div key={h.id} className="flex justify-between items-center text-xs py-1.5 group">
+                <span className="text-gray-600">{h.name}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-navy-600 font-medium">
+                    {new Date(h.date + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                  </span>
+                  <button
+                    onClick={() => handleDelete(h.id)}
+                    className="text-gray-200 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <XMarkIcon className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }

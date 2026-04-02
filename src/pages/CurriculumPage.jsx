@@ -298,7 +298,9 @@ export default function CurriculumPage() {
           onClose={() => setShowNewCourse(false)}
           onCreated={course => {
             setShowNewCourse(false)
-            navigate(`/courses/${course.id}`)
+            navigate(`/courses/${course.id}`, {
+              state: { start_date: course.start_date, end_date: course.end_date }
+            })
           }}
         />
       )}
@@ -317,14 +319,16 @@ function NewCourseModal({ profile, onClose, onCreated }) {
   async function handleCreate() {
     setLoading(true)
     setError(null)
+    // Only insert columns that exist in the DB schema.
+    // start_date / end_date are passed via nav state until the migration adds them.
     const { data, error: err } = await supabase
       .from('courses')
       .insert({
-        ...form,
-        start_date: form.start_date || null,
-        end_date:   form.end_date   || null,
-        teacher_id: profile.id,
-        school_id:  profile.school_id,
+        name:        form.name,
+        subject:     form.subject,
+        grade_level: form.grade_level,
+        teacher_id:  profile.id,
+        school_id:   profile.school_id,
       })
       .select()
       .single()
@@ -332,7 +336,8 @@ function NewCourseModal({ profile, onClose, onCreated }) {
     if (err) {
       setError(err.message || 'Something went wrong')
     } else {
-      onCreated(data)
+      // Attach the date fields in memory so the planner can pre-fill them
+      onCreated({ ...data, start_date: form.start_date || null, end_date: form.end_date || null })
     }
   }
 

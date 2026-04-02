@@ -52,13 +52,28 @@ export function AuthProvider({ children }) {
         .eq('id', userId)
         .single()
 
+      // Get fresh auth session to merge any metadata-stored fields
+      const { data: { session: freshSession } } = await supabase.auth.getSession()
+      const meta = freshSession?.user?.user_metadata || {}
+
       if (!error && data) {
-        // Fallback to auth metadata if user table is missing avatar_url
-        const { data: { session } } = await supabase.auth.getSession()
-        if (session && session.user && !data.avatar_url) {
-          data.avatar_url = session.user.user_metadata?.avatar_url
+        // Merge metadata as fallback for fields that may not be in the DB yet
+        data = {
+          ...data,
+          full_name:      data.full_name      || meta.full_name      || null,
+          phone:          data.phone          || meta.phone          || null,
+          work_email:     data.work_email     || meta.work_email     || null,
+          personal_email: data.personal_email || meta.personal_email || null,
+          avatar_url:     data.avatar_url     || meta.avatar_url     || null,
         }
         setProfile(data)
+      } else if (meta.full_name || meta.email) {
+        // users table row missing entirely — build a profile from auth metadata
+        setProfile({
+          id: userId,
+          email: freshSession?.user?.email || '',
+          ...meta,
+        })
       }
     } catch (_) {
       // profile fetch failed — app still loads, user goes to onboarding
@@ -86,8 +101,11 @@ export function AuthProvider({ children }) {
   }
 
   async function refreshProfile() {
-    if (session) await fetchProfile(session.user.id)
+    // Re-fetch fresh session so we get the latest user.id reliably
+    const { data: { session: fresh } } = await supabase.auth.getSession()
+    if (fresh?.user?.id) await fetchProfile(fresh.user.id)
   }
+
 
   return (
     <AuthContext.Provider value={{ session, profile, loading, signIn, signUp, signOut, refreshProfile }}>

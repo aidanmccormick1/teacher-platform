@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useMemo } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
 import {
@@ -1331,9 +1331,11 @@ function StandardsPanel({ courseId, course, units }) {
 // ─── Course Planner — single unified panel ────────────────────────────
 
 function CoursePlanner({ course, onDone, onSkip }) {
+  const location = useLocation()
+  const navState = location.state || {}
   const [dates, setDates] = useState({
-    startDate: course.start_date || '',
-    endDate:   course.end_date   || '',
+    startDate: course.start_date || navState.start_date || '',
+    endDate:   course.end_date   || navState.end_date   || '',
   })
   const [holidays, setHolidays] = useState([])
   const [allocations, setAllocations] = useState([
