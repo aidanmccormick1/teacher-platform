@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
@@ -497,6 +497,12 @@ function LessonRow({ lesson, idx, courseId, sections, color, onDelete, onUpdateD
   const [segLoaded, setSegLoaded] = useState(false)
   const [aiLoading, setAiLoading] = useState(false)
   const [showSectionPicker, setShowSectionPicker] = useState(false)
+  const [editingDate, setEditingDate] = useState(false)
+  const dateInputRef = useRef(null)
+
+  useEffect(() => {
+    if (editingDate) dateInputRef.current?.showPicker?.() || dateInputRef.current?.focus()
+  }, [editingDate])
 
   // Inline edit states
   const [isAddingSegment, setIsAddingSegment] = useState(false)
@@ -600,32 +606,48 @@ function LessonRow({ lesson, idx, courseId, sections, color, onDelete, onUpdateD
           {lesson.duration_periods > 1 && (
             <span className="badge-gray shrink-0 text-xs">{lesson.duration_periods} periods</span>
           )}
-          {lesson.target_date ? (
-            <span className="flex items-center shrink-0" title={`Scheduled for ${new Date(lesson.target_date).toLocaleDateString()}`}>
-              <CalendarDaysIcon className="w-4 h-4 text-emerald-500" />
-            </span>
-          ) : (
-            <div className="relative group shrink-0">
-              <button 
-                type="button"
-                className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-amber-600 hover:bg-amber-100 transition-colors"
-                onClick={e => e.stopPropagation()}
-                title="Lesson is floating. Click to set target date."
-              >
-                <ExclamationTriangleIcon className="w-3.5 h-3.5" />
-                <span className="text-[10px] font-bold uppercase tracking-wide whitespace-nowrap">Needs Date</span>
-              </button>
-              <input 
+          {/* ── Date badge ── */}
+          {editingDate ? (
+            <div className="relative shrink-0" onClick={e => e.stopPropagation()}>
+              <input
+                ref={dateInputRef}
                 type="date"
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                onClick={e => e.stopPropagation()}
+                defaultValue={lesson.target_date || ''}
+                className="input text-xs py-0.5 px-2 h-7 w-36 border-navy-300 focus:ring-navy-400"
+                autoFocus
+                onBlur={() => setEditingDate(false)}
                 onChange={async (e) => {
                   if (e.target.value) {
                     await onUpdateDate(lesson.id, e.target.value)
+                    setEditingDate(false)
                   }
                 }}
+                onKeyDown={e => { if (e.key === 'Escape') setEditingDate(false) }}
               />
             </div>
+          ) : lesson.target_date ? (
+            <button
+              type="button"
+              className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors shrink-0 group"
+              onClick={e => { e.stopPropagation(); setEditingDate(true) }}
+              title="Click to change date"
+            >
+              <CalendarDaysIcon className="w-3.5 h-3.5" />
+              <span className="text-[10px] font-semibold">
+                {new Date(lesson.target_date + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+              </span>
+              <PencilSquareIcon className="w-3 h-3 opacity-0 group-hover:opacity-60 transition-opacity" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-amber-600 border border-amber-200 border-dashed hover:bg-amber-100 transition-colors shrink-0"
+              onClick={e => { e.stopPropagation(); setEditingDate(true) }}
+              title="No date set — click to add one"
+            >
+              <CalendarDaysIcon className="w-3.5 h-3.5" />
+              <span className="text-[10px] font-bold uppercase tracking-wide whitespace-nowrap">Add Date</span>
+            </button>
           )}
         </button>
         <div className="flex items-center gap-1 shrink-0">
@@ -1306,265 +1328,248 @@ function StandardsPanel({ courseId, course, units }) {
   )
 }
 
-// ─── Course Planner — mathematical allocation ─────────────────────────
+// ─── Course Planner — single unified panel ────────────────────────────
 
 function CoursePlanner({ course, onDone, onSkip }) {
-  const [step, setStep] = useState(1)
-  
-  // Date configuration
   const [dates, setDates] = useState({ startDate: '', endDate: '' })
   const [holidays, setHolidays] = useState([])
-  
-  // Unit allocations
   const [allocations, setAllocations] = useState([
-    { id: Date.now(), title: 'Unit 1: Introduction', description: '', target_lessons: 5 }
+    { id: 1, title: '', description: '', target_lessons: 10 },
+    { id: 2, title: '', description: '', target_lessons: 10 },
   ])
-  
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState(null)
 
-  // Fetch holidays on mount so we can subtract them from available days
   useEffect(() => {
-    async function loadHolidays() {
-      const { data } = await supabase.from('school_holidays').select('*')
+    supabase.from('school_holidays').select('date').then(({ data }) => {
       if (data) setHolidays(data)
-    }
-    loadHolidays()
+    })
   }, [])
 
-  function calculateAvailableDays() {
+  // ── Math ──────────────────────────────────────────────────────────
+  const totalAvailable = useMemo(() => {
     if (!dates.startDate || !dates.endDate) return 0
-    let start = new Date(dates.startDate + 'T12:00:00') // prevent timezone shift
-    let end = new Date(dates.endDate + 'T12:00:00')
+    const start = new Date(dates.startDate + 'T12:00:00')
+    const end   = new Date(dates.endDate   + 'T12:00:00')
     if (start > end) return 0
-
-    let count = 0
-    let cur = new Date(start)
-    
-    // Normalize holiday strings to match
     const holidaySet = new Set(holidays.map(h => h.date))
-
+    let count = 0
+    const cur = new Date(start)
     while (cur <= end) {
-      const dayOfWeek = cur.getDay()
-      if (dayOfWeek !== 0 && dayOfWeek !== 6) { // Mon-Fri
-        const dateStr = cur.toISOString().split('T')[0]
-        if (!holidaySet.has(dateStr)) {
-          count++
-        }
-      }
+      const d = cur.getDay()
+      if (d !== 0 && d !== 6 && !holidaySet.has(cur.toISOString().split('T')[0])) count++
       cur.setDate(cur.getDate() + 1)
     }
     return count
+  }, [dates, holidays])
+
+  const totalAllocated = allocations.reduce((s, u) => s + (Number(u.target_lessons) || 0), 0)
+  const remaining      = totalAvailable - totalAllocated
+  const canBuild       = dates.startDate && dates.endDate && totalAvailable > 0
+                         && allocations.some(a => a.title.trim())
+                         && remaining >= 0
+
+  // ── Allocation helpers ────────────────────────────────────────────
+  const nextId = useRef(100)
+  function addUnit() {
+    setAllocations(p => [...p, { id: nextId.current++, title: '', description: '', target_lessons: 10 }])
   }
-
-  const totalAvailable = calculateAvailableDays()
-  const totalAllocated = allocations.reduce((sum, u) => sum + (Number(u.target_lessons) || 0), 0)
-  const remaining = totalAvailable - totalAllocated
-
-  function handleAddUnit() {
-    setAllocations(prev => [...prev, { id: Date.now(), title: '', description: '', target_lessons: 5 }])
+  function updateUnit(id, field, value) {
+    setAllocations(p => p.map(a => a.id === id ? { ...a, [field]: value } : a))
   }
-
-  function updateAllocation(id, field, value) {
-    setAllocations(prev => prev.map(a => a.id === id ? { ...a, [field]: value } : a))
-  }
-
-  function removeAllocation(id) {
+  function removeUnit(id) {
     if (allocations.length <= 1) return
-    setAllocations(prev => prev.filter(a => a.id !== id))
+    setAllocations(p => p.filter(a => a.id !== id))
   }
 
-  async function handleAutoFill() {
-    const validAllocations = allocations.filter(a => a.title.trim() && a.target_lessons > 0)
-    if (validAllocations.length === 0) return
-
+  // ── Build ─────────────────────────────────────────────────────────
+  async function handleBuild() {
+    const valid = allocations.filter(a => a.title.trim() && a.target_lessons > 0)
+    if (!valid.length) return
     setGenerating(true)
     setError(null)
-
     try {
       const res = await fetch('/api/ai/scaffold-course', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          courseId: course.id,
-          subject: course.subject,
+          courseId:   course.id,
+          subject:    course.subject,
           gradeLevel: course.grade_level,
-          units: validAllocations
+          units:      valid,
         }),
       })
-
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        throw new Error(err.error || 'Setup failed')
+        const e = await res.json().catch(() => ({}))
+        throw new Error(e.error || 'Build failed')
       }
-
       onDone()
     } catch (err) {
-      console.error('Course setup failed:', err)
-      setError(`Setup failed: ${err.message}`)
+      console.error(err)
+      setError(err.message)
       setGenerating(false)
     }
   }
 
-  // ── Step 1: Calendar Sync ──
-  if (step === 1) {
-    return (
-      <div className="card overflow-hidden">
-        <div className="px-5 pt-5 pb-1">
-          <div className="flex items-center justify-between mb-1">
-            <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Step 1 of 2</p>
-            <button onClick={onSkip} className="text-xs text-gray-400 hover:text-gray-600">Skip</button>
-          </div>
-          <h3 className="font-bold text-gray-900 text-base mb-0.5">Map Course Frame</h3>
-          <p className="text-sm text-gray-400 mb-4">
-            Set your exact start and end dates to map how many overall lessons you have available to teach.
-          </p>
-        </div>
-
-        <form onSubmit={e => { e.preventDefault(); setStep(2) }} className="px-5 pb-5 space-y-5">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="label text-xs">First Day of Course</label>
-              <input
-                type="date"
-                required
-                className="input text-sm"
-                value={dates.startDate}
-                onChange={e => setDates(d => ({ ...d, startDate: e.target.value }))}
-              />
-            </div>
-            <div>
-              <label className="label text-xs">Last Day of Course</label>
-              <input
-                type="date"
-                required
-                className="input text-sm"
-                value={dates.endDate}
-                onChange={e => setDates(d => ({ ...d, endDate: e.target.value }))}
-              />
-            </div>
-          </div>
-
-          <div className="bg-navy-50/50 rounded-xl p-4 border border-navy-100 flex items-center justify-between">
-            <div>
-              <p className="text-sm font-semibold text-navy-900">Total Instructional Days</p>
-              <p className="text-xs text-navy-600 mt-0.5">Excludes weekends and synced holidays</p>
-            </div>
-            <div className="text-2xl font-bold text-navy-700">
-              {totalAvailable}
-            </div>
-          </div>
-
-          {holidays.length === 0 && (
-            <p className="text-xs text-amber-600 bg-amber-50 p-2 rounded flex items-center gap-1.5">
-              <ExclamationTriangleIcon className="w-4 h-4 shrink-0" />
-              Tip: Sync your School Calendar from your Profile settings to automatically exclude all your days off.
-            </p>
-          )}
-
-          <div className="flex gap-2 pt-2">
-            <button type="submit" className="btn-primary flex-1" disabled={!dates.startDate || !dates.endDate || totalAvailable <= 0}>
-              Continue to Allocations
-            </button>
-          </div>
-        </form>
-      </div>
-    )
-  }
-
-  // ── Step 2: Allocation ──
+  // ── Render ────────────────────────────────────────────────────────
   return (
-    <div className="card overflow-hidden">
-      <div className="px-5 pt-5 pb-3">
-        <div className="flex items-center justify-between">
-          <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5">Step 2 of 2</p>
+    <div className="card overflow-hidden flex flex-col">
+
+      {/* Header */}
+      <div className="px-5 pt-5 pb-4 border-b border-gray-100">
+        <div className="flex items-center justify-between mb-0.5">
+          <h3 className="font-bold text-gray-900 text-base">Plan your course</h3>
+          <button onClick={onSkip} className="text-xs text-gray-400 hover:text-gray-600">Skip for now</button>
         </div>
-        <h3 className="font-bold text-gray-900 text-base">Allocate your lessons</h3>
-        <p className="text-sm text-gray-400 mt-0.5 mb-4">
-          Break your {totalAvailable} available days up into units. We will auto-fill the specific lessons into these chunks.
-        </p>
-        
-        <div className="flex justify-between items-end mb-2 pb-2 border-b border-gray-100">
-          <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">Unit Allocations</p>
-          <div className="text-right">
-            <p className={`text-sm font-bold ${remaining < 0 ? 'text-red-500' : remaining === 0 ? 'text-emerald-500' : 'text-navy-600'}`}>
-              {remaining} lessons unallocated
-            </p>
-          </div>
-        </div>
+        <p className="text-sm text-gray-400">Set your dates, allocate lessons to each unit, then let us build the outline.</p>
       </div>
 
-      {error && (
-        <div className="mx-5 mb-3 bg-red-50 text-red-600 text-xs px-3 py-2 rounded-lg">{error}</div>
-      )}
+      <div className="px-5 pt-4 pb-2 space-y-4">
 
-      <div className="px-5 pb-3 space-y-3 max-h-[400px] overflow-y-auto pt-1">
-        {allocations.map((unit, idx) => (
-          <div key={unit.id} className="flex flex-col gap-2 p-3 bg-gray-50 border border-gray-100 rounded-xl relative group">
-            <div className="flex justify-between items-center gap-4">
-              <span className="text-xs font-bold text-gray-400 shrink-0 w-5">{idx + 1}.</span>
-              <input
-                className="input text-sm flex-1 font-semibold"
-                placeholder="Unit Title (e.g. Ecology)"
-                value={unit.title}
-                onChange={e => updateAllocation(unit.id, 'title', e.target.value)}
+        {/* ── Date range + live counter ── */}
+        <div className="flex gap-3 items-end">
+          <div className="flex-1">
+            <label className="label text-xs">Course starts</label>
+            <input
+              type="date"
+              className="input text-sm"
+              value={dates.startDate}
+              onChange={e => setDates(d => ({ ...d, startDate: e.target.value }))}
+            />
+          </div>
+          <div className="flex-1">
+            <label className="label text-xs">Course ends</label>
+            <input
+              type="date"
+              className="input text-sm"
+              value={dates.endDate}
+              onChange={e => setDates(d => ({ ...d, endDate: e.target.value }))}
+            />
+          </div>
+          <div className={`shrink-0 rounded-xl px-4 py-2.5 text-center min-w-[80px] transition-colors ${
+            totalAvailable > 0 ? 'bg-navy-50 border border-navy-100' : 'bg-gray-50 border border-gray-100'
+          }`}>
+            <p className={`text-2xl font-bold leading-tight ${totalAvailable > 0 ? 'text-navy-700' : 'text-gray-300'}`}>
+              {totalAvailable || '—'}
+            </p>
+            <p className="text-[9px] uppercase tracking-wide text-gray-400 font-semibold leading-tight">days</p>
+          </div>
+        </div>
+
+        {holidays.length === 0 && dates.startDate && (
+          <p className="text-xs text-amber-600 bg-amber-50 px-3 py-2 rounded-lg flex items-center gap-1.5">
+            <ExclamationTriangleIcon className="w-3.5 h-3.5 shrink-0" />
+            Tip: Sync your school holidays from Profile → School Calendar so days off are auto-excluded.
+          </p>
+        )}
+
+        {/* ── Pool bar ── */}
+        {totalAvailable > 0 && (
+          <div>
+            <div className="flex justify-between text-xs mb-1">
+              <span className="text-gray-500 font-medium">Allocated</span>
+              <span className={`font-bold ${remaining < 0 ? 'text-red-500' : remaining === 0 ? 'text-emerald-600' : 'text-navy-600'}`}>
+                {totalAllocated} / {totalAvailable}{remaining !== 0 && ` · ${Math.abs(remaining)} ${remaining > 0 ? 'left' : 'over'}`}
+              </span>
+            </div>
+            <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-300 ${remaining < 0 ? 'bg-red-400' : remaining === 0 ? 'bg-emerald-400' : 'bg-navy-500'}`}
+                style={{ width: `${Math.min(100, totalAvailable > 0 ? (totalAllocated / totalAvailable) * 100 : 0)}%` }}
               />
-              <div className="flex items-center gap-2 shrink-0 bg-white border border-gray-200 rounded-lg px-2 py-1 shadow-sm">
+            </div>
+          </div>
+        )}
+
+        {/* ── Divider ── */}
+        <div className="flex items-center gap-2 pt-1">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 shrink-0">Units</p>
+          <div className="flex-1 h-px bg-gray-100" />
+        </div>
+
+      </div>
+
+      {/* ── Unit list ── */}
+      <div className="px-5 pb-2 space-y-2 max-h-72 overflow-y-auto">
+        {allocations.map((unit, idx) => (
+          <div
+            key={unit.id}
+            className="flex flex-col gap-1.5 p-3 bg-gray-50 border border-gray-100 rounded-xl group relative"
+          >
+            <div className="flex items-center gap-2">
+              <span className="w-5 text-center text-xs font-bold text-gray-300 shrink-0">{idx + 1}</span>
+              <input
+                className="input text-sm flex-1 font-semibold bg-white min-w-0"
+                placeholder="Unit title  (e.g. Ecology)"
+                value={unit.title}
+                onChange={e => updateUnit(unit.id, 'title', e.target.value)}
+              />
+              {/* Lesson counter stepper */}
+              <div className="flex items-center shrink-0 bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
+                <button
+                  type="button"
+                  className="px-2 py-1 text-gray-400 hover:text-navy-700 hover:bg-gray-50 text-base leading-none"
+                  onClick={() => updateUnit(unit.id, 'target_lessons', Math.max(1, (Number(unit.target_lessons) || 1) - 1))}
+                >−</button>
                 <input
                   type="number"
                   min="1"
-                  className="w-12 text-center text-sm font-bold text-navy-700 bg-transparent border-none p-0 focus:ring-0"
+                  className="w-10 text-center text-sm font-bold text-navy-700 bg-transparent border-none p-0 focus:ring-0"
                   value={unit.target_lessons}
-                  onChange={e => updateAllocation(unit.id, 'target_lessons', parseInt(e.target.value) || 0)}
+                  onChange={e => updateUnit(unit.id, 'target_lessons', parseInt(e.target.value) || 0)}
                 />
-                <span className="text-xs text-gray-500 font-medium">lessons</span>
+                <button
+                  type="button"
+                  className="px-2 py-1 text-gray-400 hover:text-navy-700 hover:bg-gray-50 text-base leading-none"
+                  onClick={() => updateUnit(unit.id, 'target_lessons', (Number(unit.target_lessons) || 0) + 1)}
+                >+</button>
               </div>
+              <span className="text-xs text-gray-400 shrink-0 hidden sm:block">lessons</span>
+              {allocations.length > 1 && (
+                <button
+                  className="p-1 text-gray-200 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 shrink-0"
+                  onClick={() => removeUnit(unit.id)}
+                >
+                  <XMarkIcon className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
-            <div className="pl-9 pr-6">
+            <div className="pl-7 pr-8">
               <input
                 className="input text-xs w-full bg-white"
-                placeholder="Optional: Provide specific topics to cover (e.g. Food webs, Biomes)..."
+                placeholder="Topics to cover (optional — e.g. Food webs, Biomes, Climate)"
                 value={unit.description}
-                onChange={e => updateAllocation(unit.id, 'description', e.target.value)}
+                onChange={e => updateUnit(unit.id, 'description', e.target.value)}
               />
             </div>
-            {allocations.length > 1 && (
-              <button 
-                className="absolute top-3 right-2 p-1.5 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                onClick={() => removeAllocation(unit.id)}
-              >
-                <XMarkIcon className="w-4 h-4" />
-              </button>
-            )}
           </div>
         ))}
-        <button 
-          onClick={handleAddUnit}
-          className="w-full py-2.5 dashed-border rounded-xl text-navy-600 font-medium text-sm hover:bg-navy-50 flex items-center justify-center gap-2 mt-2"
+
+        <button
+          type="button"
+          onClick={addUnit}
+          className="w-full py-2.5 border-2 border-dashed border-gray-200 rounded-xl text-navy-600 font-medium text-sm hover:bg-navy-50 hover:border-navy-200 flex items-center justify-center gap-2 transition-colors"
         >
           <PlusIcon className="w-4 h-4" />
-          Add Another Unit
+          Add unit
         </button>
       </div>
 
-      <div className="px-5 py-4 bg-white border-t border-gray-100 flex items-center justify-between gap-3">
-        <button type="button" onClick={() => setStep(1)} className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1">
-          <ChevronLeftIcon className="w-3 h-3" /> Back
+      {/* ── Footer ── */}
+      <div className="px-5 py-4 border-t border-gray-100 bg-white mt-2">
+        {error && <p className="text-xs text-red-500 mb-2">{error}</p>}
+        <button
+          type="button"
+          onClick={handleBuild}
+          disabled={!canBuild || generating}
+          className="btn-primary w-full text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {generating ? (
+            <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Building course…</>
+          ) : (
+            canBuild ? `Build course · ${allocations.filter(a => a.title.trim()).length} unit${allocations.filter(a => a.title.trim()).length !== 1 ? 's' : ''}` : 'Fill in dates & at least one unit above'
+          )}
         </button>
-        <div className="flex gap-2 w-full justify-end">
-          <button
-            type="button"
-            onClick={handleAutoFill}
-            disabled={generating || remaining < 0 || !allocations.some(a => a.title)}
-            className="btn-primary text-sm min-w-[140px]"
-          >
-            {generating ? (
-               <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Setup Course</>
-            ) : (
-               'Auto-fill Setup'
-            )}
-          </button>
-        </div>
       </div>
     </div>
   )
