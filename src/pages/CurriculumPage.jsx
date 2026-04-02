@@ -309,8 +309,8 @@ export default function CurriculumPage() {
 // ─── New Course Modal — 2-step walkthrough ─────────────────────────
 
 function NewCourseModal({ profile, onClose, onCreated }) {
-  const [step, setStep] = useState(1) // 1: nickname, 2: subject + grade
-  const [form, setForm] = useState({ name: '', subject: '', grade_level: '' })
+  const [step, setStep] = useState(1) // 1: nickname, 2: subject + grade, 3: dates
+  const [form, setForm] = useState({ name: '', subject: '', grade_level: '', start_date: '', end_date: '' })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
@@ -319,7 +319,13 @@ function NewCourseModal({ profile, onClose, onCreated }) {
     setError(null)
     const { data, error: err } = await supabase
       .from('courses')
-      .insert({ ...form, teacher_id: profile.id, school_id: profile.school_id })
+      .insert({
+        ...form,
+        start_date: form.start_date || null,
+        end_date:   form.end_date   || null,
+        teacher_id: profile.id,
+        school_id:  profile.school_id,
+      })
       .select()
       .single()
     setLoading(false)
@@ -339,14 +345,14 @@ function NewCourseModal({ profile, onClose, onCreated }) {
         <div className="h-1 bg-gray-100">
           <div
             className="h-1 bg-navy-500 transition-all duration-300"
-            style={{ width: step === 1 ? '50%' : '100%' }}
+            style={{ width: step === 1 ? '33%' : step === 2 ? '66%' : '100%' }}
           />
         </div>
 
         <div className="p-6">
           {step === 1 ? (
             <>
-              <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">Step 1 of 2</p>
+              <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">Step 1 of 3</p>
               <h3 className="font-bold text-gray-900 text-lg mb-1">What's this course called?</h3>
               <p className="text-sm text-gray-400 mb-5">
                 Use a short name you recognize — like "AP Gov" or "7th Math B".
@@ -373,9 +379,9 @@ function NewCourseModal({ profile, onClose, onCreated }) {
                 </button>
               </div>
             </>
-          ) : (
+          ) : step === 2 ? (
             <>
-              <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">Step 2 of 2</p>
+              <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">Step 2 of 3</p>
               <h3 className="font-bold text-gray-900 text-lg mb-1">Subject and grade</h3>
               <p className="text-sm text-gray-400 mb-4">
                 Helps organize your curriculum. You can change this later.
@@ -421,12 +427,69 @@ function NewCourseModal({ profile, onClose, onCreated }) {
                 </div>
               </div>
 
+              <div className="flex gap-3">
+                <button type="button" className="btn-secondary" onClick={() => setStep(1)}>
+                  Back
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary flex-1"
+                  onClick={() => setStep(3)}
+                >
+                  Next
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">Step 3 of 3</p>
+              <h3 className="font-bold text-gray-900 text-lg mb-1">When does it run?</h3>
+              <p className="text-sm text-gray-400 mb-4">
+                Set the first and last day of this course so your lesson planner knows exactly how many days you have.
+              </p>
+
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <div>
+                  <label className="label text-xs">First day</label>
+                  <input
+                    type="date"
+                    className="input text-sm"
+                    value={form.start_date}
+                    onChange={e => setForm(f => ({ ...f, start_date: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="label text-xs">Last day</label>
+                  <input
+                    type="date"
+                    className="input text-sm"
+                    value={form.end_date}
+                    onChange={e => setForm(f => ({ ...f, end_date: e.target.value }))}
+                  />
+                </div>
+              </div>
+
+              {/* Live day counter */}
+              {form.start_date && form.end_date && (() => {
+                const s = new Date(form.start_date + 'T12:00:00')
+                const e = new Date(form.end_date   + 'T12:00:00')
+                if (s >= e) return null
+                let days = 0, cur = new Date(s)
+                while (cur <= e) { if (cur.getDay() !== 0 && cur.getDay() !== 6) days++; cur.setDate(cur.getDate() + 1) }
+                return (
+                  <div className="bg-navy-50 border border-navy-100 rounded-xl p-3 flex items-center justify-between mb-4">
+                    <p className="text-xs text-navy-700 font-medium">Approx. instructional days</p>
+                    <p className="text-xl font-bold text-navy-700">{days}</p>
+                  </div>
+                )
+              })()}
+
               {error && (
                 <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg mb-3">{error}</p>
               )}
 
               <div className="flex gap-3">
-                <button type="button" className="btn-secondary" onClick={() => setStep(1)}>
+                <button type="button" className="btn-secondary" onClick={() => setStep(2)}>
                   Back
                 </button>
                 <button

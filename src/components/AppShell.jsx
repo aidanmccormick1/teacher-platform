@@ -8,18 +8,21 @@ import {
   Bars3Icon,
   XMarkIcon,
   UserCircleIcon,
+  AcademicCapIcon,
 } from '@heroicons/react/24/outline'
 import {
   HomeIcon as HomeSolid,
   BookOpenIcon as BookSolid,
   CalendarDaysIcon as CalendarSolid,
   UserCircleIcon as UserSolid,
+  AcademicCapIcon as AcademicCapSolid,
 } from '@heroicons/react/24/solid'
 import { useState } from 'react'
 import clsx from 'clsx'
 
 const NAV = [
   { to: '/',           label: 'Dashboard',  Icon: HomeIcon,         IconActive: HomeSolid },
+  { to: '/classroom',  label: 'Classroom',  Icon: AcademicCapIcon,  IconActive: AcademicCapSolid },
   { to: '/curriculum', label: 'Curriculum', Icon: BookOpenIcon,     IconActive: BookSolid },
   { to: '/schedule',   label: 'Schedule',   Icon: CalendarDaysIcon, IconActive: CalendarSolid },
   { to: '/profile',    label: 'Profile',    Icon: UserCircleIcon,   IconActive: UserSolid },

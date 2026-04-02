@@ -1331,7 +1331,10 @@ function StandardsPanel({ courseId, course, units }) {
 // ─── Course Planner — single unified panel ────────────────────────────
 
 function CoursePlanner({ course, onDone, onSkip }) {
-  const [dates, setDates] = useState({ startDate: '', endDate: '' })
+  const [dates, setDates] = useState({
+    startDate: course.start_date || '',
+    endDate:   course.end_date   || '',
+  })
   const [holidays, setHolidays] = useState([])
   const [allocations, setAllocations] = useState([
     { id: 1, title: '', description: '', target_lessons: 10 },

@@ -15,6 +15,7 @@ const CurriculumPage = lazy(() => import('@/pages/CurriculumPage'))
 const CoursePage = lazy(() => import('@/pages/CoursePage'))
 const SchedulePage = lazy(() => import('@/pages/SchedulePage'))
 const ProfilePage = lazy(() => import('@/pages/ProfilePage'))
+const ClassroomPage = lazy(() => import('@/pages/ClassroomPage'))
 
 function RequireAuth({ children }) {
   const { session, loading } = useAuth()
@@ -84,6 +85,11 @@ function AppRoutes() {
         </RequireAuth>
       }>
         <Route path="/"            element={<DashboardPage />} />
+        <Route path="/classroom"   element={
+          <Suspense fallback={<PageLoadingSkeleton />}>
+            <ClassroomPage />
+          </Suspense>
+        } />
         <Route path="/curriculum"  element={
           <Suspense fallback={<PageLoadingSkeleton />}>
             <CurriculumPage />
