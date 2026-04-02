@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
@@ -26,26 +27,52 @@ import QuickAddLessonDrawer from '@/components/QuickAddLessonDrawer'
 import CalendarView from '@/components/CalendarView'
 import YearTimeline from '@/components/YearTimeline'
 
-// ─── Mini Calendar Popover ────────────────────────────────────────────────────
+// ─── Date Range Picker (portal-rendered to avoid clipping) ───────────────────
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
 const DAY_LABELS = ['Su','Mo','Tu','We','Th','Fr','Sa']
 
-function MiniCalendar({ value, onChange, onClose }) {
+function parseDateStr(str) {
+  // Returns a Date at noon local time to avoid timezone shifts
+  if (!str) return null
+  const [y, m, d] = str.split('-').map(Number)
+  return new Date(y, m - 1, d, 12)
+}
+
+function toDateStr(y, m, d) {
+  return `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+}
+
+function DateRangePicker({ anchorEl, startDate, endDate, onChangeDates, onClose }) {
   const today = new Date()
-  const initial = value ? new Date(value + 'T12:00:00') : today
-  const [viewYear,  setViewYear]  = useState(initial.getFullYear())
-  const [viewMonth, setViewMonth] = useState(initial.getMonth())
+  const initDate = parseDateStr(startDate) || today
+  const [viewYear, setViewYear] = useState(initDate.getFullYear())
+  const [viewMonth, setViewMonth] = useState(initDate.getMonth())
+  // Phase: 'start' = picking start, 'end' = picking end
+  const [phase, setPhase] = useState(startDate ? 'end' : 'start')
+  // Hover state for range preview
+  const [hoverStr, setHoverStr] = useState(null)
   const ref = useRef(null)
+  const [pos, setPos] = useState({ top: 0, left: 0 })
+
+  // Position relative to anchor
+  useEffect(() => {
+    if (!anchorEl) return
+    const rect = anchorEl.getBoundingClientRect()
+    const calW = 272
+    let left = rect.left
+    if (left + calW > window.innerWidth - 8) left = window.innerWidth - calW - 8
+    setPos({ top: rect.bottom + window.scrollY + 6, left: left + window.scrollX })
+  }, [anchorEl])
 
   // Close on outside click
   useEffect(() => {
     function handleClick(e) {
-      if (ref.current && !ref.current.contains(e.target)) onClose()
+      if (ref.current && !ref.current.contains(e.target) && !anchorEl?.contains(e.target)) onClose()
     }
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
-  }, [onClose])
+  }, [onClose, anchorEl])
 
   function prevMonth() {
     if (viewMonth === 0) { setViewMonth(11); setViewYear(y => y - 1) }
@@ -56,29 +83,73 @@ function MiniCalendar({ value, onChange, onClose }) {
     else setViewMonth(m => m + 1)
   }
 
-  // Build grid cells
-  const firstDay = new Date(viewYear, viewMonth, 1).getDay() // 0=Sun
+  const firstDay = new Date(viewYear, viewMonth, 1).getDay()
   const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate()
   const cells = []
   for (let i = 0; i < firstDay; i++) cells.push(null)
   for (let d = 1; d <= daysInMonth; d++) cells.push(d)
 
-  const selectedStr = value // 'YYYY-MM-DD'
-  function cellStr(d) {
-    return `${viewYear}-${String(viewMonth + 1).padStart(2,'0')}-${String(d).padStart(2,'0')}`
-  }
   function isToday(d) {
     return d === today.getDate() && viewMonth === today.getMonth() && viewYear === today.getFullYear()
   }
 
-  return (
+  function handleDayClick(str) {
+    if (phase === 'start') {
+      onChangeDates(str, null) // reset end when picking new start
+      setPhase('end')
+    } else {
+      // If end < start, swap
+      if (startDate && str < startDate) {
+        onChangeDates(str, startDate)
+      } else {
+        onChangeDates(startDate, str)
+      }
+      onClose()
+    }
+  }
+
+  function inRange(str) {
+    const s = startDate, e = endDate || hoverStr
+    if (!s || !e) return false
+    const lo = s < e ? s : e, hi = s < e ? e : s
+    return str > lo && str < hi
+  }
+
+  const content = (
     <div
       ref={ref}
-      className="absolute z-50 mt-1 bg-white rounded-2xl shadow-xl border border-gray-100 p-3 w-64 select-none"
-      style={{ top: '100%', left: 0 }}
+      style={{ position: 'absolute', top: pos.top, left: pos.left, width: 272, zIndex: 9999 }}
+      className="bg-white rounded-2xl shadow-2xl border border-gray-100 p-3 select-none"
       onMouseDown={e => e.stopPropagation()}
     >
-      {/* Header */}
+      {/* Phase indicator */}
+      <div className="flex gap-1 mb-3">
+        <button
+          onClick={() => setPhase('start')}
+          className={clsx(
+            'flex-1 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wide transition-colors',
+            phase === 'start' ? 'bg-navy-800 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+          )}
+        >
+          {startDate
+            ? new Date(startDate + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+            : 'Start date'}
+        </button>
+        <button
+          onClick={() => startDate && setPhase('end')}
+          className={clsx(
+            'flex-1 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wide transition-colors',
+            phase === 'end' ? 'bg-navy-800 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200',
+            !startDate && 'opacity-40 cursor-not-allowed'
+          )}
+        >
+          {endDate
+            ? new Date(endDate + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+            : 'End date'}
+        </button>
+      </div>
+
+      {/* Month nav */}
       <div className="flex items-center justify-between mb-2">
         <button onClick={prevMonth} className="p-1 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors">
           <ChevronLeftIcon className="w-4 h-4" />
@@ -100,18 +171,23 @@ function MiniCalendar({ value, onChange, onClose }) {
       <div className="grid grid-cols-7 gap-y-0.5">
         {cells.map((d, i) => {
           if (!d) return <div key={`e-${i}`} />
-          const str = cellStr(d)
-          const isSelected = str === selectedStr
-          const isTod = isToday(d)
+          const str = toDateStr(viewYear, viewMonth, d)
+          const isStart   = str === startDate
+          const isEnd     = str === endDate
+          const isInRange = inRange(str)
+          const isTod     = isToday(d)
           return (
             <button
               key={str}
-              onClick={() => { onChange(str); onClose() }}
+              onClick={() => handleDayClick(str)}
+              onMouseEnter={() => setHoverStr(str)}
+              onMouseLeave={() => setHoverStr(null)}
               className={clsx(
                 'w-8 h-8 mx-auto rounded-lg text-xs font-medium transition-all flex items-center justify-center',
-                isSelected && 'bg-navy-800 text-white shadow-sm',
-                !isSelected && isTod && 'bg-navy-100 text-navy-700 font-bold',
-                !isSelected && !isTod && 'text-gray-700 hover:bg-gray-100'
+                (isStart || isEnd) && 'bg-navy-800 text-white shadow-sm',
+                isInRange && !isStart && !isEnd && 'bg-navy-100 text-navy-700 rounded-none',
+                !isStart && !isEnd && !isInRange && isTod && 'ring-1 ring-navy-400 text-navy-700 font-bold',
+                !isStart && !isEnd && !isInRange && !isTod && 'text-gray-700 hover:bg-gray-100'
               )}
             >
               {d}
@@ -120,17 +196,22 @@ function MiniCalendar({ value, onChange, onClose }) {
         })}
       </div>
 
-      {/* Clear */}
-      {selectedStr && (
+      {/* Actions */}
+      <div className="flex items-center justify-between mt-3 pt-2 border-t border-gray-100">
         <button
-          onClick={() => { onChange(null); onClose() }}
-          className="mt-2 w-full text-[10px] text-gray-400 hover:text-red-500 transition-colors text-center"
+          onClick={() => { onChangeDates(null, null); onClose() }}
+          className="text-[10px] text-gray-400 hover:text-red-500 transition-colors"
         >
-          Remove date
+          Clear dates
         </button>
-      )}
+        <p className="text-[10px] text-gray-400">
+          {phase === 'start' ? 'Pick start date' : 'Pick end date'}
+        </p>
+      </div>
     </div>
   )
+
+  return createPortal(content, document.body)
 }
 
 function formatTimeCourse(t) {
@@ -544,8 +625,12 @@ export default function CoursePage() {
                           sections={sections}
                           color={color}
                           onDelete={() => deleteLesson(unit.id, lesson.id)}
-                          onUpdateDate={async (lessonId, targetDate) => {
-                            await supabase.from('lessons').update({ target_date: targetDate }).eq('id', lessonId)
+                          onUpdateDate={async (lessonId, startDate, endDate) => {
+                            const patch = { target_date: startDate || null }
+                            // end_date may not exist in schema yet — ignore error silently
+                            try { patch.end_date = endDate || null } catch (_) {}
+                            const { error } = await supabase.from('lessons').update(patch).eq('id', lessonId)
+                            if (error) console.warn('lesson update:', error.message)
                             loadCourse()
                           }}
                           onReload={loadCourse}
@@ -606,6 +691,9 @@ function LessonRow({ lesson, idx, courseId, sections, color, onDelete, onUpdateD
   const [showSectionPicker, setShowSectionPicker] = useState(false)
   const [showDatePicker, setShowDatePicker] = useState(false)
   const dateAnchorRef = useRef(null)
+  // Local optimistic date state so UI updates immediately
+  const [localStart, setLocalStart] = useState(lesson.target_date || null)
+  const [localEnd,   setLocalEnd]   = useState(lesson.end_date   || null)
 
   // Inline edit states
   const [isAddingSegment, setIsAddingSegment] = useState(false)
@@ -709,37 +797,42 @@ function LessonRow({ lesson, idx, courseId, sections, color, onDelete, onUpdateD
           {lesson.duration_periods > 1 && (
             <span className="badge-gray shrink-0 text-xs">{lesson.duration_periods} periods</span>
           )}
-          {/* ── Date badge + popover ── */}
-          <div className="relative shrink-0" ref={dateAnchorRef} onClick={e => e.stopPropagation()}>
-            {lesson.target_date ? (
+          {/* ── Date range badge + popover ── */}
+          <div ref={dateAnchorRef} onClick={e => e.stopPropagation()} className="shrink-0">
+            {(localStart || localEnd) ? (
               <button
                 type="button"
                 className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors group"
                 onClick={() => setShowDatePicker(v => !v)}
-                title="Click to change date"
+                title="Click to change dates"
               >
-                <CalendarDaysIcon className="w-3.5 h-3.5" />
-                <span className="text-[10px] font-semibold">
-                  {new Date(lesson.target_date + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                <CalendarDaysIcon className="w-3.5 h-3.5 shrink-0" />
+                <span className="text-[10px] font-semibold whitespace-nowrap">
+                  {localStart ? new Date(localStart + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '?'}
+                  {localEnd && <> → {new Date(localEnd + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</>}
                 </span>
-                <PencilSquareIcon className="w-3 h-3 opacity-0 group-hover:opacity-60 transition-opacity" />
+                <PencilSquareIcon className="w-3 h-3 opacity-0 group-hover:opacity-60 transition-opacity shrink-0" />
               </button>
             ) : (
               <button
                 type="button"
                 className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-amber-600 border border-amber-200 border-dashed hover:bg-amber-100 transition-colors"
                 onClick={() => setShowDatePicker(v => !v)}
-                title="No date set — click to add one"
+                title="No dates set — click to add"
               >
                 <CalendarDaysIcon className="w-3.5 h-3.5" />
-                <span className="text-[10px] font-bold uppercase tracking-wide whitespace-nowrap">Add Date</span>
+                <span className="text-[10px] font-bold uppercase tracking-wide whitespace-nowrap">Add Dates</span>
               </button>
             )}
             {showDatePicker && (
-              <MiniCalendar
-                value={lesson.target_date || null}
-                onChange={async (dateStr) => {
-                  await onUpdateDate(lesson.id, dateStr)
+              <DateRangePicker
+                anchorEl={dateAnchorRef.current}
+                startDate={localStart}
+                endDate={localEnd}
+                onChangeDates={async (s, e) => {
+                  setLocalStart(s)
+                  setLocalEnd(e)
+                  await onUpdateDate(lesson.id, s, e)
                 }}
                 onClose={() => setShowDatePicker(false)}
               />
