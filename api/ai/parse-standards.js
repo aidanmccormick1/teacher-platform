@@ -12,41 +12,40 @@ export default async function handler(req, res) {
   const apiKey = process.env.OPENAI_API_KEY
   if (!apiKey) return res.status(500).json({ error: 'OpenAI API key not configured' })
 
-  const prompt = `You are a curriculum expert. Parse the following standards document and extract individual standards.
+  const systemPrompt = `You are a curriculum expert. Parse a standards document and extract individual learning standards.
 For each standard, extract:
-- code: the standard identifier (e.g. "CCSS.ELA-LITERACY.RI.6.1", "HSS-IC.A.1") — leave empty string if none
+- code: the standard identifier (e.g. "CCSS.ELA-LITERACY.RI.6.1") — use empty string if none
 - description: the full text of the standard
 
-Return ONLY valid JSON with this shape (no markdown):
-{
-  "standards": [
-    { "code": "CCSS.ELA.1", "description": "Read closely..." },
-    { "code": "", "description": "Understand key concepts..." }
-  ]
-}
+Respond ONLY with a JSON object in this format (no markdown, no extra text):
+{ "standards": [ { "code": "CCSS.ELA.1", "description": "Read closely to determine..." } ] }`
 
-Standards document:
-${text || '[PDF uploaded — extract all visible standards]'}`
+  const userPrompt = `Parse this standards document and extract all individual standards:\n\n${text || '[Image/PDF uploaded — extract all visible standards from it]'}`
 
   try {
     const messages = []
+
     if (pdf) {
+      // Vision mode for image/PDF uploads
       messages.push({
         role: 'user',
         content: [
-          { type: 'text', text: prompt.replace(text || '', '') },
-          { type: 'image_url', image_url: { url: `data:application/pdf;base64,${pdf}`, detail: 'high' } },
+          { type: 'text', text: systemPrompt + '\n\n' + 'Extract all standards visible in this document image.' },
+          { type: 'image_url', image_url: { url: `data:image/png;base64,${pdf}`, detail: 'high' } },
         ],
       })
     } else {
-      messages.push({ role: 'user', content: prompt })
+      messages.push(
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      )
     }
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: pdf ? 'gpt-4o' : 'gpt-4o-mini',
+        model: 'gpt-5.4-mini',
         messages,
         temperature: 0.2,
         max_tokens: 4000,
@@ -57,17 +56,25 @@ ${text || '[PDF uploaded — extract all visible standards]'}`
     if (!response.ok) {
       const err = await response.text()
       console.error('OpenAI error:', err)
-      return res.status(502).json({ error: 'AI request failed' })
+      return res.status(502).json({ error: 'AI request failed', standards: [] })
     }
 
     const data = await response.json()
-    const content = data.choices?.[0]?.message?.content || '{}'
+    const content = data.choices?.[0]?.message?.content
+
+    if (!content) {
+      console.error('Empty model output from parse-standards')
+      return res.status(200).json({ standards: [] })
+    }
+
     let parsed = {}
-    try { parsed = JSON.parse(content) } catch {}
+    try { parsed = JSON.parse(content) } catch {
+      console.error('Failed to parse model output:', content)
+    }
 
     return res.status(200).json({ standards: parsed.standards || [] })
   } catch (err) {
     console.error('parse-standards error:', err)
-    return res.status(500).json({ error: 'Internal error' })
+    return res.status(500).json({ error: 'Internal error', standards: [] })
   }
 }

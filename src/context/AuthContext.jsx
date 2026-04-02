@@ -52,7 +52,14 @@ export function AuthProvider({ children }) {
         .eq('id', userId)
         .single()
 
-      if (!error && data) setProfile(data)
+      if (!error && data) {
+        // Fallback to auth metadata if user table is missing avatar_url
+        const { data: { session } } = await supabase.auth.getSession()
+        if (session && session.user && !data.avatar_url) {
+          data.avatar_url = session.user.user_metadata?.avatar_url
+        }
+        setProfile(data)
+      }
     } catch (_) {
       // profile fetch failed — app still loads, user goes to onboarding
     }

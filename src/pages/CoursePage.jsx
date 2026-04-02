@@ -8,7 +8,7 @@ import {
   ChevronDownIcon,
   TrashIcon,
   DocumentDuplicateIcon,
-  SparklesIcon,
+
   PencilSquareIcon,
   ClockIcon,
   MapPinIcon,
@@ -407,7 +407,7 @@ export default function CoursePage() {
                       >
                         {aiLoading === unit.id
                           ? <span className="w-4 h-4 border-2 border-navy-400 border-t-transparent rounded-full animate-spin block" />
-                          : <SparklesIcon className="w-4 h-4" />
+                          : <DocumentTextIcon className="w-4 h-4" />
                         }
                       </button>
                       <button 
@@ -437,6 +437,10 @@ export default function CoursePage() {
                           sections={sections}
                           color={color}
                           onDelete={() => deleteLesson(unit.id, lesson.id)}
+                          onUpdateDate={async (lessonId, targetDate) => {
+                            await supabase.from('lessons').update({ target_date: targetDate }).eq('id', lessonId)
+                            loadCourse()
+                          }}
                           onReload={loadCourse}
                         />
                       ))}
@@ -486,7 +490,7 @@ export default function CoursePage() {
 
 // ─── Lesson Row ────────────────────────────────────────────────────
 
-function LessonRow({ lesson, idx, courseId, sections, color, onDelete, onReload }) {
+function LessonRow({ lesson, idx, courseId, sections, color, onDelete, onUpdateDate, onReload }) {
   const navigate = useNavigate()
   const [expanded, setExpanded] = useState(false)
   const [segments, setSegments] = useState(lesson.lesson_segments || [])
@@ -597,13 +601,31 @@ function LessonRow({ lesson, idx, courseId, sections, color, onDelete, onReload 
             <span className="badge-gray shrink-0 text-xs">{lesson.duration_periods} periods</span>
           )}
           {lesson.target_date ? (
-            <span className="flex items-center shrink-0" title="Target Date Set">
+            <span className="flex items-center shrink-0" title={`Scheduled for ${new Date(lesson.target_date).toLocaleDateString()}`}>
               <CalendarDaysIcon className="w-4 h-4 text-emerald-500" />
             </span>
           ) : (
-            <span className="flex items-center shrink-0" title="Unscheduled (Floating)">
-              <ExclamationTriangleIcon className="w-4 h-4 text-amber-500" />
-            </span>
+            <div className="relative group shrink-0">
+              <button 
+                type="button"
+                className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-amber-600 hover:bg-amber-100 transition-colors"
+                onClick={e => e.stopPropagation()}
+                title="Lesson is floating. Click to set target date."
+              >
+                <ExclamationTriangleIcon className="w-3.5 h-3.5" />
+                <span className="text-[10px] font-bold uppercase tracking-wide whitespace-nowrap">Needs Date</span>
+              </button>
+              <input 
+                type="date"
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                onClick={e => e.stopPropagation()}
+                onChange={async (e) => {
+                  if (e.target.value) {
+                    await onUpdateDate(lesson.id, e.target.value)
+                  }
+                }}
+              />
+            </div>
           )}
         </button>
         <div className="flex items-center gap-1 shrink-0">
@@ -624,7 +646,7 @@ function LessonRow({ lesson, idx, courseId, sections, color, onDelete, onReload 
           >
             {aiLoading
               ? <span className="w-3.5 h-3.5 border-2 border-navy-400 border-t-transparent rounded-full animate-spin block" />
-              : <SparklesIcon className="w-3.5 h-3.5" />
+              : <Bars3Icon className="w-3.5 h-3.5" />
             }
           </button>
           <button className="btn-ghost p-1 text-red-400 hover:bg-red-50" onClick={onDelete}>
@@ -1197,7 +1219,7 @@ function StandardsPanel({ courseId, course, units }) {
                 disabled={analyzing}
                 className="flex items-center gap-1.5 text-xs font-semibold text-white bg-navy-800 px-3 py-1.5 rounded-lg hover:bg-navy-900 disabled:opacity-40"
               >
-                <SparklesIcon className="w-3.5 h-3.5" />
+                <DocumentTextIcon className="w-3.5 h-3.5" />
                 Analyze alignment
               </button>
             )}
@@ -1284,90 +1306,107 @@ function StandardsPanel({ courseId, course, units }) {
   )
 }
 
-// ─── Course Planner — redesigned ──────────────────────────────────
+// ─── Course Planner — mathematical allocation ─────────────────────────
 
 function CoursePlanner({ course, onDone, onSkip }) {
   const [step, setStep] = useState(1)
-  const [ctx, setCtx] = useState({
-    startMonth: 'August',
-    endMonth: 'May',
-    daysPerWeek: '5',
-    examDate: '',
-    goals: '',
-  })
-  const [monthTopics, setMonthTopics] = useState([])
-  const [generating, setGenerating] = useState(null)
-  const [done, setDone] = useState([])
+  
+  // Date configuration
+  const [dates, setDates] = useState({ startDate: '', endDate: '' })
+  const [holidays, setHolidays] = useState([])
+  
+  // Unit allocations
+  const [allocations, setAllocations] = useState([
+    { id: Date.now(), title: 'Unit 1: Introduction', description: '', target_lessons: 5 }
+  ])
+  
+  const [generating, setGenerating] = useState(false)
   const [error, setError] = useState(null)
 
-  function buildMonthList(start, end) {
-    const si = MONTHS.indexOf(start)
-    const ei = MONTHS.indexOf(end)
-    if (si < 0 || ei < 0) return []
-    const result = []
-    if (si <= ei) {
-      for (let i = si; i <= ei; i++) result.push(MONTHS[i])
-    } else {
-      for (let i = si; i < MONTHS.length; i++) result.push(MONTHS[i])
-      for (let i = 0; i <= ei; i++) result.push(MONTHS[i])
+  // Fetch holidays on mount so we can subtract them from available days
+  useEffect(() => {
+    async function loadHolidays() {
+      const { data } = await supabase.from('school_holidays').select('*')
+      if (data) setHolidays(data)
     }
-    return result
+    loadHolidays()
+  }, [])
+
+  function calculateAvailableDays() {
+    if (!dates.startDate || !dates.endDate) return 0
+    let start = new Date(dates.startDate + 'T12:00:00') // prevent timezone shift
+    let end = new Date(dates.endDate + 'T12:00:00')
+    if (start > end) return 0
+
+    let count = 0
+    let cur = new Date(start)
+    
+    // Normalize holiday strings to match
+    const holidaySet = new Set(holidays.map(h => h.date))
+
+    while (cur <= end) {
+      const dayOfWeek = cur.getDay()
+      if (dayOfWeek !== 0 && dayOfWeek !== 6) { // Mon-Fri
+        const dateStr = cur.toISOString().split('T')[0]
+        if (!holidaySet.has(dateStr)) {
+          count++
+        }
+      }
+      cur.setDate(cur.getDate() + 1)
+    }
+    return count
   }
 
-  function handleCtxNext(e) {
-    e.preventDefault()
-    const months = buildMonthList(ctx.startMonth, ctx.endMonth)
-    setMonthTopics(months.map(m => ({ month: m, topic: '' })))
-    setStep(2)
+  const totalAvailable = calculateAvailableDays()
+  const totalAllocated = allocations.reduce((sum, u) => sum + (Number(u.target_lessons) || 0), 0)
+  const remaining = totalAvailable - totalAllocated
+
+  function handleAddUnit() {
+    setAllocations(prev => [...prev, { id: Date.now(), title: '', description: '', target_lessons: 5 }])
   }
 
-  function updateTopic(month, value) {
-    setMonthTopics(prev => prev.map(mt => mt.month === month ? { ...mt, topic: value } : mt))
+  function updateAllocation(id, field, value) {
+    setAllocations(prev => prev.map(a => a.id === id ? { ...a, [field]: value } : a))
   }
 
-  async function generateForMonth(mt) {
-    if (!mt.topic.trim()) return
-    setGenerating(mt.month)
+  function removeAllocation(id) {
+    if (allocations.length <= 1) return
+    setAllocations(prev => prev.filter(a => a.id !== id))
+  }
+
+  async function handleAutoFill() {
+    const validAllocations = allocations.filter(a => a.title.trim() && a.target_lessons > 0)
+    if (validAllocations.length === 0) return
+
+    setGenerating(true)
     setError(null)
+
     try {
       const res = await fetch('/api/ai/scaffold-course', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          courseId:   course.id,
-          subject:    course.subject,
+          courseId: course.id,
+          subject: course.subject,
           gradeLevel: course.grade_level,
-          goals:      ctx.goals,
-          month:      mt.month,
-          topic:      mt.topic,
-          examDate:   ctx.examDate,
-          mode:       'month',
+          units: validAllocations
         }),
       })
+
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
-        throw new Error(err.error || 'Generation failed')
+        throw new Error(err.error || 'Setup failed')
       }
-      setDone(prev => [...prev, mt.month])
+
+      onDone()
     } catch (err) {
-      console.error('Generate failed for', mt.month, err)
-      setError(`Failed to generate ${mt.month}: ${err.message}`)
-    } finally {
-      setGenerating(null)
+      console.error('Course setup failed:', err)
+      setError(`Setup failed: ${err.message}`)
+      setGenerating(false)
     }
   }
 
-  async function generateAll() {
-    const pending = monthTopics.filter(mt => mt.topic.trim() && !done.includes(mt.month))
-    for (const mt of pending) {
-      await generateForMonth(mt)
-    }
-  }
-
-  const filledCount = monthTopics.filter(mt => mt.topic.trim()).length
-  const allDone = done.length > 0 && done.length >= filledCount
-
-  // ── Step 1: Context ──
+  // ── Step 1: Calendar Sync ──
   if (step === 1) {
     return (
       <div className="card overflow-hidden">
@@ -1376,58 +1415,56 @@ function CoursePlanner({ course, onDone, onSkip }) {
             <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Step 1 of 2</p>
             <button onClick={onSkip} className="text-xs text-gray-400 hover:text-gray-600">Skip</button>
           </div>
-          <h3 className="font-bold text-gray-900 text-base mb-0.5">Plan your year</h3>
+          <h3 className="font-bold text-gray-900 text-base mb-0.5">Map Course Frame</h3>
           <p className="text-sm text-gray-400 mb-4">
-            Set the basics — you'll map out each month next.
+            Set your exact start and end dates to map how many overall lessons you have available to teach.
           </p>
         </div>
 
-        <form onSubmit={handleCtxNext} className="px-5 pb-5 space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+        <form onSubmit={e => { e.preventDefault(); setStep(2) }} className="px-5 pb-5 space-y-5">
+          <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="label text-xs">Course starts</label>
-              <select className="input text-sm" value={ctx.startMonth} onChange={e => setCtx(c => ({ ...c, startMonth: e.target.value }))} required>
-                {MONTHS.map(m => <option key={m} value={m}>{m}</option>)}
-              </select>
+              <label className="label text-xs">First Day of Course</label>
+              <input
+                type="date"
+                required
+                className="input text-sm"
+                value={dates.startDate}
+                onChange={e => setDates(d => ({ ...d, startDate: e.target.value }))}
+              />
             </div>
             <div>
-              <label className="label text-xs">Course ends</label>
-              <select className="input text-sm" value={ctx.endMonth} onChange={e => setCtx(c => ({ ...c, endMonth: e.target.value }))} required>
-                {MONTHS.map(m => <option key={m} value={m}>{m}</option>)}
-              </select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="label text-xs">Classes per week</label>
-              <select className="input text-sm" value={ctx.daysPerWeek} onChange={e => setCtx(c => ({ ...c, daysPerWeek: e.target.value }))}>
-                {[1,2,3,4,5].map(n => <option key={n} value={n}>{n} day{n > 1 ? 's' : ''}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="label text-xs">Key date (optional)</label>
-              <input type="text" className="input text-sm" value={ctx.examDate} onChange={e => setCtx(c => ({ ...c, examDate: e.target.value }))} placeholder="AP exam May 7" />
+              <label className="label text-xs">Last Day of Course</label>
+              <input
+                type="date"
+                required
+                className="input text-sm"
+                value={dates.endDate}
+                onChange={e => setDates(d => ({ ...d, endDate: e.target.value }))}
+              />
             </div>
           </div>
 
-          <div>
-            <label className="label text-xs">Course focus (optional)</label>
-            <textarea
-              className="input text-sm resize-none"
-              rows={2}
-              value={ctx.goals}
-              onChange={e => setCtx(c => ({ ...c, goals: e.target.value }))}
-              placeholder="e.g. Prepare for AP exam with emphasis on primary source analysis"
-            />
+          <div className="bg-navy-50/50 rounded-xl p-4 border border-navy-100 flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold text-navy-900">Total Instructional Days</p>
+              <p className="text-xs text-navy-600 mt-0.5">Excludes weekends and synced holidays</p>
+            </div>
+            <div className="text-2xl font-bold text-navy-700">
+              {totalAvailable}
+            </div>
           </div>
 
-          <div className="flex gap-2 pt-1">
-            <button type="submit" className="btn-primary text-sm" disabled={!ctx.startMonth || !ctx.endMonth}>
-              Next: map your months
-            </button>
-            <button type="button" className="btn-secondary text-sm" onClick={onSkip}>
-              Skip
+          {holidays.length === 0 && (
+            <p className="text-xs text-amber-600 bg-amber-50 p-2 rounded flex items-center gap-1.5">
+              <ExclamationTriangleIcon className="w-4 h-4 shrink-0" />
+              Tip: Sync your School Calendar from your Profile settings to automatically exclude all your days off.
+            </p>
+          )}
+
+          <div className="flex gap-2 pt-2">
+            <button type="submit" className="btn-primary flex-1" disabled={!dates.startDate || !dates.endDate || totalAvailable <= 0}>
+              Continue to Allocations
             </button>
           </div>
         </form>
@@ -1435,92 +1472,101 @@ function CoursePlanner({ course, onDone, onSkip }) {
     )
   }
 
-  // ── Step 2: Month-by-month ──
+  // ── Step 2: Allocation ──
   return (
     <div className="card overflow-hidden">
-      <div className="px-5 pt-5 pb-3 flex items-center justify-between">
-        <div>
+      <div className="px-5 pt-5 pb-3">
+        <div className="flex items-center justify-between">
           <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5">Step 2 of 2</p>
-          <h3 className="font-bold text-gray-900 text-base">Map your months</h3>
-          <p className="text-sm text-gray-400 mt-0.5">
-            One topic per month — just a short phrase. We'll build the lessons from there.
-          </p>
         </div>
-        {allDone && (
-          <button onClick={onDone} className="btn-primary text-sm shrink-0">Done</button>
-        )}
+        <h3 className="font-bold text-gray-900 text-base">Allocate your lessons</h3>
+        <p className="text-sm text-gray-400 mt-0.5 mb-4">
+          Break your {totalAvailable} available days up into units. We will auto-fill the specific lessons into these chunks.
+        </p>
+        
+        <div className="flex justify-between items-end mb-2 pb-2 border-b border-gray-100">
+          <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">Unit Allocations</p>
+          <div className="text-right">
+            <p className={`text-sm font-bold ${remaining < 0 ? 'text-red-500' : remaining === 0 ? 'text-emerald-500' : 'text-navy-600'}`}>
+              {remaining} lessons unallocated
+            </p>
+          </div>
+        </div>
       </div>
 
       {error && (
         <div className="mx-5 mb-3 bg-red-50 text-red-600 text-xs px-3 py-2 rounded-lg">{error}</div>
       )}
 
-      <div className="divide-y divide-gray-100">
-        {monthTopics.map((mt) => {
-          const isDone = done.includes(mt.month)
-          const isGenerating = generating === mt.month
-          return (
-            <div key={mt.month} className="flex items-center gap-3 px-5 py-3">
-              <div className="w-14 shrink-0">
-                <span className={`text-xs font-bold ${isDone ? 'text-emerald-600' : 'text-gray-500'}`}>
-                  {mt.month.slice(0, 3).toUpperCase()}
-                </span>
-                {isDone && (
-                  <div className="flex items-center gap-0.5 mt-0.5">
-                    <CheckIcon className="w-3 h-3 text-emerald-500" />
-                    <span className="text-xs text-emerald-500">Done</span>
-                  </div>
-                )}
-              </div>
+      <div className="px-5 pb-3 space-y-3 max-h-[400px] overflow-y-auto pt-1">
+        {allocations.map((unit, idx) => (
+          <div key={unit.id} className="flex flex-col gap-2 p-3 bg-gray-50 border border-gray-100 rounded-xl relative group">
+            <div className="flex justify-between items-center gap-4">
+              <span className="text-xs font-bold text-gray-400 shrink-0 w-5">{idx + 1}.</span>
               <input
-                className={`input text-sm flex-1 ${isDone ? 'bg-gray-50 text-gray-400' : ''}`}
-                value={mt.topic}
-                onChange={e => updateTopic(mt.month, e.target.value)}
-                placeholder={`Topic for ${mt.month.slice(0, 3)}...`}
-                disabled={isDone}
-                onKeyDown={e => { if (e.key === 'Enter' && mt.topic.trim() && !isDone) generateForMonth(mt) }}
+                className="input text-sm flex-1 font-semibold"
+                placeholder="Unit Title (e.g. Ecology)"
+                value={unit.title}
+                onChange={e => updateAllocation(unit.id, 'title', e.target.value)}
               />
-              {!isDone && (
-                <button
-                  type="button"
-                  onClick={() => generateForMonth(mt)}
-                  disabled={!mt.topic.trim() || isGenerating || !!generating}
-                  className="shrink-0 px-3 py-1.5 text-xs font-semibold text-white bg-navy-800 rounded-lg hover:bg-navy-900 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5 min-w-[80px] justify-center"
-                >
-                  {isGenerating
-                    ? <><span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" /> Building</>
-                    : 'Generate'
-                  }
-                </button>
-              )}
+              <div className="flex items-center gap-2 shrink-0 bg-white border border-gray-200 rounded-lg px-2 py-1 shadow-sm">
+                <input
+                  type="number"
+                  min="1"
+                  className="w-12 text-center text-sm font-bold text-navy-700 bg-transparent border-none p-0 focus:ring-0"
+                  value={unit.target_lessons}
+                  onChange={e => updateAllocation(unit.id, 'target_lessons', parseInt(e.target.value) || 0)}
+                />
+                <span className="text-xs text-gray-500 font-medium">lessons</span>
+              </div>
             </div>
-          )
-        })}
+            <div className="pl-9 pr-6">
+              <input
+                className="input text-xs w-full bg-white"
+                placeholder="Optional: Provide specific topics to cover (e.g. Food webs, Biomes)..."
+                value={unit.description}
+                onChange={e => updateAllocation(unit.id, 'description', e.target.value)}
+              />
+            </div>
+            {allocations.length > 1 && (
+              <button 
+                className="absolute top-3 right-2 p-1.5 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                onClick={() => removeAllocation(unit.id)}
+              >
+                <XMarkIcon className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        ))}
+        <button 
+          onClick={handleAddUnit}
+          className="w-full py-2.5 dashed-border rounded-xl text-navy-600 font-medium text-sm hover:bg-navy-50 flex items-center justify-center gap-2 mt-2"
+        >
+          <PlusIcon className="w-4 h-4" />
+          Add Another Unit
+        </button>
       </div>
 
-      <div className="px-5 py-4 bg-gray-50 border-t border-gray-100 flex items-center justify-between gap-3">
+      <div className="px-5 py-4 bg-white border-t border-gray-100 flex items-center justify-between gap-3">
         <button type="button" onClick={() => setStep(1)} className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1">
           <ChevronLeftIcon className="w-3 h-3" /> Back
         </button>
-        <div className="flex gap-2">
-          <button type="button" onClick={onDone} className="btn-secondary text-sm">
-            {done.length > 0 ? 'Done' : 'Skip for now'}
+        <div className="flex gap-2 w-full justify-end">
+          <button
+            type="button"
+            onClick={handleAutoFill}
+            disabled={generating || remaining < 0 || !allocations.some(a => a.title)}
+            className="btn-primary text-sm min-w-[140px]"
+          >
+            {generating ? (
+               <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Setup Course</>
+            ) : (
+               'Auto-fill Setup'
+            )}
           </button>
-          {filledCount > 0 && done.length < filledCount && (
-            <button
-              type="button"
-              onClick={generateAll}
-              disabled={filledCount === 0 || !!generating}
-              className="btn-primary text-sm gap-1.5 disabled:opacity-40"
-            >
-              {generating
-                ? <><span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" /> Working...</>
-                : `Generate all (${filledCount - done.length})`
-              }
-            </button>
-          )}
         </div>
       </div>
     </div>
   )
 }
+

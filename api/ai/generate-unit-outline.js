@@ -24,7 +24,7 @@ export default async function handler(req, res) {
     gradeLevel && `Grade level: ${gradeLevel}`,
   ].filter(Boolean).join('\n')
 
-  const systemPrompt = `You are a K-12 curriculum expert. Extract structural lesson plans. Keep descriptions very concise.`
+  const systemPrompt = `You are a K-12 curriculum expert. Extract structural lesson plans. Keep descriptions very concise. Respond strictly with a JSON object in this format: { "lessons": [ { "title": "string", "description": "string", "duration_minutes": 45 } ] }`
   const userPrompt = `${context}
 A teacher is planning a unit called "${unitTitle}".
 Generate a lesson outline of 4-6 sequential lessons for this unit.`
@@ -37,40 +37,14 @@ Generate a lesson outline of 4-6 sequential lessons for this unit.`
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: 'gpt-5.4-mini',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
         ],
         temperature: 0.5,
         max_tokens: 600,
-        response_format: {
-          type: "json_schema",
-          json_schema: {
-            name: "unit_outline",
-            strict: true,
-            schema: {
-              type: "object",
-              properties: {
-                lessons: {
-                  type: "array",
-                  items: {
-                    type: "object",
-                    properties: {
-                      title: { type: "string" },
-                      description: { type: "string" },
-                      duration_minutes: { type: "number" }
-                    },
-                    required: ["title", "description", "duration_minutes"],
-                    additionalProperties: false
-                  }
-                }
-              },
-              required: ["lessons"],
-              additionalProperties: false
-            }
-          }
-        }
+        response_format: { type: "json_object" }
       }),
     })
 

@@ -120,13 +120,21 @@ export default function ProfilePage() {
       const { data } = supabase.storage.from('avatars').getPublicUrl(path)
       const url = data.publicUrl + `?t=${Date.now()}` // cache-bust
 
-      await supabase.from('users').update({ avatar_url: url }).eq('id', profile.id)
+      // Update the public profile table
+      const { error: dbError } = await supabase.from('users').update({ avatar_url: url }).eq('id', profile.id)
+      if (dbError) {
+        console.warn('Could not update users table avatar_url (column might not exist):', dbError)
+      }
+      
+      // Also update auth user metadata as a reliable fallback
+      await supabase.auth.updateUser({ data: { avatar_url: url } })
+
       setAvatarUrl(url)
       await refreshProfile()
       toast.success('Photo updated')
     } catch (err) {
       console.error('Avatar upload failed:', err)
-      toast.error('Failed to upload photo')
+      toast.error('Failed to upload photo: ' + (err.message || 'Unknown error'))
     } finally {
       setAvatarUploading(false)
     }
@@ -318,6 +326,107 @@ export default function ProfilePage() {
           {loading ? 'Saving...' : 'Save changes'}
         </button>
       </form>
+
+      <CalendarSync userId={profile?.id} />
+    </div>
+  )
+}
+
+function CalendarSync({ userId }) {
+  const [text, setText] = useState('')
+  const [syncing, setSyncing] = useState(false)
+  const [holidays, setHolidays] = useState([])
+
+  useEffect(() => {
+    if (!userId) return
+    supabase.from('school_holidays').select('*').order('date', { ascending: true })
+      .then(({ data }) => setHolidays(data || []))
+  }, [userId])
+
+  async function handleSync() {
+    if (!text.trim()) {
+      toast.error('Please paste your calendar text first')
+      return
+    }
+    setSyncing(true)
+    try {
+      const res = await fetch('/api/ai/parse-calendar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text })
+      })
+
+      if (!res.ok) throw new Error('Failed to parse calendar')
+      const { holidays: newHolidays } = await res.json()
+
+      if (!newHolidays || newHolidays.length === 0) {
+        toast.error('No dates found in that text.')
+        setSyncing(false)
+        return
+      }
+
+      // Insert into DB
+      const inserts = newHolidays.map(h => ({
+        teacher_id: userId,
+        name: h.name,
+        date: h.date, // format YYYY-MM-DD
+      }))
+
+      const { error } = await supabase.from('school_holidays').insert(inserts)
+      if (error) throw error
+
+      toast.success(`Synced ${newHolidays.length} days off!`)
+      setText('')
+      
+      // Refresh local list
+      const { data } = await supabase.from('school_holidays').select('*').order('date', { ascending: true })
+      setHolidays(data || [])
+    } catch (err) {
+      console.error(err)
+      toast.error(err.message || 'Sync failed')
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  return (
+    <div className="card p-5 space-y-4">
+      <div>
+        <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">School Calendar Setup</h3>
+        <p className="text-sm text-gray-500">
+          Paste your district's list of holidays, breaks, and off days. The sync assistant will automatically extract the dates so your course planner can bypass them.
+        </p>
+      </div>
+
+      <textarea
+        className="input text-sm resize-none h-24"
+        placeholder="e.g. Thanksgiving Break Nov 24-26, Winter Break Dec 20-Jan 3..."
+        value={text}
+        onChange={e => setText(e.target.value)}
+        disabled={syncing}
+      />
+
+      <button
+        onClick={handleSync}
+        disabled={syncing || !text.trim()}
+        className="btn-secondary w-full text-sm"
+      >
+        {syncing ? 'Scanning Dates...' : 'Sync Breaks & Holidays'}
+      </button>
+
+      {holidays.length > 0 && (
+        <div className="pt-4 border-t border-gray-100">
+          <p className="text-xs font-semibold text-gray-900 mb-2">Currently Synced Days Off ({holidays.length})</p>
+          <div className="max-h-32 overflow-y-auto space-y-1 pr-2">
+            {holidays.map(h => (
+              <div key={h.id} className="flex justify-between text-xs py-1">
+                <span className="text-gray-600">{h.name}</span>
+                <span className="text-navy-600 font-medium">{new Date(h.date + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
