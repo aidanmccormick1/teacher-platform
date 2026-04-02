@@ -26,6 +26,113 @@ import QuickAddLessonDrawer from '@/components/QuickAddLessonDrawer'
 import CalendarView from '@/components/CalendarView'
 import YearTimeline from '@/components/YearTimeline'
 
+// ─── Mini Calendar Popover ────────────────────────────────────────────────────
+
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
+const DAY_LABELS = ['Su','Mo','Tu','We','Th','Fr','Sa']
+
+function MiniCalendar({ value, onChange, onClose }) {
+  const today = new Date()
+  const initial = value ? new Date(value + 'T12:00:00') : today
+  const [viewYear,  setViewYear]  = useState(initial.getFullYear())
+  const [viewMonth, setViewMonth] = useState(initial.getMonth())
+  const ref = useRef(null)
+
+  // Close on outside click
+  useEffect(() => {
+    function handleClick(e) {
+      if (ref.current && !ref.current.contains(e.target)) onClose()
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [onClose])
+
+  function prevMonth() {
+    if (viewMonth === 0) { setViewMonth(11); setViewYear(y => y - 1) }
+    else setViewMonth(m => m - 1)
+  }
+  function nextMonth() {
+    if (viewMonth === 11) { setViewMonth(0); setViewYear(y => y + 1) }
+    else setViewMonth(m => m + 1)
+  }
+
+  // Build grid cells
+  const firstDay = new Date(viewYear, viewMonth, 1).getDay() // 0=Sun
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate()
+  const cells = []
+  for (let i = 0; i < firstDay; i++) cells.push(null)
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d)
+
+  const selectedStr = value // 'YYYY-MM-DD'
+  function cellStr(d) {
+    return `${viewYear}-${String(viewMonth + 1).padStart(2,'0')}-${String(d).padStart(2,'0')}`
+  }
+  function isToday(d) {
+    return d === today.getDate() && viewMonth === today.getMonth() && viewYear === today.getFullYear()
+  }
+
+  return (
+    <div
+      ref={ref}
+      className="absolute z-50 mt-1 bg-white rounded-2xl shadow-xl border border-gray-100 p-3 w-64 select-none"
+      style={{ top: '100%', left: 0 }}
+      onMouseDown={e => e.stopPropagation()}
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between mb-2">
+        <button onClick={prevMonth} className="p-1 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors">
+          <ChevronLeftIcon className="w-4 h-4" />
+        </button>
+        <span className="text-xs font-bold text-gray-800">{MONTHS[viewMonth]} {viewYear}</span>
+        <button onClick={nextMonth} className="p-1 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors">
+          <ChevronRightIcon className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* Day labels */}
+      <div className="grid grid-cols-7 mb-1">
+        {DAY_LABELS.map(d => (
+          <div key={d} className="text-center text-[9px] font-bold text-gray-300 uppercase py-0.5">{d}</div>
+        ))}
+      </div>
+
+      {/* Day cells */}
+      <div className="grid grid-cols-7 gap-y-0.5">
+        {cells.map((d, i) => {
+          if (!d) return <div key={`e-${i}`} />
+          const str = cellStr(d)
+          const isSelected = str === selectedStr
+          const isTod = isToday(d)
+          return (
+            <button
+              key={str}
+              onClick={() => { onChange(str); onClose() }}
+              className={clsx(
+                'w-8 h-8 mx-auto rounded-lg text-xs font-medium transition-all flex items-center justify-center',
+                isSelected && 'bg-navy-800 text-white shadow-sm',
+                !isSelected && isTod && 'bg-navy-100 text-navy-700 font-bold',
+                !isSelected && !isTod && 'text-gray-700 hover:bg-gray-100'
+              )}
+            >
+              {d}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Clear */}
+      {selectedStr && (
+        <button
+          onClick={() => { onChange(null); onClose() }}
+          className="mt-2 w-full text-[10px] text-gray-400 hover:text-red-500 transition-colors text-center"
+        >
+          Remove date
+        </button>
+      )}
+    </div>
+  )
+}
+
 function formatTimeCourse(t) {
   if (!t) return ''
   const [h, m] = t.split(':').map(Number)
@@ -56,7 +163,7 @@ function colorForUnit(idx) {
 }
 
 const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
+
 
 export default function CoursePage() {
   const { id: courseId } = useParams()
@@ -497,12 +604,8 @@ function LessonRow({ lesson, idx, courseId, sections, color, onDelete, onUpdateD
   const [segLoaded, setSegLoaded] = useState(false)
   const [aiLoading, setAiLoading] = useState(false)
   const [showSectionPicker, setShowSectionPicker] = useState(false)
-  const [editingDate, setEditingDate] = useState(false)
-  const dateInputRef = useRef(null)
-
-  useEffect(() => {
-    if (editingDate) dateInputRef.current?.showPicker?.() || dateInputRef.current?.focus()
-  }, [editingDate])
+  const [showDatePicker, setShowDatePicker] = useState(false)
+  const dateAnchorRef = useRef(null)
 
   // Inline edit states
   const [isAddingSegment, setIsAddingSegment] = useState(false)
@@ -606,49 +709,42 @@ function LessonRow({ lesson, idx, courseId, sections, color, onDelete, onUpdateD
           {lesson.duration_periods > 1 && (
             <span className="badge-gray shrink-0 text-xs">{lesson.duration_periods} periods</span>
           )}
-          {/* ── Date badge ── */}
-          {editingDate ? (
-            <div className="relative shrink-0" onClick={e => e.stopPropagation()}>
-              <input
-                ref={dateInputRef}
-                type="date"
-                defaultValue={lesson.target_date || ''}
-                className="input text-xs py-0.5 px-2 h-7 w-36 border-navy-300 focus:ring-navy-400"
-                autoFocus
-                onBlur={() => setEditingDate(false)}
-                onChange={async (e) => {
-                  if (e.target.value) {
-                    await onUpdateDate(lesson.id, e.target.value)
-                    setEditingDate(false)
-                  }
+          {/* ── Date badge + popover ── */}
+          <div className="relative shrink-0" ref={dateAnchorRef} onClick={e => e.stopPropagation()}>
+            {lesson.target_date ? (
+              <button
+                type="button"
+                className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors group"
+                onClick={() => setShowDatePicker(v => !v)}
+                title="Click to change date"
+              >
+                <CalendarDaysIcon className="w-3.5 h-3.5" />
+                <span className="text-[10px] font-semibold">
+                  {new Date(lesson.target_date + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                </span>
+                <PencilSquareIcon className="w-3 h-3 opacity-0 group-hover:opacity-60 transition-opacity" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-amber-600 border border-amber-200 border-dashed hover:bg-amber-100 transition-colors"
+                onClick={() => setShowDatePicker(v => !v)}
+                title="No date set — click to add one"
+              >
+                <CalendarDaysIcon className="w-3.5 h-3.5" />
+                <span className="text-[10px] font-bold uppercase tracking-wide whitespace-nowrap">Add Date</span>
+              </button>
+            )}
+            {showDatePicker && (
+              <MiniCalendar
+                value={lesson.target_date || null}
+                onChange={async (dateStr) => {
+                  await onUpdateDate(lesson.id, dateStr)
                 }}
-                onKeyDown={e => { if (e.key === 'Escape') setEditingDate(false) }}
+                onClose={() => setShowDatePicker(false)}
               />
-            </div>
-          ) : lesson.target_date ? (
-            <button
-              type="button"
-              className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors shrink-0 group"
-              onClick={e => { e.stopPropagation(); setEditingDate(true) }}
-              title="Click to change date"
-            >
-              <CalendarDaysIcon className="w-3.5 h-3.5" />
-              <span className="text-[10px] font-semibold">
-                {new Date(lesson.target_date + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-              </span>
-              <PencilSquareIcon className="w-3 h-3 opacity-0 group-hover:opacity-60 transition-opacity" />
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-amber-600 border border-amber-200 border-dashed hover:bg-amber-100 transition-colors shrink-0"
-              onClick={e => { e.stopPropagation(); setEditingDate(true) }}
-              title="No date set — click to add one"
-            >
-              <CalendarDaysIcon className="w-3.5 h-3.5" />
-              <span className="text-[10px] font-bold uppercase tracking-wide whitespace-nowrap">Add Date</span>
-            </button>
-          )}
+            )}
+          </div>
         </button>
         <div className="flex items-center gap-1 shrink-0">
           {sections?.length > 0 && (
