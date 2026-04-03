@@ -1489,18 +1489,23 @@ function CalendarSync({ userId }) {
   const [text, setText] = useState('')
   const [syncing, setSyncing] = useState(false)
   const [holidays, setHolidays] = useState([])
+  const [tableError, setTableError] = useState(false) // true when school_holidays table doesn't exist
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     if (!userId) return
     supabase.from('school_holidays').select('*').order('date', { ascending: true })
-      .then(({ data }) => setHolidays(data || []))
+      .then(({ data, error }) => {
+        if (error?.message?.includes('schema cache') || error?.message?.includes('does not exist')) {
+          setTableError(true)
+        } else {
+          setHolidays(data || [])
+        }
+      })
   }, [userId])
 
   async function handleSync() {
-    if (!text.trim()) {
-      toast.error('Paste your calendar text first')
-      return
-    }
+    if (!text.trim()) { toast.error('Paste your calendar text first'); return }
     setSyncing(true)
     try {
       const res = await fetch('/api/ai/parse-calendar', {
@@ -1509,15 +1514,23 @@ function CalendarSync({ userId }) {
         body: JSON.stringify({ text }),
       })
       if (!res.ok) throw new Error('Failed to parse calendar')
-      const { holidays: newHolidays } = await res.json()
+      const { holidays: newHolidays, warning } = await res.json()
+      if (warning) toast.info?.(warning) // non-fatal
+
       if (!newHolidays?.length) {
-        toast.error('No dates found in that text.')
+        toast.error('No dates found. Try a format like "Thanksgiving Break Nov 24–28".')
         setSyncing(false)
         return
       }
       const inserts = newHolidays.map(h => ({ teacher_id: userId, name: h.name, date: h.date }))
       const { error } = await supabase.from('school_holidays').insert(inserts)
-      if (error) throw error
+      if (error) {
+        if (error.message?.includes('schema cache') || error.message?.includes('does not exist')) {
+          setTableError(true)
+          return
+        }
+        throw error
+      }
       toast.success(`Synced ${newHolidays.length} days off!`)
       setText('')
       const { data } = await supabase.from('school_holidays').select('*').order('date', { ascending: true })
@@ -1533,6 +1546,71 @@ function CalendarSync({ userId }) {
   async function handleDelete(id) {
     await supabase.from('school_holidays').delete().eq('id', id)
     setHolidays(prev => prev.filter(h => h.id !== id))
+  }
+
+  const SETUP_SQL = `create table public.school_holidays (
+  id uuid primary key default gen_random_uuid(),
+  teacher_id uuid references auth.users(id) on delete cascade not null,
+  name text not null,
+  date date not null,
+  created_at timestamptz default now()
+);
+alter table public.school_holidays enable row level security;
+create policy "Users manage own holidays"
+  on public.school_holidays for all
+  using (auth.uid() = teacher_id)
+  with check (auth.uid() = teacher_id);`
+
+  function handleCopy() {
+    navigator.clipboard.writeText(SETUP_SQL).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
+  // ── If the table hasn't been created yet, show setup instructions ──
+  if (tableError) {
+    return (
+      <div className="card p-5 space-y-4 border border-amber-100">
+        <div className="flex items-start gap-3">
+          <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center shrink-0 mt-0.5">
+            <ExclamationTriangleIcon className="w-4 h-4 text-amber-600" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-gray-800">One-time database setup needed</p>
+            <p className="text-xs text-gray-500 mt-1">
+              The <code className="bg-gray-100 px-1 rounded">school_holidays</code> table doesn't exist in your Supabase project yet.
+              Run the SQL below in your{' '}
+              <a
+                href="https://supabase.com/dashboard"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-navy-600 underline hover:text-navy-800"
+              >
+                Supabase dashboard → SQL Editor
+              </a>{' '}
+              to create it, then refresh this page.
+            </p>
+          </div>
+        </div>
+
+        <div className="relative">
+          <pre className="bg-gray-900 text-green-300 text-[11px] leading-relaxed rounded-xl p-4 overflow-x-auto whitespace-pre-wrap">
+{SETUP_SQL}
+          </pre>
+          <button
+            onClick={handleCopy}
+            className="absolute top-2 right-2 px-2 py-1 text-[10px] font-bold rounded-lg bg-gray-700 text-gray-200 hover:bg-gray-600 transition-colors"
+          >
+            {copied ? '✓ Copied' : 'Copy'}
+          </button>
+        </div>
+
+        <p className="text-[11px] text-gray-400 text-center">
+          After running the SQL, refresh the page — this message will go away automatically.
+        </p>
+      </div>
+    )
   }
 
   return (
@@ -1585,4 +1663,5 @@ function CalendarSync({ userId }) {
       )}
     </div>
   )
+
 }
