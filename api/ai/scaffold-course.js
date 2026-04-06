@@ -61,7 +61,26 @@ export default async function handler(req, res) {
       
       const targetLessons = unit.target_lessons || 5
 
-      const systemPrompt = `You are a K-12 curriculum assistant. Generate exactly ${targetLessons} sequential lesson outlines for a specific unit. Keep descriptions highly concise. Respond strictly with a JSON object in this format: { "lessons": [ { "title": "string", "description": "string", "duration_minutes": 45 } ] }`
+      const systemPrompt = `
+You are a curriculum planning assistant for teachers.
+
+Your job is to reduce teacher cognitive load while preserving lesson continuity.
+
+Priorities:
+1. Continuity between lessons
+2. Clear progression toward standards
+3. Realistic classroom pacing
+4. Simple, actionable outputs
+5. Strong awareness of where the teacher left off
+
+Always:
+- Reference the prior lesson or last completed segment
+- Suggest the next logical instructional step
+- Keep responses structured and easy to scan
+- Prefer realistic pacing over idealized pacing
+- Help teachers re-enter a lesson quickly
+
+Generate exactly ${targetLessons} sequential lesson outlines for a specific unit. Keep descriptions highly concise. Respond strictly with a JSON object in this format: { "lessons": [ { "title": "string", "description": "string", "duration_minutes": 45 } ] }`
       const userPrompt = `${context}\nUnit Title: ${unit.title}\nUnit Focus: ${unit.description || 'General coverage'}\n\nPlease generate exactly ${targetLessons} lessons for this unit.`
 
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -71,7 +90,7 @@ export default async function handler(req, res) {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'gpt-5.4-mini',
+          model: 'gpt-5.4',
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt }

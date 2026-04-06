@@ -10,19 +10,13 @@ import DashboardPage    from '@/pages/DashboardPage'
 import AppShell         from '@/components/AppShell'
 
 // Pages — lazy load (not critical, can defer)
+const SchoolPage = lazy(() => import('@/pages/SchoolPage'))
 const LessonTrackerPage = lazy(() => import('@/pages/LessonTrackerPage'))
 const CurriculumPage = lazy(() => import('@/pages/CurriculumPage'))
 const CoursePage = lazy(() => import('@/pages/CoursePage'))
 const SchedulePage = lazy(() => import('@/pages/SchedulePage'))
 const ProfilePage = lazy(() => import('@/pages/ProfilePage'))
 const ClassroomPage = lazy(() => import('@/pages/ClassroomPage'))
-
-function RequireAuth({ children }) {
-  const { session, loading } = useAuth()
-  if (loading) return <FullPageSpinner />
-  if (!session) return <Navigate to="/login" replace />
-  return children
-}
 
 function RequireOnboarded({ children }) {
   const { profile, loading } = useAuth()
@@ -85,6 +79,11 @@ function AppRoutes() {
         </RequireAuth>
       }>
         <Route path="/"            element={<DashboardPage />} />
+        <Route path="/school"      element={
+          <Suspense fallback={<PageLoadingSkeleton />}>
+            <SchoolPage />
+          </Suspense>
+        } />
         <Route path="/classroom"   element={
           <Suspense fallback={<PageLoadingSkeleton />}>
             <ClassroomPage />

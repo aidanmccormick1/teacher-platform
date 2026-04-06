@@ -9,6 +9,7 @@ import {
   XMarkIcon,
   UserCircleIcon,
   AcademicCapIcon,
+  ChartBarIcon,
 } from '@heroicons/react/24/outline'
 import {
   HomeIcon as HomeSolid,
@@ -16,8 +17,9 @@ import {
   CalendarDaysIcon as CalendarSolid,
   UserCircleIcon as UserSolid,
   AcademicCapIcon as AcademicCapSolid,
+  ChartBarIcon as ChartSolid,
 } from '@heroicons/react/24/solid'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import clsx from 'clsx'
 
 const NAV = [
@@ -25,6 +27,7 @@ const NAV = [
   { to: '/classroom',  label: 'Classroom',  Icon: AcademicCapIcon,  IconActive: AcademicCapSolid },
   { to: '/curriculum', label: 'Curriculum', Icon: BookOpenIcon,     IconActive: BookSolid },
   { to: '/schedule',   label: 'Schedule',   Icon: CalendarDaysIcon, IconActive: CalendarSolid },
+  { to: '/school',     label: 'School',     Icon: ChartBarIcon,      IconActive: ChartSolid },
   { to: '/profile',    label: 'Profile',    Icon: UserCircleIcon,   IconActive: UserSolid },
 ]
 
@@ -51,6 +54,21 @@ export default function AppShell() {
   const location = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [confirmSignOut, setConfirmSignOut] = useState(false)
+
+  useEffect(() => {
+    function handleKeyDown(e) {
+      // Ignore if typing in an input or textarea
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return
+
+      if (e.key.toLowerCase() === 'n') {
+        navigate('/')
+      } else if (e.key.toLowerCase() === 'c') {
+        navigate('/classroom')
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [navigate])
 
   async function handleSignOut() {
     await signOut()

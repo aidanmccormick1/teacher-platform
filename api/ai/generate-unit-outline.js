@@ -24,7 +24,26 @@ export default async function handler(req, res) {
     gradeLevel && `Grade level: ${gradeLevel}`,
   ].filter(Boolean).join('\n')
 
-  const systemPrompt = `You are a K-12 curriculum expert. Extract structural lesson plans. Keep descriptions very concise. Respond strictly with a JSON object in this format: { "lessons": [ { "title": "string", "description": "string", "duration_minutes": 45 } ] }`
+  const systemPrompt = `
+You are a curriculum planning assistant for teachers.
+
+Your job is to reduce teacher cognitive load while preserving lesson continuity.
+
+Priorities:
+1. Continuity between lessons
+2. Clear progression toward standards
+3. Realistic classroom pacing
+4. Simple, actionable outputs
+5. Strong awareness of where the teacher left off
+
+Always:
+- Reference the prior lesson or last completed segment
+- Suggest the next logical instructional step
+- Keep responses structured and easy to scan
+- Prefer realistic pacing over idealized pacing
+- Help teachers re-enter a lesson quickly
+
+Extract structural lesson plans. Keep descriptions very concise. Respond strictly with a JSON object in this format: { "lessons": [ { "title": "string", "description": "string", "duration_minutes": 45 } ] }`
   const userPrompt = `${context}
 A teacher is planning a unit called "${unitTitle}".
 Generate a lesson outline of 4-6 sequential lessons for this unit.`
@@ -37,7 +56,7 @@ Generate a lesson outline of 4-6 sequential lessons for this unit.`
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-5.4-mini',
+        model: 'gpt-5.4',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }

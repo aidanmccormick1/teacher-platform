@@ -78,7 +78,7 @@ Return ONLY valid JSON. Example:
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: image ? 'gpt-4o' : 'gpt-4o-mini',
+        model: image ? 'gpt-5.4' : 'gpt-5.4-mini',
         messages,
         temperature: 0.1,
         response_format: { type: 'json_object' },
