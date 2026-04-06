@@ -76,7 +76,7 @@
   .input {
     @apply w-full px-4 py-3 text-sm border border-gray-100 rounded-2xl bg-white
            focus:outline-none focus:ring-2 focus:ring-navy-400 focus:border-transparent
-           placeholder:text-gray-400 transition-all duration-150 shadow-sm/5;
+           placeholder:text-gray-400 transition-all duration-150 shadow-sm;
   }
 
   .label {

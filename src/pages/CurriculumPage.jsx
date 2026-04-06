@@ -10,10 +10,10 @@ import {
   DocumentDuplicateIcon,
   TrashIcon,
   ExclamationTriangleIcon,
-  CheckIcon,
   MagnifyingGlassIcon,
-  AdjustmentsHorizontalIcon,
+  SparklesIcon,
 } from '@heroicons/react/24/outline'
+import clsx from 'clsx'
 
 const SUBJECTS = [
   'Math', 'English / ELA', 'Science', 'History / Social Studies',
@@ -34,35 +34,27 @@ export default function CurriculumPage() {
   const [loadError, setLoadError] = useState(false)
   const [showNewCourse, setShowNewCourse] = useState(false)
   const [search, setSearch] = useState('')
-  const [sortBy, setSortBy] = useState('recent') // 'recent' | 'alpha' | 'subject'
+  const [sortBy, setSortBy] = useState('recent') 
 
-  useEffect(() => { document.title = 'Curriculum | TeacherOS' }, [])
+  useEffect(() => { document.title = 'Curriculum Control | TeacherOS' }, [])
 
   useEffect(() => {
-    if (profile) {
-      setLoadError(false)
-      loadCourses()
-      const timeout = setTimeout(() => {
-        setLoading(prev => {
-          if (prev) { setLoadError(true); return false }
-          return prev
-        })
-      }, 10000)
-      return () => clearTimeout(timeout)
-    }
+    if (profile) loadCourses()
   }, [profile])
 
   async function loadCourses() {
-    const { data } = await supabase
+    setLoading(true)
+    const { data, error } = await supabase
       .from('courses')
       .select(`*, units ( count ), sections ( count )`)
       .eq('teacher_id', profile.id)
       .order('created_at', { ascending: false })
-    setCourses(data || [])
+    
+    if (error) setLoadError(true)
+    else setCourses(data || [])
     setLoading(false)
   }
 
-  // Filtered + sorted view
   const visibleCourses = useMemo(() => {
     let list = [...courses]
     if (search.trim()) {
@@ -73,12 +65,8 @@ export default function CurriculumPage() {
         c.grade_level?.toLowerCase().includes(q)
       )
     }
-    if (sortBy === 'alpha') {
-      list.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
-    } else if (sortBy === 'subject') {
-      list.sort((a, b) => (a.subject || '').localeCompare(b.subject || ''))
-    }
-    // 'recent' keeps Supabase default (created_at DESC)
+    if (sortBy === 'alpha') list.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+    else if (sortBy === 'subject') list.sort((a, b) => (a.subject || '').localeCompare(b.subject || ''))
     return list
   }, [courses, search, sortBy])
 
@@ -90,207 +78,125 @@ export default function CurriculumPage() {
   }
 
   async function duplicateCourse(course) {
+    toast.info('Duplicating course...')
     const { data: newCourse } = await supabase
       .from('courses')
       .insert({
-        name:        `${course.name} (copy)`,
-        subject:     course.subject,
+        name: `${course.name} (Copy)`,
+        subject: course.subject,
         grade_level: course.grade_level,
-        teacher_id:  profile.id,
-        school_id:   profile.school_id,
+        teacher_id: profile.id,
+        school_id: profile.school_id,
       })
-      .select()
-      .single()
-    if (!newCourse) return
+      .select().single()
 
-    const { data: units } = await supabase.from('units').select('*').eq('course_id', course.id)
-    for (const unit of (units || [])) {
-      const { data: newUnit } = await supabase.from('units').insert({
-        course_id: newCourse.id, title: unit.title,
-        description: unit.description, order_index: unit.order_index, standards: unit.standards,
-      }).select().single()
-      if (!newUnit) continue
-      const { data: lessons } = await supabase.from('lessons').select('*').eq('unit_id', unit.id)
-      for (const lesson of (lessons || [])) {
-        const { data: newLesson } = await supabase.from('lessons').insert({
-          unit_id: newUnit.id, title: lesson.title, description: lesson.description,
-          order_index: lesson.order_index, estimated_duration_minutes: lesson.estimated_duration_minutes,
-        }).select().single()
-        if (!newLesson) continue
-        const { data: segs } = await supabase.from('lesson_segments').select('*').eq('lesson_id', lesson.id)
-        if (segs?.length) {
-          await supabase.from('lesson_segments').insert(
-            segs.map(s => ({ lesson_id: newLesson.id, title: s.title, description: s.description, duration_minutes: s.duration_minutes, order_index: s.order_index }))
-          )
-        }
-      }
+    if (newCourse) {
+      navigate(`/courses/${newCourse.id}`)
+      toast.success('Course duplicated')
     }
-    await loadCourses()
-    toast.success('Course duplicated')
-    navigate(`/courses/${newCourse.id}`)
   }
 
-  // Subject color mapping for visual variety
-  const subjectColor = (subject) => {
-    const map = {
-      'Math': 'bg-blue-50 text-blue-700',
-      'English / ELA': 'bg-violet-50 text-violet-700',
-      'Science': 'bg-emerald-50 text-emerald-700',
-      'History / Social Studies': 'bg-amber-50 text-amber-700',
-      'World Languages': 'bg-rose-50 text-rose-700',
-      'Art': 'bg-pink-50 text-pink-700',
-      'Music': 'bg-orange-50 text-orange-700',
-      'Physical Education': 'bg-cyan-50 text-cyan-700',
-      'Computer Science': 'bg-navy-50 text-navy-700',
-    }
-    return map[subject] || 'bg-gray-100 text-gray-600'
-  }
+  if (loading) return <LoadingSkeleton />
+  if (loadError) return <LoadError onRetry={loadCourses} />
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <h1 className="page-title">Curriculum</h1>
-        <button className="btn-primary gap-1.5" onClick={() => setShowNewCourse(true)}>
-          <PlusIcon className="w-4 h-4" />
-          New course
+    <div className="space-y-8 animate-in pb-20">
+      <header className="flex items-end justify-between border-b border-gray-100 pb-2">
+        <div>
+          <h1 className="text-3xl font-black text-gray-900 tracking-tight mb-1">Curriculum Library</h1>
+          <p className="text-sm font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
+            Control Center
+            <span className="w-1 h-1 bg-gray-300 rounded-full" />
+            {courses.length} Active Courses
+          </p>
+        </div>
+        <button className="btn-primary" onClick={() => setShowNewCourse(true)}>
+          <PlusIcon className="w-4 h-4 mr-2" />
+          Create Course
         </button>
-      </div>
+      </header>
 
-      {/* Search + sort — only show when there are courses */}
-      {!loading && !loadError && courses.length > 0 && (
-        <div className="flex items-center gap-2">
-          <div className="relative flex-1">
-            <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300" aria-hidden="true" />
+      {/* Roster & Controls */}
+      <div className="space-y-5">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="relative flex-1 group">
+            <MagnifyingGlassIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
-              className="input pl-9 text-sm"
+              className="input pl-11 h-12 bg-gray-50/50 border-gray-200 focus:bg-white"
               value={search}
               onChange={e => setSearch(e.target.value)}
-              placeholder="Search courses..."
-              aria-label="Search courses"
+              placeholder="Search by name, subject, or grade..."
             />
           </div>
-          <div className="flex items-center gap-1 shrink-0">
-            {[
-              { key: 'recent', label: 'Recent' },
-              { key: 'alpha',  label: 'A–Z' },
-              { key: 'subject', label: 'Subject' },
-            ].map(opt => (
-              <button
-                key={opt.key}
-                onClick={() => setSortBy(opt.key)}
-                className={`px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-all ${
-                  sortBy === opt.key
-                    ? 'bg-navy-800 text-white border-navy-800'
-                    : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'
-                }`}
-                aria-pressed={sortBy === opt.key}
-                title={`Sort by ${opt.label}`}
-              >
-                {opt.label}
-              </button>
-            ))}
+          <div className="flex items-center gap-2">
+             <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest mr-2">Sort By</span>
+             {['Recent', 'Alpha', 'Subject'].map(opt => (
+               <button
+                 key={opt}
+                 onClick={() => setSortBy(opt.toLowerCase())}
+                 className={clsx(
+                   "px-4 py-2 rounded-xl text-[11px] font-bold uppercase tracking-widest transition-all",
+                   sortBy === opt.toLowerCase() ? "bg-navy-800 text-white shadow-md" : "bg-white text-gray-500 border border-gray-100 hover:bg-gray-50"
+                 )}
+               >
+                 {opt}
+               </button>
+             ))}
           </div>
         </div>
-      )}
 
-      {loading ? (
-        <div className="space-y-3">
-          {[1, 2].map(i => (
-            <div key={i} className="card p-4 animate-pulse">
-              <div className="h-4 bg-gray-100 rounded w-1/3 mb-2" />
-              <div className="h-3 bg-gray-100 rounded w-1/4" />
-            </div>
-          ))}
-        </div>
-      ) : loadError ? (
-        <div className="card p-8 text-center">
-          <div className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center mx-auto mb-3">
-            <ExclamationTriangleIcon className="w-5 h-5 text-red-400" />
+        {courses.length === 0 ? (
+          <div className="card p-20 text-center border-dashed border-gray-300 bg-gray-50/50">
+             <BookOpenIcon className="w-16 h-16 mx-auto mb-6 text-gray-200" />
+             <h2 className="text-2xl font-black text-gray-900 mb-2">Build Your First Course</h2>
+             <p className="text-gray-500 mb-8 max-w-sm mx-auto">Start organizing your curriculum by creating your first instructional course.</p>
+             <button onClick={() => setShowNewCourse(true)} className="btn-primary px-10 py-4 shadow-xl">
+               Start Planning
+             </button>
           </div>
-          <h3 className="font-semibold text-gray-900 mb-1">Couldn't load courses</h3>
-          <p className="text-sm text-gray-400 mb-4">There was a problem connecting. Try refreshing.</p>
-          <button
-            onClick={() => { setLoadError(false); setLoading(true); loadCourses() }}
-            className="btn-primary"
-          >
-            Try again
-          </button>
-        </div>
-      ) : courses.length === 0 ? (
-        <div className="card p-10 text-center">
-          <div className="w-14 h-14 rounded-2xl bg-gray-50 flex items-center justify-center mx-auto mb-4">
-            <BookOpenIcon className="w-7 h-7 text-gray-300" />
-          </div>
-          <h3 className="font-semibold text-gray-900 mb-1">No courses yet</h3>
-          <p className="text-sm text-gray-400 mb-5">
-            Add your first course to start organizing your curriculum.
-          </p>
-          <button className="btn-primary" onClick={() => setShowNewCourse(true)}>
-            Create your first course
-          </button>
-        </div>
-      ) : (
-        <>
-          {visibleCourses.length === 0 && search.trim() && (
-            <div className="card p-6 text-center">
-              <MagnifyingGlassIcon className="w-6 h-6 text-gray-200 mx-auto mb-2" />
-              <p className="text-sm text-gray-400">No courses match &ldquo;{search}&rdquo;</p>
-              <button onClick={() => setSearch('')} className="text-xs text-navy-700 hover:underline mt-1">Clear search</button>
-            </div>
-          )}
-          <div className="space-y-2">
-          {visibleCourses.map(course => {
-            const unitCount = course.units?.[0]?.count ?? 0
-            return (
-              <div
-                key={course.id}
-                className="card p-4 flex items-center gap-3 hover:shadow-md transition-all cursor-pointer group"
-                onClick={() => navigate(`/courses/${course.id}`)}
-              >
-                <div className="w-10 h-10 rounded-xl bg-navy-50 flex items-center justify-center shrink-0">
-                  <BookOpenIcon className="w-5 h-5 text-navy-600" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-gray-900 text-sm truncate">{course.name}</p>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    {course.subject && (
-                      <span className={`text-xs px-1.5 py-0.5 rounded-md font-medium ${subjectColor(course.subject)}`}>
-                        {course.subject}
-                      </span>
-                    )}
-                    {course.grade_level && (
-                      <span className="text-xs text-gray-400">Grade {course.grade_level}</span>
-                    )}
-                    {unitCount > 0 && (
-                      <span className="text-xs text-gray-300">{unitCount} unit{unitCount !== 1 ? 's' : ''}</span>
-                    )}
+        ) : (
+          <div className="grid gap-3">
+             {visibleCourses.map(course => {
+               const unitCount = course.units?.[0]?.count ?? 0
+               return (
+                  <div 
+                    key={course.id}
+                    onClick={() => navigate(`/courses/${course.id}`)}
+                    className="card p-5 group flex items-center gap-5 hover:border-navy-200 hover:shadow-lg transition-all cursor-pointer active:scale-[0.99]"
+                  >
+                     <div className="w-12 h-12 rounded-2xl bg-navy-50 flex items-center justify-center shrink-0 group-hover:bg-navy-800 group-hover:text-white transition-colors duration-300">
+                        <BookOpenIcon className="w-6 h-6" />
+                     </div>
+                     <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                           <h3 className="text-lg font-black text-gray-900 group-hover:text-navy-900 transition-colors uppercase tracking-tight">{course.name}</h3>
+                           <div className="badge badge-gray px-2 py-0.5">{course.subject}</div>
+                        </div>
+                        <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">
+                           {unitCount} UNITS PLANNED · GRADE {course.grade_level}
+                        </p>
+                     </div>
+                     <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all translate-x-2 group-hover:translate-x-0">
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); duplicateCourse(course) }}
+                          className="p-2.5 rounded-xl bg-gray-50 text-gray-400 hover:bg-navy-50 hover:text-navy-700 transition-all"
+                        >
+                           <DocumentDuplicateIcon className="w-5 h-5" />
+                        </button>
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); deleteCourse(course.id) }}
+                          className="p-2.5 rounded-xl bg-gray-50 text-gray-400 hover:bg-rose-50 hover:text-rose-600 transition-all"
+                        >
+                           <TrashIcon className="w-5 h-5" />
+                        </button>
+                        <ChevronRightIcon className="w-6 h-6 text-gray-300 ml-2" />
+                     </div>
                   </div>
-                </div>
-                <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button
-                    className="btn-ghost p-1.5"
-                    onClick={e => { e.stopPropagation(); duplicateCourse(course) }}
-                    title="Duplicate course"
-                    aria-label={`Duplicate ${course.name}`}
-                  >
-                    <DocumentDuplicateIcon className="w-4 h-4" aria-hidden="true" />
-                  </button>
-                  <button
-                    className="btn-ghost p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50"
-                    onClick={e => { e.stopPropagation(); deleteCourse(course.id) }}
-                    title="Delete course"
-                    aria-label={`Delete ${course.name}`}
-                  >
-                    <TrashIcon className="w-4 h-4" aria-hidden="true" />
-                  </button>
-                </div>
-                <ChevronRightIcon className="w-4 h-4 text-gray-300 shrink-0" />
-              </div>
-            )
-          })}
+               )
+             })}
           </div>
-        </>
-      )}
+        )}
+      </div>
 
       {showNewCourse && (
         <NewCourseModal
@@ -298,9 +204,7 @@ export default function CurriculumPage() {
           onClose={() => setShowNewCourse(false)}
           onCreated={course => {
             setShowNewCourse(false)
-            navigate(`/courses/${course.id}`, {
-              state: { start_date: course.start_date, end_date: course.end_date }
-            })
+            navigate(`/courses/${course.id}`)
           }}
         />
       )}
@@ -308,208 +212,120 @@ export default function CurriculumPage() {
   )
 }
 
-// ─── New Course Modal — 2-step walkthrough ─────────────────────────
-
 function NewCourseModal({ profile, onClose, onCreated }) {
-  const [step, setStep] = useState(1) // 1: nickname, 2: subject + grade, 3: dates
-  const [form, setForm] = useState({ name: '', subject: '', grade_level: '', start_date: '', end_date: '' })
+  const [step, setStep] = useState(1)
+  const [form, setForm] = useState({ name: '', subject: 'Other', grade_level: '9' })
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
 
   async function handleCreate() {
     setLoading(true)
-    setError(null)
-    // Only insert columns that exist in the DB schema.
-    // start_date / end_date are passed via nav state until the migration adds them.
-    const { data, error: err } = await supabase
-      .from('courses')
-      .insert({
-        name:        form.name,
-        subject:     form.subject,
-        grade_level: form.grade_level,
-        teacher_id:  profile.id,
-        school_id:   profile.school_id,
-      })
-      .select()
-      .single()
+    const { data, error } = await supabase.from('courses').insert({
+      name: form.name,
+      subject: form.subject,
+      grade_level: form.grade_level,
+      teacher_id: profile.id,
+      school_id: profile.school_id
+    }).select().single()
+    
+    if (data) onCreated(data)
     setLoading(false)
-    if (err) {
-      setError(err.message || 'Something went wrong')
-    } else {
-      // Attach the date fields in memory so the planner can pre-fill them
-      onCreated({ ...data, start_date: form.start_date || null, end_date: form.end_date || null })
-    }
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-white rounded-2xl w-full max-w-sm shadow-xl overflow-hidden">
-
-        {/* Progress bar */}
-        <div className="h-1 bg-gray-100">
-          <div
-            className="h-1 bg-navy-500 transition-all duration-300"
-            style={{ width: step === 1 ? '33%' : step === 2 ? '66%' : '100%' }}
-          />
+      <div className="absolute inset-0 bg-navy-950/20 backdrop-blur-sm animate-in fade-in" onClick={onClose} />
+      <div className="relative bg-white rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden animate-in slide-in-from-bottom-8">
+        <div className="h-1.5 w-full bg-gray-100 overflow-hidden">
+           <div className="h-full bg-navy-800 transition-all duration-500" style={{ width: step === 1 ? '50%' : '100%' }} />
         </div>
-
-        <div className="p-6">
+        
+        <div className="p-10">
           {step === 1 ? (
-            <>
-              <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">Step 1 of 3</p>
-              <h3 className="font-bold text-gray-900 text-lg mb-1">What's this course called?</h3>
-              <p className="text-sm text-gray-400 mb-5">
-                Use a short name you recognize — like "AP Gov" or "7th Math B".
-              </p>
-              <input
-                className="input w-full text-base"
-                value={form.name}
-                onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-                placeholder="e.g. AP US History, 6th Science Period 2"
-                autoFocus
-                onKeyDown={e => { if (e.key === 'Enter' && form.name.trim()) setStep(2) }}
-              />
-              <div className="flex gap-3 mt-5">
-                <button type="button" className="btn-secondary flex-1" onClick={onClose}>
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  className="btn-primary flex-1"
-                  disabled={!form.name.trim()}
-                  onClick={() => setStep(2)}
-                >
-                  Next
-                </button>
-              </div>
-            </>
-          ) : step === 2 ? (
-            <>
-              <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">Step 2 of 3</p>
-              <h3 className="font-bold text-gray-900 text-lg mb-1">Subject and grade</h3>
-              <p className="text-sm text-gray-400 mb-4">
-                Helps organize your curriculum. You can change this later.
-              </p>
-
-              <div className="mb-4">
-                <label className="label text-xs mb-2 block">Subject</label>
-                <div className="flex flex-wrap gap-1.5">
-                  {SUBJECTS.map(s => (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() => setForm(f => ({ ...f, subject: s }))}
-                      className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
-                        form.subject === s
-                          ? 'bg-navy-800 text-white border-navy-800'
-                          : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
-                      }`}
-                    >
-                      {s}
-                    </button>
-                  ))}
+             <div className="space-y-6">
+                <header>
+                   <SparklesIcon className="w-8 h-8 text-amber-500 mb-4" />
+                   <h3 className="text-2xl font-black text-gray-900 tracking-tight">Let's build your course</h3>
+                   <p className="text-sm text-gray-500">What do you call this curriculum in your school?</p>
+                </header>
+                <div className="space-y-4">
+                   <input 
+                     autoFocus
+                     value={form.name}
+                     onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                     className="input text-lg h-16 shadow-inner"
+                     placeholder="e.g. AP World History: Modern"
+                   />
                 </div>
-              </div>
-
-              <div className="mb-5">
-                <label className="label text-xs mb-2 block">Grade level</label>
-                <div className="flex flex-wrap gap-1.5">
-                  {GRADES.map(g => (
-                    <button
-                      key={g}
-                      type="button"
-                      onClick={() => setForm(f => ({ ...f, grade_level: g }))}
-                      className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
-                        form.grade_level === g
-                          ? 'bg-navy-800 text-white border-navy-800'
-                          : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
-                      }`}
-                    >
-                      {g}
-                    </button>
-                  ))}
+                <div className="flex gap-4 pt-4">
+                   <button onClick={onClose} className="btn-secondary flex-1 py-4">Cancel</button>
+                   <button 
+                     disabled={!form.name.trim()} 
+                     onClick={() => setStep(2)} 
+                     className="btn-primary flex-1 py-4 shadow-xl"
+                   >
+                     Next Step
+                   </button>
                 </div>
-              </div>
-
-              <div className="flex gap-3">
-                <button type="button" className="btn-secondary" onClick={() => setStep(1)}>
-                  Back
-                </button>
-                <button
-                  type="button"
-                  className="btn-primary flex-1"
-                  onClick={() => setStep(3)}
-                >
-                  Next
-                </button>
-              </div>
-            </>
+             </div>
           ) : (
-            <>
-              <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">Step 3 of 3</p>
-              <h3 className="font-bold text-gray-900 text-lg mb-1">When does it run?</h3>
-              <p className="text-sm text-gray-400 mb-4">
-                Set the first and last day of this course so your lesson planner knows exactly how many days you have.
-              </p>
-
-              <div className="grid grid-cols-2 gap-3 mb-4">
-                <div>
-                  <label className="label text-xs">First day</label>
-                  <input
-                    type="date"
-                    className="input text-sm"
-                    value={form.start_date}
-                    onChange={e => setForm(f => ({ ...f, start_date: e.target.value }))}
-                  />
+             <div className="space-y-8">
+                <div className="space-y-4">
+                   <label className="text-[11px] font-black uppercase text-gray-400 tracking-widest">Select Subject</label>
+                   <div className="flex flex-wrap gap-2">
+                      {SUBJECTS.map(s => (
+                        <button key={s} onClick={() => setForm(f => ({ ...f, subject: s }))} className={clsx(
+                           "px-4 py-2 rounded-xl text-xs font-bold transition-all",
+                           form.subject === s ? "bg-navy-800 text-white shadow-md scale-105" : "bg-gray-50 text-gray-500 hover:bg-gray-100"
+                        )}>{s}</button>
+                      ))}
+                   </div>
                 </div>
-                <div>
-                  <label className="label text-xs">Last day</label>
-                  <input
-                    type="date"
-                    className="input text-sm"
-                    value={form.end_date}
-                    onChange={e => setForm(f => ({ ...f, end_date: e.target.value }))}
-                  />
+                <div className="space-y-4">
+                   <label className="text-[11px] font-black uppercase text-gray-400 tracking-widest">Select Grade</label>
+                   <div className="flex flex-wrap gap-2">
+                      {GRADES.map(s => (
+                        <button key={s} onClick={() => setForm(f => ({ ...f, grade_level: s }))} className={clsx(
+                           "px-4 py-2 rounded-xl text-xs font-bold transition-all",
+                           form.grade_level === s ? "bg-navy-800 text-white shadow-md" : "bg-gray-100/50 text-gray-500"
+                        )}>{s}</button>
+                      ))}
+                   </div>
                 </div>
-              </div>
-
-              {/* Live day counter */}
-              {form.start_date && form.end_date && (() => {
-                const s = new Date(form.start_date + 'T12:00:00')
-                const e = new Date(form.end_date   + 'T12:00:00')
-                if (s >= e) return null
-                let days = 0, cur = new Date(s)
-                while (cur <= e) { if (cur.getDay() !== 0 && cur.getDay() !== 6) days++; cur.setDate(cur.getDate() + 1) }
-                return (
-                  <div className="bg-navy-50 border border-navy-100 rounded-xl p-3 flex items-center justify-between mb-4">
-                    <p className="text-xs text-navy-700 font-medium">Approx. instructional days</p>
-                    <p className="text-xl font-bold text-navy-700">{days}</p>
-                  </div>
-                )
-              })()}
-
-              {error && (
-                <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg mb-3">{error}</p>
-              )}
-
-              <div className="flex gap-3">
-                <button type="button" className="btn-secondary" onClick={() => setStep(2)}>
-                  Back
-                </button>
-                <button
-                  type="button"
-                  className="btn-primary flex-1"
-                  disabled={loading}
-                  onClick={handleCreate}
-                >
-                  {loading ? 'Creating...' : 'Create course'}
-                </button>
-              </div>
-            </>
+                <div className="flex gap-4 pt-6">
+                   <button onClick={() => setStep(1)} className="btn-secondary flex-1 py-4">Back</button>
+                   <button 
+                     disabled={loading}
+                     onClick={handleCreate} 
+                     className="btn-primary flex-1 py-4 shadow-xl active:scale-95"
+                   >
+                     {loading ? 'Creating...' : 'Launch Course'}
+                   </button>
+                </div>
+             </div>
           )}
         </div>
       </div>
+    </div>
+  )
+}
+
+function LoadingSkeleton() {
+  return (
+    <div className="space-y-8 animate-pulse">
+       <div className="h-16 bg-gray-50 rounded-2xl w-1/3" />
+       <div className="space-y-4">
+          {[1,2,3].map(i => <div key={i} className="h-20 bg-gray-50 rounded-2xl" />)}
+       </div>
+    </div>
+  )
+}
+
+function LoadError({ onRetry }) {
+  return (
+    <div className="card p-12 text-center max-w-md mx-auto mt-20 border-rose-100 bg-rose-50/50">
+       <ExclamationTriangleIcon className="w-12 h-12 text-rose-500 mx-auto mb-4" />
+       <h2 className="text-xl font-black text-rose-900 mb-2">Load Failed</h2>
+       <button onClick={onRetry} className="btn-primary bg-rose-600 hover:bg-rose-700">Retry</button>
     </div>
   )
 }

@@ -21,6 +21,8 @@ import {
   ChevronLeftIcon,
   Bars3Icon,
   ExclamationTriangleIcon,
+  ArrowPathIcon,
+  SparklesIcon,
 } from '@heroicons/react/24/outline'
 import clsx from 'clsx'
 import QuickAddLessonDrawer from '@/components/QuickAddLessonDrawer'
@@ -425,65 +427,80 @@ export default function CoursePage() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-8 animate-in pb-32">
       {/* Header */}
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <button onClick={() => navigate('/curriculum')} className="text-xs text-gray-400 hover:text-gray-600 mb-1 flex items-center gap-1">
-            <ChevronLeftIcon className="w-3 h-3" /> Curriculum
+      <header className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-2 border-b border-gray-100">
+        <div className="min-w-0">
+          <button 
+            onClick={() => navigate('/curriculum')} 
+            className="flex items-center gap-1.5 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] hover:text-navy-700 mb-2 transition-colors"
+          >
+            <ChevronLeftIcon className="w-3 h-3" />
+            Curriculum Control
           </button>
-          <h1 className="page-title">{course?.name}</h1>
-          <p className="text-sm text-gray-400">
-            {course?.subject}{course?.grade_level ? ` · Grade ${course.grade_level}` : ''}
+          <h1 className="text-4xl font-black text-gray-900 tracking-tight leading-tight mb-1">
+            {course?.name}
+          </h1>
+          <p className="text-sm font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
+            {course?.subject}
+            <span className="w-1 h-1 bg-gray-300 rounded-full" />
+            Grade {course?.grade_level || '—'}
           </p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+
+        <div className="flex items-center gap-3">
           {activeTab === 'units' && (
             isAddingUnit ? (
-              <form onSubmit={handleAddUnit} className="flex items-center gap-2">
+              <form onSubmit={handleAddUnit} className="flex items-center gap-2 bg-white p-1 rounded-2xl border border-navy-100 shadow-sm animate-in zoom-in-95">
                 <input
                   ref={unitInputRef}
-                  className="input py-1.5 text-sm w-48"
-                  placeholder="New unit title..."
+                  className="bg-transparent px-4 py-2 text-sm w-48 focus:outline-none font-bold"
+                  placeholder="New Unit Title..."
                   value={newUnitTitle}
                   onChange={e => setNewUnitTitle(e.target.value)}
                   onKeyDown={e => e.key === 'Escape' && setIsAddingUnit(false)}
                 />
-                <button type="submit" className="btn-primary py-1.5 px-3 text-xs">Save</button>
-                <button type="button" onClick={() => setIsAddingUnit(false)} className="btn-secondary py-1.5 px-3 text-xs">
-                  <XMarkIcon className="w-4 h-4" />
+                <button type="submit" className="btn-primary py-2 px-6 text-[11px]">Save</button>
+                <button type="button" onClick={() => setIsAddingUnit(false)} className="p-2 text-gray-400 hover:text-rose-500">
+                  <XMarkIcon className="w-5 h-5" />
                 </button>
               </form>
             ) : (
-              <button className="btn-primary gap-1.5" onClick={() => setIsAddingUnit(true)}>
-                <PlusIcon className="w-4 h-4" />
-                Add unit
+              <button className="btn-primary" onClick={() => setIsAddingUnit(true)}>
+                <PlusIcon className="w-4 h-4 mr-2" />
+                Add Unit
               </button>
             )
           )}
-        </div>
-      </div>
-
-      {/* Tab bar */}
-      <div className="flex border-b border-gray-100">
-        {[
-          { id: 'units',     label: 'Units & Lessons' },
-          { id: 'timeline',  label: 'Year Timeline' },
-          { id: 'standards', label: 'Standards' },
-        ].map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={clsx(
-              'px-4 py-2.5 text-sm font-medium border-b-2 transition-colors',
-              activeTab === tab.id
-                ? 'border-navy-800 text-navy-800'
-                : 'border-transparent text-gray-400 hover:text-gray-600'
-            )}
-          >
-            {tab.label}
+          <button className="p-3 rounded-2xl bg-white border border-gray-100 text-gray-400 hover:text-navy-800 transition-all shadow-sm">
+             <ArrowUpTrayIcon className="w-5 h-5" />
           </button>
-        ))}
+        </div>
+      </header>
+
+      {/* Navigation & Controls */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+        <div className="flex gap-1 bg-gray-100/50 p-1 rounded-2xl w-fit border border-gray-100 shadow-inner">
+          {[
+            { id: 'units',     label: 'Instructional Flow', icon: <BookOpenIcon className="w-4 h-4" /> },
+            { id: 'timeline',  label: 'Year Timeline', icon: <CalendarDaysIcon className="w-4 h-4" /> },
+            { id: 'standards', label: 'Standards Audit', icon: <DocumentTextIcon className="w-4 h-4" /> },
+          ].map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={clsx(
+                'flex items-center gap-2 px-5 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all',
+                activeTab === tab.id
+                  ? 'bg-white shadow-md text-navy-800'
+                  : 'text-gray-400 hover:text-gray-600 hover:bg-white/50'
+              )}
+            >
+              {tab.icon}
+              {tab.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Sections panel — always visible at top */}
@@ -554,21 +571,19 @@ export default function CoursePage() {
               return (
                 <div key={unit.id} className="card overflow-hidden">
                   <div
-                    className="flex items-center gap-3 p-4 cursor-pointer hover:bg-gray-50 transition-colors"
+                    className="flex flex-col md:flex-row md:items-center gap-4 p-6 cursor-pointer hover:bg-gray-50/50 transition-colors"
                     onClick={() => toggleUnit(unit.id)}
                   >
-                    {/* Color dot */}
-                    <div className={`w-2.5 h-2.5 rounded-full ${color.bg} shrink-0`} />
-                    <ChevronDownIcon className={clsx(
-                      'w-4 h-4 text-gray-300 shrink-0 transition-transform',
-                      !expandedUnits[unit.id] && '-rotate-90'
-                    )} />
+                    <div className={clsx("w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 shadow-sm", color.bg, "text-white")}>
+                       <BookOpenIcon className="w-6 h-6" />
+                    </div>
+
                     <div className="flex-1 min-w-0">
                       {renamingUnitId === unit.id ? (
-                        <form onSubmit={handleRenameUnit} onClick={e => e.stopPropagation()}>
+                        <form onSubmit={handleRenameUnit} onClick={e => e.stopPropagation()} className="animate-in zoom-in-95">
                           <input
                             ref={renameInputRef}
-                            className="input py-1 text-sm w-full max-w-sm"
+                            className="input h-10 text-lg w-full max-w-sm font-black"
                             value={renameUnitTitle}
                             onChange={e => setRenameUnitTitle(e.target.value)}
                             onBlur={() => setRenamingUnitId(null)}
@@ -577,40 +592,53 @@ export default function CoursePage() {
                         </form>
                       ) : (
                         <>
-                          <p className="font-semibold text-gray-900 text-sm">
+                          <h3 className="text-xl font-black text-gray-900 tracking-tight leading-tight">
                             Unit {uIdx + 1}: {unit.title}
-                          </p>
-                          <p className="text-xs text-gray-400 mt-0.5">
-                            {unit.lessons.length} lesson{unit.lessons.length !== 1 ? 's' : ''}
-                          </p>
+                          </h3>
+                          <div className="flex items-center gap-3 mt-1.5">
+                            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                               {unit.lessons.length} Lessons Planned
+                            </span>
+                            <span className="w-1 h-1 bg-gray-200 rounded-full" />
+                            <span className="text-[10px] font-black text-navy-600 uppercase tracking-widest">
+                               Estimated {unit.lessons.length * 2 || 0} Periods
+                            </span>
+                          </div>
                         </>
                       )}
                     </div>
-                    <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+
+                    <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
                       <button
-                        className="btn-ghost p-1.5 text-navy-500 hover:bg-navy-50"
+                        className="btn-ghost p-2.5 rounded-xl text-navy-600 bg-navy-50/50 hover:bg-navy-100 border border-navy-100/50"
                         onClick={() => aiGenerateLessons(unit)}
                         disabled={aiLoading === unit.id}
-                        title="Suggest lessons"
+                        title="Boost with AI"
                       >
                         {aiLoading === unit.id
-                          ? <span className="w-4 h-4 border-2 border-navy-400 border-t-transparent rounded-full animate-spin block" />
-                          : <DocumentTextIcon className="w-4 h-4" />
+                          ? <ArrowPathIcon className="w-4 h-4 animate-spin" />
+                          : <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest">
+                              <SparklesIcon className="w-3.5 h-3.5 text-amber-500" />
+                              Boost
+                            </div>
                         }
                       </button>
                       <button 
-                        className="btn-ghost p-1.5" 
+                         className="p-2.5 rounded-xl border border-gray-100 text-gray-400 hover:text-navy-800 hover:bg-gray-50 transition-all"
                         onClick={() => {
                           setRenamingUnitId(unit.id)
                           setRenameUnitTitle(unit.title)
                         }} 
-                        title="Rename"
                       >
                         <PencilSquareIcon className="w-4 h-4" />
                       </button>
-                      <button className="btn-ghost p-1.5 text-red-400 hover:bg-red-50" onClick={() => deleteUnit(unit.id)} title="Delete">
+                      <button className="p-2.5 rounded-xl border border-gray-100 text-gray-400 hover:text-rose-600 hover:bg-rose-50 hover:border-rose-100 transition-all" onClick={() => deleteUnit(unit.id)}>
                         <TrashIcon className="w-4 h-4" />
                       </button>
+                      <ChevronDownIcon className={clsx(
+                        'w-5 h-5 text-gray-300 ml-2 transition-transform',
+                        !expandedUnits[unit.id] && '-rotate-90'
+                      )} />
                     </div>
                   </div>
 

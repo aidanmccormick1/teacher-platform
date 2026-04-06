@@ -139,6 +139,41 @@ export default function DashboardPage() {
     }
   }
 
+  const [generatingContinuity, setGeneratingContinuity] = useState({})
+
+  async function generateContinuityForSection(sectionId) {
+    const section = sections.find(s => s.id === sectionId)
+    if (!section || !section.progress) return
+
+    setGeneratingContinuity(prev => ({ ...prev, [sectionId]: true }))
+    try {
+      const res = await fetch('/api/ai/generate-continuity', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lessonTitle: section.progress.lessons.title,
+          lastSegmentTitle: `Segment #${(section.progress.last_segment_completed_index || 0) + 1}`,
+          lastNote: section.progress.carry_over_note
+        })
+      })
+      if (res.ok) {
+        const data = await res.json()
+        // Save the generated summary back to the progress record optionally, 
+        // but for now we just show it in the UI/session.
+        setSections(prev => prev.map(s => {
+          if (s.id === sectionId) {
+            return { ...s, aiContinuity: data }
+          }
+          return s
+        }))
+      }
+    } catch (e) {
+      console.error('Continuity generation failed', e)
+    } finally {
+      setGeneratingContinuity(prev => ({ ...prev, [sectionId]: false }))
+    }
+  }
+
   const greeting = getGreeting()
   const GreetIcon = greeting === 'evening' ? MoonIcon : SunIcon
   const firstName = profile?.full_name?.split(' ')[0] || 'Teacher'
@@ -195,6 +230,8 @@ export default function DashboardPage() {
                 section={section} 
                 navigate={navigate}
                 onOpenNotes={() => setNotesSection(section)}
+                onGenerateContinuity={() => generateContinuityForSection(section.id)}
+                isGeneratingContinuity={generatingContinuity[section.id]}
               />
             ))}
             
@@ -256,9 +293,8 @@ export default function DashboardPage() {
   )
 }
 
-function PlanningBlock({ section, navigate, onOpenNotes }) {
-  const { profile } = useAuth()
-  const { progress } = section
+function PlanningBlock({ section, navigate, onOpenNotes, onGenerateContinuity, isGeneratingContinuity }) {
+  const { progress, aiContinuity } = section
   const lesson = progress?.lessons || null
   const unit = lesson?.units || null
 
@@ -282,7 +318,40 @@ function PlanningBlock({ section, navigate, onOpenNotes }) {
         </div>
       )}
 
-      <div className="flex flex-col md:flex-row gap-6">
+      {/* Continuation UI (Smart Recap) */}
+      {(aiContinuity || isGeneratingContinuity) && (
+        <div className="absolute inset-x-0 -top-4 px-8 z-10 animate-in">
+           <div className="bg-navy-800 text-white rounded-2xl p-4 shadow-xl border border-white/10 flex items-start gap-4">
+              <SparklesIcon className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+              <div className="flex-1">
+                 {isGeneratingContinuity ? (
+                   <div className="animate-pulse space-y-1">
+                      <div className="h-2.5 bg-white/20 rounded w-1/4" />
+                      <div className="h-2 bg-white/10 rounded w-full" />
+                   </div>
+                 ) : (
+                   <div className="flex flex-col md:flex-row gap-4">
+                      <div className="flex-1">
+                        <span className="text-[9px] font-black uppercase text-navy-400 block mb-0.5 tracking-widest">AI Recap</span>
+                        <p className="text-[11px] leading-relaxed text-navy-50">{aiContinuity.recap}</p>
+                      </div>
+                      <div className="flex-1 md:border-l md:border-white/10 md:pl-4">
+                        <span className="text-[9px] font-black uppercase text-navy-400 block mb-0.5 tracking-widest">Opening Move</span>
+                        <p className="text-[11px] leading-relaxed text-amber-200 font-bold">{aiContinuity.nextStep}</p>
+                      </div>
+                   </div>
+                 )}
+              </div>
+              {!isGeneratingContinuity && (
+                <button onClick={() => { /* clear if needed or hide */ }} className="text-white/30 hover:text-white transition-colors">
+                   <XMarkIcon className="w-4 h-4" />
+                </button>
+              )}
+           </div>
+        </div>
+      )}
+
+      <div className={clsx("flex flex-col md:flex-row gap-6", (aiContinuity || isGeneratingContinuity) && "mt-8")}>
         {/* Course & Metadata */}
         <div className="flex-none md:w-48">
           <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">

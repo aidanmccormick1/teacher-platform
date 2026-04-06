@@ -81,39 +81,39 @@ function TutorialOverlay({ onDone }) {
   const isLast = step === TUTORIAL_STEPS.length - 1
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-navy-950/20 backdrop-blur-sm animate-in fade-in">
+      <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-sm overflow-hidden animate-in slide-in-from-bottom-8">
         {/* Progress dots */}
-        <div className="flex gap-1.5 justify-center pt-5 pb-2">
+        <div className="flex gap-2 justify-center pt-8 pb-2">
           {TUTORIAL_STEPS.map((_, i) => (
             <div
               key={i}
-              className={`h-1.5 rounded-full transition-all ${
-                i === step ? 'w-6 bg-navy-800' : 'w-1.5 bg-gray-200'
+              className={`h-1.5 rounded-full transition-all duration-500 ${
+                i === step ? 'w-8 bg-navy-800' : 'w-2 bg-gray-100'
               }`}
             />
           ))}
         </div>
 
-        <div className="px-7 py-5 text-center space-y-3">
-          <h2 className="text-lg font-bold text-gray-900">{current.title}</h2>
-          <p className="text-sm text-gray-500 leading-relaxed">{current.body}</p>
+        <div className="px-10 py-6 text-center space-y-4">
+          <h2 className="text-2xl font-black text-gray-900 tracking-tight leading-tight">{current.title}</h2>
+          <p className="text-sm font-medium text-gray-500 leading-relaxed">{current.body}</p>
         </div>
 
-        <div className="px-7 pb-7 flex gap-3">
+        <div className="px-10 pb-10 flex gap-3">
           {step > 0 && (
             <button
               onClick={() => setStep(s => s - 1)}
-              className="flex-1 py-2.5 text-sm font-medium text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50"
+              className="flex-1 py-4 text-xs font-black uppercase tracking-widest text-gray-400 hover:text-navy-800 transition-colors"
             >
               Back
             </button>
           )}
           <button
             onClick={() => isLast ? onDone() : setStep(s => s + 1)}
-            className="flex-1 py-2.5 text-sm font-semibold bg-navy-800 text-white rounded-xl hover:bg-navy-900 transition-colors"
+            className="flex-1 py-4 text-xs font-black uppercase tracking-widest bg-navy-800 text-white rounded-2xl hover:bg-navy-900 transition-all shadow-xl shadow-navy-200 active:scale-95"
           >
-            {isLast ? "Let's build it" : 'Next'}
+            {isLast ? "Launch System" : 'Continue'}
           </button>
         </div>
       </div>
@@ -130,57 +130,17 @@ function AIBuilderPanel({ onParsed, onClose }) {
   const [photoMode, setPhotoMode] = useState(false)
   const fileRef = useRef()
 
-  const PLACEHOLDER = `Paste your schedule here, for example:
-
-Algebra I - Period 1 - Mon/Wed/Fri - 8:00 AM - Room 204
-AP Chemistry - Period 2 - Mon/Tue/Thu - 9:15 AM - Room 108
-English 10 - Period 3 - Daily - 10:30 AM - Room 312
-Lunch - 11:45 AM
-Geometry - Period 4 - Mon/Wed/Fri - 12:45 PM - Room 204
-Study Hall - Tue/Thu - 12:45 PM - Library
-
-Or just describe it naturally — the AI will figure it out.`
-
   async function handleBuild() {
     if (!text.trim()) return
     setLoading(true)
     setError(null)
-
     try {
-      const resp = await fetch('/api/parse-schedule', {
+      const resp = await fetch('/api/ai/parse-schedule', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text }),
       })
-
-      if (!resp.ok) {
-        const err = await resp.json()
-        throw new Error(err.error || 'Failed to parse schedule')
-      }
-
-      const { schedule } = await resp.json()
-      onParsed(schedule)
-    } catch (e) {
-      setError(e.message)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  async function handlePhoto(e) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setLoading(true)
-    setError(null)
-
-    try {
-      const base64 = await fileToBase64(file)
-      const resp = await fetch('/api/parse-schedule', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: base64 }),
-      })
-      if (!resp.ok) throw new Error('Could not read schedule from photo')
+      if (!resp.ok) throw new Error('Failed to parse schedule')
       const { schedule } = await resp.json()
       onParsed(schedule)
     } catch (e) {
@@ -191,106 +151,67 @@ Or just describe it naturally — the AI will figure it out.`
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-4 bg-black/40">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-4 bg-navy-950/20 backdrop-blur-sm animate-in fade-in">
+      <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-lg overflow-hidden animate-in slide-in-from-bottom-8">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <div className="flex items-center gap-2">
-            <SparklesIcon className="w-5 h-5 text-navy-600" />
-            <h2 className="font-semibold text-gray-900">Build Schedule with AI</h2>
+        <div className="flex items-center justify-between px-8 py-6 border-b border-gray-100">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <SparklesIcon className="w-5 h-5 text-amber-500" />
+              <h2 className="text-xl font-black text-gray-900 tracking-tight">AI Schedule Builder</h2>
+            </div>
+            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Intelligent Parsing v2</p>
           </div>
-          <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-600">
-            <XMarkIcon className="w-5 h-5" />
+          <button onClick={onClose} className="p-2 rounded-xl hover:bg-gray-50 text-gray-400 transition-all">
+            <XMarkIcon className="w-6 h-6" />
           </button>
         </div>
 
-        {/* Tabs */}
-        <div className="flex border-b border-gray-100">
-          <button
-            onClick={() => setPhotoMode(false)}
-            className={`flex-1 py-3 text-sm font-medium transition-colors flex items-center justify-center gap-2 ${
-              !photoMode ? 'text-navy-700 border-b-2 border-navy-700' : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            <ChatBubbleBottomCenterTextIcon className="w-4 h-4" />
-            Type or paste
-          </button>
-          <button
-            onClick={() => setPhotoMode(true)}
-            className={`flex-1 py-3 text-sm font-medium transition-colors flex items-center justify-center gap-2 ${
-              photoMode ? 'text-navy-700 border-b-2 border-navy-700' : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            <CameraIcon className="w-4 h-4" />
-            Photo of schedule
-          </button>
-        </div>
-
-        <div className="p-6 space-y-4">
-          {!photoMode ? (
+        <div className="p-8 space-y-6">
+          <div className="relative group">
             <textarea
-              className="w-full border border-gray-200 rounded-xl p-3 text-sm font-mono resize-none focus:outline-none focus:ring-2 focus:ring-navy-300 text-gray-700 placeholder:text-gray-300 placeholder:font-sans"
-              rows={9}
+              className="input min-h-[200px] p-5 text-sm font-medium leading-relaxed bg-gray-50/50 border-gray-200 focus:bg-white resize-none"
               value={text}
               onChange={e => setText(e.target.value)}
-              placeholder={PLACEHOLDER}
+              placeholder="Paste your schedule here (periods, times, rooms)... or describe your week in plain English."
             />
-          ) : (
-            <div
-              onClick={() => fileRef.current?.click()}
-              className="border-2 border-dashed border-gray-200 rounded-xl p-10 text-center cursor-pointer hover:border-navy-300 hover:bg-navy-50 transition-all"
-            >
-              <CameraIcon className="w-10 h-10 text-gray-300 mx-auto mb-3" />
-              <p className="text-sm font-medium text-gray-600">Tap to take a photo or upload an image</p>
-              <p className="text-xs text-gray-400 mt-1">Works with printed schedules, PDFs saved as images, screenshots</p>
-              <input
-                ref={fileRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                className="hidden"
-                onChange={handlePhoto}
-              />
+            <div className="absolute bottom-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
+               <span className="text-[10px] font-bold text-gray-400">GPT-5.4 Ready</span>
             </div>
-          )}
-
-          {error && (
-            <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>
-          )}
-
-          <div className="flex items-start gap-2 bg-navy-50 rounded-xl p-3">
-            <LightBulbIcon className="w-4 h-4 text-navy-600 shrink-0 mt-0.5" />
-            <p className="text-xs text-navy-700">
-              Include class name, days, and time for the best results. Room numbers and period labels are optional but helpful.
-            </p>
           </div>
 
-          {!photoMode && (
-            <button
-              onClick={handleBuild}
-              disabled={loading || !text.trim()}
-              className="w-full py-3 bg-navy-800 text-white text-sm font-semibold rounded-xl hover:bg-navy-900 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
-            >
-              {loading ? (
-                <>
-                  <ArrowPathIcon className="w-4 h-4 animate-spin" />
-                  Parsing your schedule...
-                </>
-              ) : (
-                <>
-                  <SparklesIcon className="w-4 h-4" />
-                  Build with AI
-                </>
-              )}
-            </button>
-          )}
-
-          {loading && photoMode && (
-            <div className="flex items-center justify-center gap-2 text-sm text-navy-700">
-              <ArrowPathIcon className="w-4 h-4 animate-spin" />
-              Reading your schedule...
+          {error && (
+            <div className="p-4 rounded-2xl bg-rose-50 border border-rose-100 flex items-start gap-3 animate-in shake">
+               <ExclamationTriangleIcon className="w-5 h-5 text-rose-500 shrink-0" />
+               <p className="text-xs font-bold text-rose-700">{error}</p>
             </div>
           )}
+
+          <div className="flex items-start gap-4 p-5 rounded-2xl bg-navy-50/50 border border-navy-100/50">
+            <LightBulbIcon className="w-6 h-6 text-navy-600 shrink-0" />
+            <div>
+               <p className="text-[11px] font-black text-navy-900 uppercase tracking-widest mb-1">Pro Tip</p>
+               <p className="text-xs text-navy-700/70 leading-relaxed font-medium">Paste anything: emails, PDF text, or handwritten notes captured as text. Our AI handles complex block schedules effortlessly.</p>
+            </div>
+          </div>
+
+          <button
+            onClick={handleBuild}
+            disabled={loading || !text.trim()}
+            className="btn-primary w-full py-5 shadow-xl shadow-navy-200 active:scale-95 disabled:opacity-50"
+          >
+            {loading ? (
+              <span className="flex items-center gap-2">
+                <ArrowPathIcon className="w-5 h-5 animate-spin" />
+                Synthesizing Schedule...
+              </span>
+            ) : (
+              <span className="flex items-center gap-2">
+                <SparklesIcon className="w-5 h-5" />
+                Build My Schedule
+              </span>
+            )}
+          </button>
         </div>
       </div>
     </div>
@@ -511,11 +432,33 @@ function AddClassModal({ courses, onClose, onCreated }) {
       day_times:    form.use_per_day ? form.day_times : null,
       room:         form.room || null,
     }
-    const { data, error: dbError } = await supabase
+    
+    // Attempt full v2 insert
+    let { data, error: dbError } = await supabase
       .from('sections')
       .insert(sectionData)
       .select()
       .single()
+      
+    // Fallback if schema is out of date (missing end_date/start_date/day_times)
+    if (dbError && (dbError.message?.includes('column') || dbError.message?.includes('schema cache'))) {
+      console.warn('TeacherOS: Upgrading to v1 fallback insert due to missing columns.')
+      const fallbackData = {
+        course_id:    form.course_id,
+        name:         form.name,
+        meeting_days: form.meeting_days,
+        meeting_time: form.meeting_time || null,
+        room:         form.room || null,
+      }
+      const { data: d2, error: e2 } = await supabase
+        .from('sections')
+        .insert(fallbackData)
+        .select()
+        .single()
+      data = d2
+      dbError = e2
+    }
+
     setLoading(false)
     if (dbError) {
       setError(dbError.message || 'Failed to add class')
@@ -883,7 +826,7 @@ function InlineAddSection({ courseId, onCreated, onCancel }) {
       room: form.room || null,
     }
 
-    const { data, error: dbError } = await supabase
+    let { data, error: dbError } = await supabase
       .from('sections')
       .insert(sectionData)
       .select()
@@ -891,7 +834,8 @@ function InlineAddSection({ courseId, onCreated, onCancel }) {
 
     setLoading(false)
     if (dbError) {
-      if (dbError.message?.includes('day_times') || dbError.message?.includes('end_time')) {
+      if (dbError.message?.includes('column') || dbError.message?.includes('schema cache')) {
+        console.warn('TeacherOS: Upgrading to v1 fallback insert for InlineAdd due to missing columns.')
         const fallback = {
           course_id: courseId,
           name: form.name,
@@ -1162,7 +1106,59 @@ function HolidaysModal({ onClose }) {
   )
 }
 
-// ─── Main Page ─────────────────────────────────────────────────────────────
+function SchemaUpdateAdvisory({ onDismiss }) {
+  const [copied, setCopied] = useState(false)
+  const SQL = `ALTER TABLE public.sections 
+ADD COLUMN IF NOT EXISTS start_date DATE,
+ADD COLUMN IF NOT EXISTS end_date DATE,
+ADD COLUMN IF NOT EXISTS day_times JSONB;`
+
+  function handleCopy() {
+    navigator.clipboard.writeText(SQL).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
+  return (
+    <div className="card p-8 border-amber-100 bg-amber-50/50 flex flex-col md:flex-row items-start gap-6 animate-in zoom-in-95">
+      <div className="w-12 h-12 rounded-2xl bg-amber-100 flex items-center justify-center shrink-0 shadow-sm shadow-amber-200">
+        <ExclamationTriangleIcon className="w-6 h-6 text-amber-600" />
+      </div>
+      <div className="flex-1 space-y-4">
+        <div>
+          <h3 className="text-sm font-black text-amber-900 uppercase tracking-widest mb-1">Database Update Required</h3>
+          <p className="text-xs text-amber-800 leading-relaxed font-medium">
+            Some core columns are missing in your Supabase project (likely from an earlier v1 setup).
+            To enable full **Term Pacing** and **Block Scheduling**, please run the SQL below in your Supabase SQL Editor.
+          </p>
+        </div>
+
+        <div className="relative group">
+          <pre className="bg-navy-950 text-cyan-400 text-[11px] leading-relaxed rounded-2xl p-6 overflow-x-auto whitespace-pre-wrap border border-navy-900 shadow-xl">
+            {SQL}
+          </pre>
+          <button
+            onClick={handleCopy}
+            className="absolute top-4 right-4 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-xl bg-navy-800 text-white hover:bg-navy-700 transition-all shadow-lg text-white"
+          >
+            {copied ? '✓ Copied' : 'Copy SQL'}
+          </button>
+        </div>
+
+        <div className="flex items-center justify-between pt-2">
+          <p className="text-[10px] font-bold text-amber-600/60 flex items-center gap-2">
+             <LightBulbIcon className="w-3.5 h-3.5" />
+             Safe Mode enabled — App will still function but dates won't save.
+          </p>
+          <button onClick={onDismiss} className="text-[10px] font-black uppercase tracking-widest text-amber-700/50 hover:text-amber-800">
+             Dismiss for now
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export default function SchedulePage() {
   const { profile } = useAuth()
@@ -1175,7 +1171,8 @@ export default function SchedulePage() {
   const [parsedSchedule, setParsedSchedule] = useState(null)
   const [saving, setSaving] = useState(false)
   const [loadError, setLoadError] = useState(false)
-  const nav = useNavigate()
+  const [schemaError, setSchemaError] = useState(false)
+  const navigate = useNavigate()
 
   useEffect(() => { document.title = 'Schedule | Cacio EDU' }, [])
 
@@ -1208,12 +1205,19 @@ export default function SchedulePage() {
     }
 
     const courseIds = courseData.map(c => c.id)
-    const { data: sectionData } = await supabase
+    const { data: sectionData, error: sErr } = await supabase
       .from('sections')
       .select('*')
       .in('course_id', courseIds)
       .order('meeting_time', { ascending: true })
 
+    if (sErr) {
+      if (sErr.message?.includes('column') || sErr.message?.includes('schema cache')) {
+        setSchemaError(true)
+      } else {
+        setLoadError(true)
+      }
+    }
     setSections(sectionData || [])
     setLoading(false)
 
@@ -1309,7 +1313,7 @@ export default function SchedulePage() {
   const totalSections = sections.length
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-8 animate-in pb-24">
       {/* Tutorial overlay */}
       {showTutorial && <TutorialOverlay onDone={handleTutorialDone} />}
 
@@ -1336,116 +1340,108 @@ export default function SchedulePage() {
       )}
 
       {saving && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-          <div className="bg-white rounded-2xl px-8 py-6 shadow-2xl flex items-center gap-3">
-            <ArrowPathIcon className="w-5 h-5 text-navy-700 animate-spin" />
-            <span className="text-sm font-medium text-gray-700">Saving your schedule...</span>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy-950/20 backdrop-blur-sm">
+          <div className="bg-white rounded-[2rem] px-10 py-8 shadow-2xl flex items-center gap-4 animate-in zoom-in-95">
+            <ArrowPathIcon className="w-6 h-6 text-navy-800 animate-spin" />
+            <span className="text-sm font-black text-gray-900 uppercase tracking-widest">Syncing Schedule...</span>
           </div>
         </div>
       )}
 
       {/* Header */}
-      <div className="flex items-start justify-between gap-3">
+      <header className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-2 border-b border-gray-100">
         <div>
-          <h1 className="page-title">Schedule</h1>
-          {!loading && totalSections > 0 && (
-            <p className="text-sm text-gray-400 mt-0.5">
-              {totalSections} period{totalSections !== 1 ? 's' : ''} across {courses.length} course{courses.length !== 1 ? 's' : ''}
-            </p>
-          )}
+          <h1 className="text-4xl font-black text-gray-900 tracking-tight leading-tight mb-1">Weekly Pulse</h1>
+          <p className="text-sm font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
+            Schedule Engine
+            <span className="w-1 h-1 bg-gray-300 rounded-full" />
+            {!loading ? `${totalSections} Active Periods` : 'Initializing...'}
+          </p>
         </div>
 
         {!loading && courses.length > 0 && (
-          <div className="flex gap-2">
-            <button
+          <div className="flex items-center gap-3">
+             <button
               onClick={() => setShowHolidays(true)}
-              className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 text-gray-700 text-xs font-semibold rounded-xl hover:bg-gray-50 transition-colors shrink-0 shadow-sm"
+              className="p-3 rounded-2xl bg-white border border-gray-100 text-gray-400 hover:text-navy-800 transition-all shadow-sm"
+              title="Manage Holidays"
             >
-              <CalendarDaysIcon className="w-3.5 h-3.5" />
-              Manage Holidays
+              <CalendarDaysIcon className="w-5 h-5" />
             </button>
             <button
               onClick={() => setShowAIBuilder(true)}
-              className="flex items-center gap-1.5 px-3 py-2 bg-navy-800 text-white text-xs font-semibold rounded-xl hover:bg-navy-900 transition-colors shrink-0 shadow-sm"
+              className="btn-primary px-8 shadow-xl shadow-navy-100"
             >
-              <SparklesIcon className="w-3.5 h-3.5" />
-              AI Builder
+              <SparklesIcon className="w-4 h-4 mr-2" />
+              Sync with AI
             </button>
           </div>
         )}
-      </div>
+      </header>
 
       {loading ? (
-        <div className="space-y-3">
-          {[1, 2, 3].map(i => (
-            <div key={i} className="card p-4 animate-pulse">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="w-3 h-3 bg-gray-200 rounded-full" />
-                <div className="h-4 bg-gray-100 rounded w-1/3" />
-              </div>
-              <div className="space-y-2 pl-6">
-                <div className="h-3 bg-gray-100 rounded w-1/2" />
-                <div className="h-3 bg-gray-100 rounded w-2/5" />
-              </div>
-            </div>
-          ))}
+        <div className="grid grid-cols-5 gap-4 animate-pulse">
+           {[1,2,3,4,5].map(i => <div key={i} className="h-64 bg-gray-50 rounded-3xl" />)}
         </div>
       ) : loadError ? (
-        <div className="card p-8 text-center">
-          <div className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center mx-auto mb-3">
-            <ExclamationTriangleIcon className="w-5 h-5 text-red-400" />
-          </div>
-          <h3 className="font-semibold text-gray-900 mb-1">Couldn't load your schedule</h3>
-          <p className="text-sm text-gray-400 mb-4">There was a problem connecting. Try refreshing.</p>
-          <button
-            onClick={() => { setLoadError(false); setLoading(true); loadAll() }}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-navy-800 text-white text-sm font-semibold rounded-xl hover:bg-navy-900"
-          >
-            Try again
-          </button>
+        <div className="card p-12 text-center border-rose-100 bg-rose-50/50">
+           <ExclamationTriangleIcon className="w-12 h-12 text-rose-500 mx-auto mb-4" />
+           <h2 className="text-xl font-black text-rose-900 mb-2">Sync Error</h2>
+           <button onClick={() => { setLoadError(false); setLoading(true); loadAll() }} className="btn-primary bg-rose-600 hover:bg-rose-700">Retry Sync</button>
         </div>
       ) : courses.length === 0 ? (
-        <NoCourses onNavigate={() => nav('/curriculum')} />
+        <NoCourses onNavigate={() => navigate('/curriculum')} />
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-12">
           {/* Explainer for first-time users */}
           {totalSections === 0 && (
-            <div className="card p-5 border border-navy-100 bg-navy-50/50 flex items-start gap-3">
-              <SparklesIcon className="w-5 h-5 text-navy-500 shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm font-medium text-navy-900">Add class periods to each course</p>
-                <p className="text-xs text-navy-700 mt-0.5">
-                  Each course can have multiple periods (e.g. AP Gov can have Period 1, Period 3, and Period 5). Click "Add class period" inside each course, or use AI Builder to import everything at once.
+            <div className="card p-8 border-navy-100 bg-navy-50/50 flex items-start gap-4 animate-in">
+              <SparklesIcon className="w-6 h-6 text-navy-600 shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <h3 className="text-sm font-black text-navy-900 uppercase tracking-widest mb-1">Bridge Your Curriculum</h3>
+                <p className="text-xs text-navy-700 leading-relaxed font-medium">
+                  Connect your classes to specific courses. Each course can have multiple periods (e.g. 1st, 3rd, 5th Hour). Once mapped, your Dashboard will automatically track lesson progress in real-time.
                 </p>
               </div>
             </div>
           )}
 
-          {/* One card per course */}
-          {courses.map((course, ci) => {
-            const courseSections = sections
-              .filter(s => s.course_id === course.id)
-              .sort((a, b) => (a.meeting_time || '').localeCompare(b.meeting_time || ''))
-            return (
-              <CourseScheduleCard
-                key={course.id}
-                course={course}
-                sections={courseSections}
-                colorClass={courseColorMap[course.id]}
-                onAddSection={section => setSections(prev => [...prev, section])}
-                onDeleteSection={deleteSection}
-                onNavigateCourse={id => nav(`/courses/${id}`)}
-              />
-            )
-          })}
+          {/* Sections List */}
+          <div className="space-y-4">
+             <h2 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Course Allocation</h2>
+             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {courses.map((course, ci) => {
+                  const courseSections = sections
+                    .filter(s => s.course_id === course.id)
+                    .sort((a, b) => (a.meeting_time || '').localeCompare(b.meeting_time || ''))
+                  return (
+                    <CourseScheduleCard
+                      key={course.id}
+                      course={course}
+                      sections={courseSections}
+                      colorClass={courseColorMap[course.id]}
+                      onAddSection={section => setSections(prev => [...prev, section])}
+                      onDeleteSection={deleteSection}
+                      onNavigateCourse={id => navigate(`/courses/${id}`)}
+                    />
+                  )
+                })}
+             </div>
+          </div>
 
-          {/* Week grid — collapsed by default, expandable */}
+          {/* Week grid — premium view */}
           {totalSections > 0 && (
-            <WeekGridCollapsible sections={sections} courses={courses} onDeleteSection={deleteSection} />
+            <div className="space-y-4">
+               <h2 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Weekly Pulse</h2>
+               <WeekGridCollapsible sections={sections} courses={courses} onDeleteSection={deleteSection} />
+            </div>
           )}
 
           {/* School Calendar — day off sync */}
-          <CalendarSync userId={profile?.id} />
+          <div className="space-y-4">
+             <h2 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Administrative Sync</h2>
+             <CalendarSync userId={profile?.id} />
+          </div>
         </div>
       )}
     </div>

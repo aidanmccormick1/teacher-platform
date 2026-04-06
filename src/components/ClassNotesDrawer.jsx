@@ -255,33 +255,79 @@ export default function ClassNotesDrawer({ section, course, color, onClose }) {
         </div>
 
         {/* Past notes list */}
-        {allNotes.filter(n => n.date !== selectedDate && n.content?.trim()).length > 0 && (
-          <div className="border-t border-gray-100 px-5 py-4 overflow-y-auto max-h-[30%]">
-            <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+        <div className="border-t border-gray-100 px-5 py-4 overflow-y-auto max-h-[40%]">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
               <CalendarDaysIcon className="w-3.5 h-3.5" />
               Previous notes
             </p>
-            <div className="space-y-3">
-              {allNotes
-                .filter(n => n.date !== selectedDate && n.content?.trim())
-                .slice(0, 5)
-                .map(note => (
-                  <button
-                    key={note.date}
-                    onClick={() => setSelectedDate(note.date)}
-                    className="w-full text-left group"
-                  >
-                    <p className="text-[11px] font-semibold text-gray-400 mb-0.5 group-hover:text-navy-700 transition-colors">
-                      {format(parseISO(note.date), 'EEE, MMM d')}
-                    </p>
-                    <p className="text-[12px] text-gray-600 line-clamp-2 leading-relaxed">
-                      {note.content}
-                    </p>
-                  </button>
-                ))}
-            </div>
+            {allNotes.length > 1 && (
+              <button 
+                onClick={async () => {
+                  setLoadingSummary(true)
+                  try {
+                    const res = await fetch('/api/ai/summarize-notes', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ notes: allNotes })
+                    })
+                    if (res.ok) {
+                      const data = await res.json()
+                      setSummary(data.summary)
+                    }
+                  } catch (e) {
+                    console.error('Note summarization failed', e)
+                  } finally {
+                    setLoadingSummary(false)
+                  }
+                }}
+                disabled={loadingSummary}
+                className="text-[10px] font-black text-navy-700 uppercase tracking-widest hover:text-navy-900 flex items-center gap-1 disabled:opacity-50"
+              >
+                <SparklesIcon className="w-3 h-3 text-amber-500" />
+                Summarize with AI
+              </button>
+            )}
           </div>
-        )}
+
+          {summary && (
+            <div className="mb-6 p-4 rounded-2xl bg-navy-50 border border-navy-100 relative group animate-in">
+              <SparklesIcon className="absolute -top-2 -right-2 w-5 h-5 text-amber-400 drop-shadow-sm" />
+              <h4 className="text-[10px] font-black text-navy-800 uppercase tracking-tighter mb-1.5">Weekly Reflection Summary</h4>
+              <p className="text-xs text-navy-900 leading-relaxed font-medium whitespace-pre-wrap">{summary}</p>
+              <button onClick={() => setSummary(null)} className="absolute top-2 right-2 p-1 text-navy-300 hover:text-navy-600">
+                <XMarkIcon className="w-3 h-3" />
+              </button>
+            </div>
+          )}
+
+          {loadingSummary && (
+             <div className="mb-6 p-4 rounded-2xl bg-gray-50 border border-gray-100 animate-pulse space-y-2">
+                <div className="h-3 bg-gray-200 rounded w-1/3" />
+                <div className="h-2 bg-gray-200 rounded w-full" />
+                <div className="h-2 bg-gray-200 rounded w-3/4" />
+             </div>
+          )}
+
+          <div className="space-y-4">
+            {allNotes
+              .filter(n => n.date !== selectedDate && n.content?.trim())
+              .map(note => (
+                <button
+                  key={note.date}
+                  onClick={() => setSelectedDate(note.date)}
+                  className="w-full text-left group animate-in"
+                >
+                  <p className="text-[11px] font-bold text-gray-400 mb-1 group-hover:text-navy-800 transition-colors uppercase tracking-widest">
+                    {format(parseISO(note.date), 'EEEE, MMM d')}
+                  </p>
+                  <p className="text-[13px] text-gray-700 font-medium line-clamp-3 leading-relaxed">
+                    {note.content}
+                  </p>
+                </button>
+              ))}
+          </div>
+        </div>
       </div>
     </>
   )
