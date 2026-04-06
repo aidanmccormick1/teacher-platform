@@ -1172,6 +1172,7 @@ export default function SchedulePage() {
   const [saving, setSaving] = useState(false)
   const [loadError, setLoadError] = useState(false)
   const [schemaError, setSchemaError] = useState(false)
+  const [dismissSchemaError, setDismissSchemaError] = useState(false)
   const navigate = useNavigate()
 
   useEffect(() => { document.title = 'Schedule | Cacio EDU' }, [])
@@ -1378,6 +1379,10 @@ export default function SchedulePage() {
           </div>
         )}
       </header>
+
+      {schemaError && !dismissSchemaError && (
+        <SchemaUpdateAdvisory onDismiss={() => setDismissSchemaError(true)} />
+      )}
 
       {loading ? (
         <div className="grid grid-cols-5 gap-4 animate-pulse">

@@ -44,6 +44,7 @@ export default function DashboardPage() {
   const [loadError, setLoadError]     = useState(false)
   const [now, setNow]                 = useState(new Date())
   const [notesSection, setNotesSection] = useState(null)
+  const [holidays, setHolidays]       = useState([])
 
   useEffect(() => { document.title = 'Teacher Dashboard | TeacherOS' }, [])
 
@@ -63,13 +64,27 @@ export default function DashboardPage() {
     setLoadError(false)
 
     try {
-      const { data: courseData, error: courseErr } = await supabase
-        .from('courses')
-        .select('id, name, subject, grade_level, sections(id, name, meeting_days, meeting_time, room, course_id, end_time)')
-        .eq('teacher_id', profile.id)
-        .order('id')
+      // 1. Fetch Basic Data
+      const [
+        { data: courseData, error: courseErr },
+        { data: holidayData, error: holidayErr }
+      ] = await Promise.all([
+        supabase
+          .from('courses')
+          .select('id, name, subject, grade_level, sections(id, name, meeting_days, meeting_time, room, course_id, end_time)')
+          .eq('teacher_id', profile.id)
+          .order('id'),
+        supabase
+          .from('school_holidays')
+          .select('*')
+          .gte('date', format(new Date(), 'yyyy-MM-dd'))
+          .lte('date', format(new Date(Date.now() + 86400000 * 2), 'yyyy-MM-dd'))
+          .order('date', { ascending: true })
+      ])
 
       if (courseErr) throw courseErr
+      
+      setHolidays(holidayData || [])
 
       if (!courseData?.length) {
         setCourses([])
@@ -184,6 +199,22 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-8 pb-20 animate-in">
+      {/* ── Holiday Alert ── */}
+      {holidays.some(h => h.date === format(new Date(), 'yyyy-MM-dd')) && (
+        <div className="card p-6 border-amber-100 bg-amber-50/50 flex items-start gap-4 animate-in">
+           <div className="w-10 h-10 rounded-2xl bg-amber-100 flex items-center justify-center shrink-0">
+              <CalendarDaysIcon className="w-5 h-5 text-amber-600" />
+           </div>
+           <div>
+              <h3 className="text-sm font-black text-amber-900 uppercase tracking-widest mb-1">Academy Notice</h3>
+              <p className="text-xs text-amber-700 font-medium leading-relaxed">
+                School is closed today for <span className="font-bold underlineDecoration-amber-200">{holidays.find(h => h.date === format(new Date(), 'yyyy-MM-dd'))?.name}</span>. 
+                Any lessons tracking progress today will be adjusted to the next meeting date.
+              </p>
+           </div>
+        </div>
+      )}
+
       {/* ── Daily Snapshot Header ── */}
       <header className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-2 border-b border-gray-100">
         <div>

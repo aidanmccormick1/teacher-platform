@@ -256,6 +256,7 @@ export default function CoursePage() {
   const [course,    setCourse]    = useState(null)
   const [units,     setUnits]     = useState([])
   const [sections,  setSections]  = useState([])
+  const [holidays,  setHolidays]  = useState([])
   const [loading,   setLoading]   = useState(true)
   const [expandedUnits, setExpandedUnits] = useState({})
   const [aiLoading, setAiLoading] = useState(null)
@@ -291,14 +292,16 @@ export default function CoursePage() {
   }, [renamingUnitId])
 
   async function loadCourse() {
-    const [courseRes, unitsRes, sectionsRes] = await Promise.all([
+    const [courseRes, unitsRes, sectionsRes, holidaysRes] = await Promise.all([
       supabase.from('courses').select('*').eq('id', courseId).single(),
       supabase.from('units').select(`*, lessons (*, lesson_segments ( id ))`).eq('course_id', courseId).order('order_index', { ascending: true }),
       supabase.from('sections').select('*').eq('course_id', courseId).order('meeting_time', { ascending: true }),
+      supabase.from('school_holidays').select('*').order('date', { ascending: true }),
     ])
 
     setCourse(courseRes.data)
     setSections(sectionsRes.data || [])
+    setHolidays(holidaysRes.data || [])
 
     const sorted = (unitsRes.data || []).map(u => ({
       ...u,
@@ -698,7 +701,7 @@ export default function CoursePage() {
       )}
 
       {activeTab === 'timeline' && (
-        <YearTimeline units={units} course={course} />
+        <YearTimeline units={units} course={course} holidays={holidays} />
       )}
 
       {activeTab === 'standards' && (

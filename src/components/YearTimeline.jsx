@@ -17,8 +17,10 @@ function colorForUnit(idx) {
   return UNIT_COLORS[idx % UNIT_COLORS.length]
 }
 
-export default function YearTimeline({ units, course, sections }) {
+export default function YearTimeline({ units, course, sections, holidays = [] }) {
   const [zoom, setZoom] = useState('month') // 'month' | 'week' | 'day'
+
+  // ... (rest of parsedData useMemo remains the same)
 
   // Extract a flattened list of lessons mapped to their chronological occurrence
   const parsedData = useMemo(() => {
@@ -143,17 +145,41 @@ export default function YearTimeline({ units, course, sections }) {
               </div>
             ))}
             
+            {/* Holidays markers */}
+            {holidays.map(h => {
+              const hDate = new Date(h.date + 'T12:00:00')
+              // Simple mapping: Aug 1 to May 31 (10 months)
+              const startTerm = new Date(hDate.getFullYear() - (hDate.getMonth() < 7 ? 1 : 0), 7, 1)
+              const endTerm = new Date(startTerm.getFullYear() + 1, 4, 31)
+              const totalDays = (endTerm - startTerm) / 86400000
+              const currentDays = (hDate - startTerm) / 86400000
+              const pct = (currentDays / totalDays) * 100
+              
+              if (pct < 0 || pct > 100) return null
+
+              return (
+                <div
+                  key={h.id}
+                  className="absolute top-0 bottom-0 w-1 bg-white/40 ring-1 ring-white/20 z-10 group cursor-help transition-all hover:bg-white/80 hover:w-2"
+                  style={{ left: `${pct}%` }}
+                  title={h.name}
+                >
+                   <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-navy-800 text-white text-[9px] font-black px-2 py-0.5 rounded shadow whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity">
+                      {h.name}
+                   </div>
+                </div>
+              )
+            })}
+
             {/* The "Today" Marker Line */}
             <div 
-              className="absolute top-0 bottom-0 w-[3px] bg-red-500 z-20 flex flex-col shadow-sm group cursor-help transition-all"
+              className="absolute top-0 bottom-0 w-[4px] bg-amber-500 z-30 flex flex-col shadow-lg group cursor-help transition-all"
               style={{ left: `${todayProgressPercent}%` }}
               title="Today's Date Marker"
             >
-               <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-red-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider shadow opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                   Today
+               <div className="absolute -top-7 left-1/2 transform -translate-x-1/2 bg-amber-600 text-white text-[9px] font-black px-2 py-1 rounded-lg uppercase tracking-widest shadow-xl opacity-100 group-hover:scale-110 transition-all whitespace-nowrap">
+                   Now
                </div>
-               {/* Behind Schedule Highlight Visualization Filter (fading out everything completed successfully prior) */}
-               {/* In a real scenario, we'd overlay red hatched markers on un-completed lessons behind this line. */}
             </div>
         </div>
       </div>
