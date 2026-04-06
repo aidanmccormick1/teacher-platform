@@ -18,6 +18,13 @@ const SchedulePage = lazy(() => import('@/pages/SchedulePage'))
 const ProfilePage = lazy(() => import('@/pages/ProfilePage'))
 const ClassroomPage = lazy(() => import('@/pages/ClassroomPage'))
 
+function RequireAuth({ children }) {
+  const { session, loading } = useAuth()
+  if (loading) return <FullPageSpinner />
+  if (!session) return <Navigate to="/login" replace />
+  return children
+}
+
 function RequireOnboarded({ children }) {
   const { profile, loading } = useAuth()
   if (loading) return <FullPageSpinner />
