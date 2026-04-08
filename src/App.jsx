@@ -34,8 +34,8 @@ function RequireOnboarded({ children }) {
 
 function FullPageSpinner() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="w-8 h-8 border-3 border-navy-800 border-t-transparent rounded-full animate-spin" />
+    <div className="min-h-screen flex items-center justify-center bg-[#f4f7f4]">
+      <div className="w-8 h-8 border-[3px] border-navy-800 border-t-transparent rounded-full animate-spin" />
     </div>
   )
 }

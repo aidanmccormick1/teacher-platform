@@ -74,7 +74,7 @@ export default function LessonTrackerPage() {
     setLoading(false)
 
     // Trigger Smart Continuity if not completed
-    if (progressData?.status !== 'completed' && lessonData) {
+    if (progressData?.status !== 'completed' && lessonData && lastIdx >= 0) {
       fetchContinuity(lessonData, segmentsData[lastIdx + 1]?.title, progressData?.carry_over_note)
     }
   }
@@ -92,7 +92,7 @@ export default function LessonTrackerPage() {
         })
       })
       if (res.ok) {
-        const data = await res.ok ? await res.json() : null
+        const data = await res.json()
         setContinuity(data)
       }
     } catch (e) {
@@ -209,9 +209,9 @@ export default function LessonTrackerPage() {
       { (loadingContinuity || continuity) && (
         <section className="card p-5 bg-gradient-to-br from-navy-800 to-navy-900 text-white border-0 shadow-xl relative overflow-hidden group">
           <div className="absolute -right-4 -top-4 w-24 h-24 bg-white/5 rounded-full blur-xl group-hover:bg-white/10 transition-all" />
-          <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-navy-300 mb-3">
+          <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-widest text-navy-300 mb-3">
              <SparklesIcon className="w-3.5 h-3.5" />
-             Smart Continuity
+             AI Recap
           </div>
           
           {loadingContinuity ? (
@@ -337,7 +337,7 @@ function LoadingSpinner() {
   return (
     <div className="min-h-[60vh] flex flex-col items-center justify-center space-y-4">
       <div className="w-10 h-10 border-4 border-navy-800 border-t-transparent rounded-full animate-spin" />
-      <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Opening Command Center...</p>
+      <p className="text-xs text-gray-400">Loading lesson...</p>
     </div>
   )
 }

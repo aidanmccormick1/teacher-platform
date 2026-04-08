@@ -90,7 +90,7 @@ Generate exactly ${targetLessons} sequential lesson outlines for a specific unit
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'gpt-5.4',
+          model: 'gpt-4o',
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt }

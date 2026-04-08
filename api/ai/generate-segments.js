@@ -50,7 +50,7 @@ Generate 3-5 lesson segments that structure this lesson well.`
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-5.4',
+        model: 'gpt-4o',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }

@@ -59,7 +59,7 @@ Extract 5-15 lessons or major topics. If the document doesn't seem to be curricu
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-5.4-mini',
+        model: 'gpt-4o-mini',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }

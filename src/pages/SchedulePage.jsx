@@ -158,9 +158,9 @@ function AIBuilderPanel({ onParsed, onClose }) {
           <div>
             <div className="flex items-center gap-2 mb-1">
               <SparklesIcon className="w-5 h-5 text-amber-500" />
-              <h2 className="text-xl font-black text-gray-900 tracking-tight">AI Schedule Builder</h2>
+              <h2 className="text-xl font-semibold text-gray-900">Import Schedule</h2>
             </div>
-            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Intelligent Parsing v2</p>
+            <p className="text-xs text-gray-400">Paste text or upload an image</p>
           </div>
           <button onClick={onClose} className="p-2 rounded-xl hover:bg-gray-50 text-gray-400 transition-all">
             <XMarkIcon className="w-6 h-6" />
@@ -1344,7 +1344,7 @@ export default function SchedulePage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy-950/20 backdrop-blur-sm">
           <div className="bg-white rounded-[2rem] px-10 py-8 shadow-2xl flex items-center gap-4 animate-in zoom-in-95">
             <ArrowPathIcon className="w-6 h-6 text-navy-800 animate-spin" />
-            <span className="text-sm font-black text-gray-900 uppercase tracking-widest">Syncing Schedule...</span>
+            <span className="text-sm font-medium text-gray-700">Saving schedule...</span>
           </div>
         </div>
       )}
@@ -1352,11 +1352,9 @@ export default function SchedulePage() {
       {/* Header */}
       <header className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-2 border-b border-gray-100">
         <div>
-          <h1 className="text-4xl font-black text-gray-900 tracking-tight leading-tight mb-1">Weekly Pulse</h1>
-          <p className="text-sm font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
-            Schedule Engine
-            <span className="w-1 h-1 bg-gray-300 rounded-full" />
-            {!loading ? `${totalSections} Active Periods` : 'Initializing...'}
+          <h1 className="text-2xl font-bold text-gray-900 mb-1">Schedule</h1>
+          <p className="text-sm text-gray-400">
+            {!loading ? `${totalSections} class ${totalSections === 1 ? 'period' : 'periods'}` : 'Loading...'}
           </p>
         </div>
 
@@ -1391,8 +1389,8 @@ export default function SchedulePage() {
       ) : loadError ? (
         <div className="card p-12 text-center border-rose-100 bg-rose-50/50">
            <ExclamationTriangleIcon className="w-12 h-12 text-rose-500 mx-auto mb-4" />
-           <h2 className="text-xl font-black text-rose-900 mb-2">Sync Error</h2>
-           <button onClick={() => { setLoadError(false); setLoading(true); loadAll() }} className="btn-primary bg-rose-600 hover:bg-rose-700">Retry Sync</button>
+           <h2 className="text-lg font-semibold text-rose-900 mb-2">Failed to load schedule</h2>
+           <button onClick={() => { setLoadError(false); setLoading(true); loadAll() }} className="btn-primary bg-rose-600 hover:bg-rose-700">Retry</button>
         </div>
       ) : courses.length === 0 ? (
         <NoCourses onNavigate={() => navigate('/curriculum')} />
@@ -1403,7 +1401,7 @@ export default function SchedulePage() {
             <div className="card p-8 border-navy-100 bg-navy-50/50 flex items-start gap-4 animate-in">
               <SparklesIcon className="w-6 h-6 text-navy-600 shrink-0 mt-0.5" />
               <div className="flex-1">
-                <h3 className="text-sm font-black text-navy-900 uppercase tracking-widest mb-1">Bridge Your Curriculum</h3>
+                <h3 className="text-sm font-semibold text-navy-900 mb-1">Connect your courses</h3>
                 <p className="text-xs text-navy-700 leading-relaxed font-medium">
                   Connect your classes to specific courses. Each course can have multiple periods (e.g. 1st, 3rd, 5th Hour). Once mapped, your Dashboard will automatically track lesson progress in real-time.
                 </p>
@@ -1413,7 +1411,7 @@ export default function SchedulePage() {
 
           {/* Sections List */}
           <div className="space-y-4">
-             <h2 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Course Allocation</h2>
+             <h2 className="section-header">Courses &amp; Periods</h2>
              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {courses.map((course, ci) => {
                   const courseSections = sections
@@ -1437,14 +1435,14 @@ export default function SchedulePage() {
           {/* Week grid — premium view */}
           {totalSections > 0 && (
             <div className="space-y-4">
-               <h2 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Weekly Pulse</h2>
+               <h2 className="section-header">Weekly view</h2>
                <WeekGridCollapsible sections={sections} courses={courses} onDeleteSection={deleteSection} />
             </div>
           )}
 
           {/* School Calendar — day off sync */}
           <div className="space-y-4">
-             <h2 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Administrative Sync</h2>
+             <h2 className="section-header">School calendar</h2>
              <CalendarSync userId={profile?.id} />
           </div>
         </div>

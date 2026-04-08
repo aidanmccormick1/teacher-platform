@@ -54,7 +54,7 @@ Help the teacher bridge the gap from the last class to today.`
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-5.4',
+        model: 'gpt-4o',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }

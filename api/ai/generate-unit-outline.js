@@ -56,7 +56,7 @@ Generate a lesson outline of 4-6 sequential lessons for this unit.`
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-5.4',
+        model: 'gpt-4o',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }

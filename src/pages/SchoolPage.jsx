@@ -119,7 +119,7 @@ export default function SchoolPage() {
   return (
     <div className="space-y-8 pb-12 animate-in">
       <header>
-        <h1 className="page-title">Curriculum Control</h1>
+        <h1 className="page-title">Overview</h1>
         <p className="text-sm text-gray-500 mt-1">High-level overview of school-wide progress.</p>
       </header>
 

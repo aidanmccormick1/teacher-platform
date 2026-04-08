@@ -64,7 +64,7 @@ Respond ONLY with a JSON object in this format (no markdown, no extra text):
       method: 'POST',
       headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'gpt-5.4-mini',
+        model: 'gpt-4o-mini',
         messages,
         temperature: 0.2,
         max_tokens: 4000,

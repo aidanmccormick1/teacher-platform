@@ -100,14 +100,12 @@ export default function CurriculumPage() {
   if (loadError) return <LoadError onRetry={loadCourses} />
 
   return (
-    <div className="space-y-8 animate-in pb-20">
+    <div className="space-y-6 animate-in pb-16">
       <header className="flex items-end justify-between border-b border-gray-100 pb-2">
         <div>
-          <h1 className="text-3xl font-black text-gray-900 tracking-tight mb-1">Curriculum Library</h1>
-          <p className="text-sm font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
-            Control Center
-            <span className="w-1 h-1 bg-gray-300 rounded-full" />
-            {courses.length} Active Courses
+          <h1 className="text-2xl font-bold text-gray-900 mb-1">Curriculum</h1>
+          <p className="text-sm text-gray-400">
+            {courses.length} {courses.length === 1 ? 'course' : 'courses'}
           </p>
         </div>
         <button className="btn-primary" onClick={() => setShowNewCourse(true)}>
@@ -169,7 +167,7 @@ export default function CurriculumPage() {
                      </div>
                      <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
-                           <h3 className="text-lg font-black text-gray-900 group-hover:text-navy-900 transition-colors uppercase tracking-tight">{course.name}</h3>
+                           <h3 className="text-base font-semibold text-gray-900 group-hover:text-navy-900 transition-colors">{course.name}</h3>
                            <div className="badge badge-gray px-2 py-0.5">{course.subject}</div>
                         </div>
                         <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">
