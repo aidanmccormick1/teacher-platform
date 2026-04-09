@@ -49,17 +49,16 @@ function detectActiveSectionId(sections) {
   )
   if (!todaySections.length) return null
 
-  // Find one whose window overlaps with now (or is closest upcoming)
+  // Find one whose start time is closest to now (or currently in session)
   let best = null
   let bestDiff = Infinity
 
   for (const s of todaySections) {
-    const start = timeToMinutes(s.start_time)
-    const end   = timeToMinutes(s.end_time)
+    const start = timeToMinutes(s.meeting_time)
     if (start === null) continue
 
-    if (now >= (start - 15) && end !== null && now <= end) {
-      // Actively in class (or within 15 min pre-class)
+    // Within 15 min before or up to 90 min after start = active window
+    if (now >= (start - 15) && now <= (start + 90)) {
       return s.id
     }
 
@@ -95,23 +94,41 @@ export default function ClassroomPage() {
 
   async function load() {
     setLoading(true)
-    // Fetch sections with course info
-    const { data: secs } = await supabase
-      .from('sections')
-      .select('*, courses(id, name, subject, grade_level)')
-      .eq('teacher_id', profile.id)
-      .order('start_time', { ascending: true })
+    try {
+      // Sections don't have teacher_id; filter via courses
+      const { data: teacherCourses } = await supabase
+        .from('courses')
+        .select('id')
+        .eq('teacher_id', profile.id)
 
-    if (!secs) { setLoading(false); return }
-    setSections(secs)
+      const courseIds = teacherCourses?.map(c => c.id) || []
 
-    // Auto-detect active class
-    const detected = detectActiveSectionId(secs)
-    setSelectedId(detected)
+      if (!courseIds.length) {
+        setSections([])
+        setLoading(false)
+        return
+      }
 
-    // Fetch next upcoming lesson for each section
-    await loadNextLessons(secs)
-    setLoading(false)
+      const { data: secs } = await supabase
+        .from('sections')
+        .select('*, courses(id, name, subject, grade_level)')
+        .in('course_id', courseIds)
+        .order('meeting_time', { ascending: true })
+
+      if (!secs) { setLoading(false); return }
+      setSections(secs)
+
+      // Auto-detect active class
+      const detected = detectActiveSectionId(secs)
+      setSelectedId(detected)
+
+      // Fetch next upcoming lesson for each section
+      await loadNextLessons(secs)
+    } catch (err) {
+      console.error('ClassroomPage load error:', err)
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function loadNextLessons(secs) {
@@ -222,8 +239,7 @@ export default function ClassroomPage() {
             {selectedSection && (
               <p className="text-sm text-gray-400 mt-0.5">
                 {selectedSection.name}
-                {selectedSection.start_time && ` · ${fmtTime(selectedSection.start_time)}`}
-                {selectedSection.end_time && ` – ${fmtTime(selectedSection.end_time)}`}
+                {selectedSection.meeting_time && ` · ${fmtTime(selectedSection.meeting_time)}`}
               </p>
             )}
           </div>
@@ -267,7 +283,7 @@ export default function ClassroomPage() {
                       <p className="text-sm font-semibold">{sec.courses?.name || '—'}</p>
                       <p className="text-xs text-gray-400">
                         {sec.name}
-                        {sec.start_time && ` · ${fmtTime(sec.start_time)}`}
+                        {sec.meeting_time && ` · ${fmtTime(sec.meeting_time)}`}
                       </p>
                     </div>
                     <ChevronRightIcon className="w-4 h-4 text-gray-300 shrink-0" />
@@ -295,7 +311,7 @@ export default function ClassroomPage() {
               </p>
               <p className="text-xs text-gray-400">
                 {selectedSection?.name}
-                {selectedSection?.start_time && ` · ${fmtTime(selectedSection.start_time)}`}
+                {selectedSection?.meeting_time && ` · ${fmtTime(selectedSection.meeting_time)}`}
               </p>
             </div>
             <button
@@ -360,7 +376,7 @@ export default function ClassroomPage() {
                           <p className="text-sm font-semibold text-gray-800">{sec.courses?.name || sec.name}</p>
                           <p className="text-xs text-gray-400">
                             {sec.name}
-                            {sec.start_time && ` · ${fmtTime(sec.start_time)}`}
+                            {sec.meeting_time && ` · ${fmtTime(sec.meeting_time)}`}
                             {lsn && ` · ${lsn.title}`}
                           </p>
                         </div>
@@ -404,7 +420,7 @@ export default function ClassroomPage() {
                       <p className="text-sm font-semibold text-gray-800 truncate">{sec.courses?.name || sec.name}</p>
                       <p className="text-xs text-gray-400 truncate">
                         {sec.name}
-                        {sec.start_time && ` · ${fmtTime(sec.start_time)}`}
+                        {sec.meeting_time && ` · ${fmtTime(sec.meeting_time)}`}
                         {lsn ? ` · Next: ${lsn.title}` : ' · All done'}
                       </p>
                     </div>

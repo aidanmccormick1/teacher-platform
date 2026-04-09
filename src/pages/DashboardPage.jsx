@@ -63,7 +63,7 @@ export default function DashboardPage() {
       ] = await Promise.all([
         supabase
           .from('courses')
-          .select('id, name, subject, grade_level, sections(id, name, meeting_days, meeting_time, room, course_id, end_time)')
+          .select('id, name, subject, grade_level, sections(id, name, meeting_days, meeting_time, room, course_id)')
           .eq('teacher_id', profile.id)
           .order('id'),
         supabase
