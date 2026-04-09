@@ -9,7 +9,7 @@ import {
   ChevronDownIcon,
   TrashIcon,
   DocumentDuplicateIcon,
-
+  BookOpenIcon,
   PencilSquareIcon,
   ClockIcon,
   MapPinIcon,
@@ -436,12 +436,12 @@ export default function CoursePage() {
         <div className="min-w-0">
           <button 
             onClick={() => navigate('/curriculum')} 
-            className="flex items-center gap-1.5 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] hover:text-navy-700 mb-2 transition-colors"
+            className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-navy-700 mb-2 transition-colors"
           >
             <ChevronLeftIcon className="w-3 h-3" />
-            Curriculum Control
+            Curriculum
           </button>
-          <h1 className="text-4xl font-black text-gray-900 tracking-tight leading-tight mb-1">
+          <h1 className="text-2xl font-bold text-gray-900 leading-tight mb-1">
             {course?.name}
           </h1>
           <p className="text-sm font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
@@ -485,7 +485,7 @@ export default function CoursePage() {
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
         <div className="flex gap-1 bg-gray-100/50 p-1 rounded-2xl w-fit border border-gray-100 shadow-inner">
           {[
-            { id: 'units',     label: 'Instructional Flow', icon: <BookOpenIcon className="w-4 h-4" /> },
+            { id: 'units',     label: 'Units & Lessons', icon: <BookOpenIcon className="w-4 h-4" /> },
             { id: 'timeline',  label: 'Year Timeline', icon: <CalendarDaysIcon className="w-4 h-4" /> },
             { id: 'standards', label: 'Standards Audit', icon: <DocumentTextIcon className="w-4 h-4" /> },
           ].map(tab => (
