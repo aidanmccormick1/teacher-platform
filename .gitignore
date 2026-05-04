@@ -4,3 +4,10 @@ dist
 .env.local
 .DS_Store
 *.log
+coverage
+.turbo
+.idea
+.vscode
+apps/**/dist
+apps/**/coverage
+packages/**/dist
