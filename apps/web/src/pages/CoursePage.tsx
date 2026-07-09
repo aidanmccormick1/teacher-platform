@@ -4,9 +4,11 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import type { CourseDetailResponse } from '@teacheros/contracts';
 
 import { ApiError, useApiClient } from '../lib/api.js';
+import type { LessonMaterialKind } from '@teacheros/contracts';
 
 type LessonDraft = { title: string; description: string; duration: string };
 type SegmentDraft = { title: string; description: string; duration: string };
+type MaterialDraft = { label: string; url: string; kind: LessonMaterialKind };
 
 function toNullable(value: string): string | null {
   const trimmed = value.trim();
@@ -49,6 +51,7 @@ export function CoursePage() {
 
   const [lessonDrafts, setLessonDrafts] = useState<Record<string, LessonDraft>>({});
   const [segmentDrafts, setSegmentDrafts] = useState<Record<string, SegmentDraft>>({});
+  const [materialDrafts, setMaterialDrafts] = useState<Record<string, MaterialDraft>>({});
 
   const loadCourse = useCallback(async () => {
     if (!courseId) return;
@@ -344,6 +347,7 @@ export function CoursePage() {
                       description: '',
                       duration: ''
                     };
+                    const materialsForLesson = lesson.materials;
 
                     return (
                       <div key={lesson.id} className="card stack">
@@ -416,6 +420,144 @@ export function CoursePage() {
                           </button>
                         </div>
                         {lesson.description ? <p className="muted">{lesson.description}</p> : null}
+
+                        <div className="card stack">
+                          <div>
+                            <h5 style={{ marginBottom: 8 }}>Add Material</h5>
+                            <p className="muted" style={{ marginTop: 0 }}>
+                              Paste a Google Drive link, PDF URL, Canvas resource, or any web
+                              resource for this lesson.
+                            </p>
+                          </div>
+                          <select
+                            value={materialDrafts[lesson.id]?.kind ?? 'google_drive'}
+                            onChange={(event) =>
+                              setMaterialDrafts((previous) => ({
+                                ...previous,
+                                [lesson.id]: {
+                                  label: previous[lesson.id]?.label ?? '',
+                                  url: previous[lesson.id]?.url ?? '',
+                                  kind: event.target.value as LessonMaterialKind
+                                }
+                              }))
+                            }
+                          >
+                            <option value="google_drive">Paste Google Drive link</option>
+                            <option value="pdf">Paste PDF URL</option>
+                            <option value="canvas">Paste Canvas resource</option>
+                            <option value="web">Paste any web resource</option>
+                          </select>
+                          <input
+                            className="input"
+                            value={materialDrafts[lesson.id]?.label ?? ''}
+                            onChange={(event) =>
+                              setMaterialDrafts((previous) => ({
+                                ...previous,
+                                [lesson.id]: {
+                                  label: event.target.value,
+                                  url: previous[lesson.id]?.url ?? '',
+                                  kind: previous[lesson.id]?.kind ?? 'google_drive'
+                                }
+                              }))
+                            }
+                            placeholder="Material title"
+                          />
+                          <input
+                            className="input"
+                            value={materialDrafts[lesson.id]?.url ?? ''}
+                            onChange={(event) =>
+                              setMaterialDrafts((previous) => ({
+                                ...previous,
+                                [lesson.id]: {
+                                  label: previous[lesson.id]?.label ?? '',
+                                  url: event.target.value,
+                                  kind: previous[lesson.id]?.kind ?? 'google_drive'
+                                }
+                              }))
+                            }
+                            placeholder="https://"
+                          />
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const draft = materialDrafts[lesson.id] ?? {
+                                label: '',
+                                url: '',
+                                kind: 'google_drive' as LessonMaterialKind
+                              };
+
+                              try {
+                                const parsedUrl = new URL(draft.url.trim());
+                                setSaving(true);
+                                const detail = await api.createLessonMaterial(lesson.id, {
+                                  label: draft.label.trim() || 'Lesson material',
+                                  url: parsedUrl.toString(),
+                                  kind: draft.kind
+                                });
+                                updateFromDetail(detail);
+                                setMaterialDrafts((previous) => ({
+                                  ...previous,
+                                  [lesson.id]: { label: '', url: '', kind: draft.kind }
+                                }));
+                                setError(null);
+                              } catch (err) {
+                                setError(
+                                  err instanceof ApiError
+                                    ? err.message
+                                    : 'Add a valid material link before saving.'
+                                );
+                              } finally {
+                                setSaving(false);
+                              }
+                            }}
+                          >
+                            Save material
+                          </button>
+
+                          {materialsForLesson.length > 0 ? (
+                            <div className="stack">
+                              {materialsForLesson.map((material) => (
+                                <div key={material.id} className="row">
+                                  <a
+                                    href={material.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    style={{ fontWeight: 600 }}
+                                  >
+                                    {material.label}
+                                  </a>
+                                  <span className="muted" style={{ textTransform: 'capitalize' }}>
+                                    {material.kind.replace('_', ' ')}
+                                  </span>
+                                  <button
+                                    className="secondary"
+                                    type="button"
+                                    onClick={async () => {
+                                      try {
+                                        setSaving(true);
+                                        await api.deleteLessonMaterial(material.id);
+                                        await loadCourse();
+                                        setError(null);
+                                      } catch (err) {
+                                        setError(
+                                          err instanceof ApiError
+                                            ? err.message
+                                            : 'Failed to remove material'
+                                        );
+                                      } finally {
+                                        setSaving(false);
+                                      }
+                                    }}
+                                  >
+                                    Remove
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="muted">No materials added yet.</p>
+                          )}
+                        </div>
 
                         <div className="card stack">
                           <h5>Add segment</h5>

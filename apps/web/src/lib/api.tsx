@@ -22,6 +22,7 @@ import type {
   LessonProgressUpsertRequest,
   LessonProgressUpsertResponse,
   LessonCreateRequest,
+  LessonMaterialCreateRequest,
   LessonUpdateRequest,
   OnboardingRequest,
   OnboardingResponse,
@@ -113,6 +114,12 @@ export function useApiClient() {
           { method: 'POST', body: JSON.stringify(body) },
           auth
         ),
+      createLessonMaterial: (lessonId: string, body: LessonMaterialCreateRequest) =>
+        request<CourseDetailResponse>(
+          `/v1/lessons/${lessonId}/materials`,
+          { method: 'POST', body: JSON.stringify(body) },
+          auth
+        ),
       updateLesson: (lessonId: string, body: LessonUpdateRequest) =>
         request<CourseDetailResponse>(
           `/v1/lessons/${lessonId}`,
@@ -121,6 +128,8 @@ export function useApiClient() {
         ),
       deleteLesson: (lessonId: string) =>
         request<DeleteEntityResponse>(`/v1/lessons/${lessonId}`, { method: 'DELETE' }, auth),
+      deleteLessonMaterial: (materialId: string) =>
+        request<DeleteEntityResponse>(`/v1/materials/${materialId}`, { method: 'DELETE' }, auth),
       createSegment: (lessonId: string, body: SegmentCreateRequest) =>
         request<CourseDetailResponse>(
           `/v1/lessons/${lessonId}/segments`,

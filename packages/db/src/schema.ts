@@ -33,6 +33,12 @@ export const aiJobStatusEnum = pgEnum('ai_job_status', [
   'cancelled'
 ]);
 export const classNoteTypeEnum = pgEnum('class_note_type', ['raw', 'cleaned']);
+export const lessonMaterialKindEnum = pgEnum('lesson_material_kind', [
+  'google_drive',
+  'pdf',
+  'canvas',
+  'web'
+]);
 
 export const users = pgTable('users', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -185,6 +191,25 @@ export const lessonSegments = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
   },
   (table) => [index('idx_segments_lesson_order').on(table.lessonId, table.orderIndex)]
+);
+
+export const lessonMaterials = pgTable(
+  'lesson_materials',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    lessonId: uuid('lesson_id')
+      .notNull()
+      .references(() => lessons.id, { onDelete: 'cascade' }),
+    createdByUserId: uuid('created_by_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    label: text('label').notNull(),
+    url: text('url').notNull(),
+    kind: lessonMaterialKindEnum('kind').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [index('idx_lesson_materials_lesson_created_at').on(table.lessonId, table.createdAt)]
 );
 
 export const sectionLessonState = pgTable(

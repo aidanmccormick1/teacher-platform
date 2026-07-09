@@ -37,6 +37,7 @@ import {
   UnitCreateRequestSchema,
   UnitUpdateRequestSchema,
   LessonCreateRequestSchema,
+  LessonMaterialCreateRequestSchema,
   LessonUpdateRequestSchema,
   UuidSchema
 } from '@teacheros/contracts';
@@ -47,6 +48,7 @@ import {
   courses,
   db,
   lessonSegments,
+  lessonMaterials,
   lessons,
   schoolHolidays,
   sectionLessonState,
@@ -130,6 +132,7 @@ const CourseParamsSchema = z.object({ courseId: UuidSchema });
 const UnitParamsSchema = z.object({ unitId: UuidSchema });
 const LessonParamsSchema = z.object({ lessonId: UuidSchema });
 const SegmentParamsSchema = z.object({ segmentId: UuidSchema });
+const MaterialParamsSchema = z.object({ materialId: UuidSchema });
 const AiJobParamsSchema = z.object({ jobId: UuidSchema });
 
 async function findOwnedCourse(userId: string, courseId: string) {
@@ -189,6 +192,21 @@ async function findOwnedCourseIdForSegment(userId: string, segmentId: string) {
   return row?.courseId ?? null;
 }
 
+async function findOwnedCourseIdForMaterial(userId: string, materialId: string) {
+  const [row] = await db
+    .select({
+      courseId: units.courseId
+    })
+    .from(lessonMaterials)
+    .innerJoin(lessons, eq(lessonMaterials.lessonId, lessons.id))
+    .innerJoin(units, eq(lessons.unitId, units.id))
+    .innerJoin(courses, eq(units.courseId, courses.id))
+    .where(and(eq(lessonMaterials.id, materialId), eq(courses.teacherId, userId)))
+    .limit(1);
+
+  return row?.courseId ?? null;
+}
+
 async function buildCourseDetail(userId: string, courseId: string) {
   const course = await findOwnedCourse(userId, courseId);
   if (!course) return null;
@@ -238,6 +256,22 @@ async function buildCourseDetail(userId: string, courseId: string) {
           .orderBy(asc(lessonSegments.orderIndex), asc(lessonSegments.createdAt))
       : [];
 
+  const materialRows =
+    lessonIds.length > 0
+      ? await db
+          .select({
+            id: lessonMaterials.id,
+            lessonId: lessonMaterials.lessonId,
+            label: lessonMaterials.label,
+            url: lessonMaterials.url,
+            kind: lessonMaterials.kind,
+            createdAt: lessonMaterials.createdAt
+          })
+          .from(lessonMaterials)
+          .where(inArray(lessonMaterials.lessonId, lessonIds))
+          .orderBy(desc(lessonMaterials.createdAt))
+      : [];
+
   const segmentsByLessonId = new Map<string, typeof segmentRows>();
   segmentRows.forEach((segment) => {
     const existing = segmentsByLessonId.get(segment.lessonId);
@@ -258,6 +292,16 @@ async function buildCourseDetail(userId: string, courseId: string) {
     lessonsByUnitId.set(lesson.unitId, [lesson]);
   });
 
+  const materialsByLessonId = new Map<string, typeof materialRows>();
+  materialRows.forEach((material) => {
+    const existing = materialsByLessonId.get(material.lessonId);
+    if (existing) {
+      existing.push(material);
+      return;
+    }
+    materialsByLessonId.set(material.lessonId, [material]);
+  });
+
   return CourseDetailResponseSchema.parse({
     course: {
       id: course.id,
@@ -276,6 +320,13 @@ async function buildCourseDetail(userId: string, courseId: string) {
           description: lesson.description,
           orderIndex: lesson.orderIndex,
           estimatedDurationMinutes: lesson.estimatedDurationMinutes,
+          materials: (materialsByLessonId.get(lesson.id) ?? []).map((material) => ({
+            id: material.id,
+            label: material.label,
+            url: material.url,
+            kind: material.kind,
+            createdAt: material.createdAt.toISOString()
+          })),
           segments: (segmentsByLessonId.get(lesson.id) ?? []).map((segment) => ({
             id: segment.id,
             title: segment.title,
@@ -886,6 +937,71 @@ export async function v1Routes(app: FastifyInstance) {
       await db.update(lessons).set(updates).where(eq(lessons.id, params.lessonId));
 
       const detail = await buildCourseDetail(user.id, ownedCourseId);
+      if (!detail) throw new Error('Failed to load course detail');
+      return detail;
+    }
+  );
+
+  app.delete(
+    '/v1/materials/:materialId',
+    {
+      schema: {
+        params: MaterialParamsSchema,
+        response: {
+          200: DeleteEntityResponseSchema
+        }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const params = MaterialParamsSchema.parse(request.params);
+
+      const courseId = await findOwnedCourseIdForMaterial(user.id, params.materialId);
+      if (!courseId) {
+        (reply as any).code(404);
+        return { error: 'Material not found', requestId: request.id };
+      }
+
+      await db.delete(lessonMaterials).where(eq(lessonMaterials.id, params.materialId));
+      return { deleted: true };
+    }
+  );
+
+  app.post(
+    '/v1/lessons/:lessonId/materials',
+    {
+      schema: {
+        params: LessonParamsSchema,
+        body: LessonMaterialCreateRequestSchema,
+        response: {
+          200: CourseDetailResponseSchema
+        }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const params = LessonParamsSchema.parse(request.params);
+      const body = LessonMaterialCreateRequestSchema.parse(request.body);
+
+      const courseId = await findOwnedCourseIdForLesson(user.id, params.lessonId);
+      if (!courseId) {
+        (reply as any).code(404);
+        return { error: 'Lesson not found', requestId: request.id };
+      }
+
+      await db.insert(lessonMaterials).values({
+        lessonId: params.lessonId,
+        createdByUserId: user.id,
+        label: body.label,
+        url: body.url,
+        kind: body.kind
+      });
+
+      const detail = await buildCourseDetail(user.id, courseId);
       if (!detail) throw new Error('Failed to load course detail');
       return detail;
     }

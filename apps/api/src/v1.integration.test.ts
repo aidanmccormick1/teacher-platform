@@ -37,7 +37,11 @@ const onboardingBody = {
 
 async function runMigrations() {
   const migrationsDir = path.resolve(process.cwd(), '../../packages/db/migrations');
-  const migrationFiles = ['0000_initial.sql', '0001_ai_jobs_cancel_status.sql'];
+  const migrationFiles = [
+    '0000_initial.sql',
+    '0001_ai_jobs_cancel_status.sql',
+    '0002_lesson_materials.sql'
+  ];
 
   for (const fileName of migrationFiles) {
     const sql = await readFile(path.join(migrationsDir, fileName), 'utf8');
@@ -52,6 +56,7 @@ async function resetDatabase() {
       ai_jobs,
       class_notes,
       section_lesson_state,
+      lesson_materials,
       lesson_segments,
       lessons,
       units,
@@ -170,6 +175,31 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
     expect(lesson?.title).toBe('Solving for X');
     const lessonId = lesson?.id ?? '';
     expect(lessonId).not.toBe('');
+
+    const createMaterial = await app.inject({
+      method: 'POST',
+      url: `/v1/lessons/${lessonId}/materials`,
+      headers: teacherHeaders,
+      payload: {
+        label: 'Primary source packet',
+        url: 'https://drive.google.com/file/d/example/view',
+        kind: 'google_drive'
+      }
+    });
+    expect(createMaterial.statusCode).toBe(200);
+    const withMaterial = createMaterial.json<{
+      course: {
+        units: Array<{
+          id: string;
+          lessons: Array<{ id: string; materials: Array<{ label: string; kind: string }> }>;
+        }>;
+      };
+    }>();
+    const material = withMaterial.course.units
+      .find((item) => item.id === unitId)
+      ?.lessons.find((item) => item.id === lessonId)?.materials[0];
+    expect(material?.label).toBe('Primary source packet');
+    expect(material?.kind).toBe('google_drive');
 
     const createSegment = await app.inject({
       method: 'POST',

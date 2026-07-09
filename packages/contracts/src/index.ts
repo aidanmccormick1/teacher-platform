@@ -275,13 +275,24 @@ export const SegmentSchema = z.object({
   orderIndex: z.number().int()
 });
 
+export const LessonMaterialKindSchema = z.enum(['google_drive', 'pdf', 'canvas', 'web']);
+
+export const LessonMaterialSchema = z.object({
+  id: UuidSchema,
+  label: z.string(),
+  url: z.string().url(),
+  kind: LessonMaterialKindSchema,
+  createdAt: z.string()
+});
+
 export const LessonSchema = z.object({
   id: UuidSchema,
   title: z.string(),
   description: z.string().nullable(),
   orderIndex: z.number().int(),
   estimatedDurationMinutes: z.number().int().nullable(),
-  segments: z.array(SegmentSchema)
+  segments: z.array(SegmentSchema),
+  materials: z.array(LessonMaterialSchema)
 });
 
 export const UnitSchema = z.object({
@@ -342,6 +353,12 @@ export const DeleteEntityResponseSchema = z.object({
   deleted: z.literal(true)
 });
 
+export const LessonMaterialCreateRequestSchema = z.object({
+  label: z.string().min(1),
+  url: z.string().url(),
+  kind: LessonMaterialKindSchema
+});
+
 export const CreateUploadUrlRequestSchema = z.object({
   fileName: z.string().min(1),
   contentType: z.string().min(1)
@@ -391,3 +408,5 @@ export type LessonUpdateRequest = z.infer<typeof LessonUpdateRequestSchema>;
 export type SegmentCreateRequest = z.infer<typeof SegmentCreateRequestSchema>;
 export type SegmentUpdateRequest = z.infer<typeof SegmentUpdateRequestSchema>;
 export type DeleteEntityResponse = z.infer<typeof DeleteEntityResponseSchema>;
+export type LessonMaterialKind = z.infer<typeof LessonMaterialKindSchema>;
+export type LessonMaterialCreateRequest = z.infer<typeof LessonMaterialCreateRequestSchema>;
