@@ -96,13 +96,14 @@ function ClerkAuthBridge({ children }: PropsWithChildren) {
 }
 
 export function AppAuthProvider({ children }: PropsWithChildren) {
-  // Clerk publishable keys are intentionally public. Keep this development
-  // fallback so a masked value accidentally copied from a hosting dashboard
-  // (for example, one containing an ellipsis) cannot make the whole app blank.
+  // Clerk publishable keys are intentionally public. The production Clerk
+  // domain is not yet verified, so use the app's verified development
+  // instance until production DNS is completed.
   const configuredPublishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
-  const publishableKey = configuredPublishableKey?.includes('…')
-    ? 'pk_test_ZnVuLXdlZXZpbC0xMS5jbGVyay5hY2NvdW50cy5kZXYk'
-    : configuredPublishableKey;
+  const developmentPublishableKey = 'pk_test_ZnVuLXdlZXZpbC0xMS5jbGVyay5hY2NvdW50cy5kZXYk';
+  const publishableKey = configuredPublishableKey?.startsWith('pk_test_')
+    ? configuredPublishableKey
+    : developmentPublishableKey;
 
   if (!publishableKey) {
     return <DevAuthProvider>{children}</DevAuthProvider>;
