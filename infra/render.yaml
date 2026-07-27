@@ -8,8 +8,9 @@ services:
     plan: free
     region: ohio
     buildCommand: npm ci && npm run build
-    preDeployCommand: npm --workspace @teacheros/db run db:migrate
-    startCommand: npm --workspace @teacheros/api run start
+    # Free-tier web services do not support Render's separate pre-deploy hook.
+    # Run the idempotent migration immediately before starting the API instead.
+    startCommand: npm --workspace @teacheros/db run db:migrate && npm --workspace @teacheros/api run start
     healthCheckPath: /health/readiness
     envVars:
       - key: NODE_VERSION
