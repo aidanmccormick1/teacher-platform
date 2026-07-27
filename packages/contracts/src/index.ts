@@ -240,10 +240,11 @@ export const GetScheduleResponseSchema = z.object({
 export const ScheduleSetupSourceSchema = z
   .object({
     text: z.string().min(1).optional(),
-    imageBase64: z.string().min(1).optional()
+    imageBase64: z.string().min(1).optional(),
+    imageBase64s: z.array(z.string().min(1)).min(1).max(3).optional()
   })
-  .refine((value) => Boolean(value.text || value.imageBase64), {
-    message: 'text or imageBase64 is required'
+  .refine((value) => Boolean(value.text || value.imageBase64 || value.imageBase64s?.length), {
+    message: 'text, imageBase64, or imageBase64s is required'
   });
 
 export const ParseWeeklyScheduleResponseSchema = WeeklyScheduleProposalSchema;

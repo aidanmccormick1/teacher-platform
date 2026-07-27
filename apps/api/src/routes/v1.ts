@@ -1591,6 +1591,7 @@ export async function v1Routes(app: FastifyInstance) {
         userPrompt: body.text
           ? `Create a reviewed weekly schedule proposal from this document:\n${body.text}`
           : 'Create a reviewed weekly schedule proposal from the supplied image. Return JSON only.',
+        userImageDataUrls: body.imageBase64s,
         userImageDataUrl: body.imageBase64
       });
     }
@@ -1623,6 +1624,7 @@ export async function v1Routes(app: FastifyInstance) {
         userPrompt: body.text
           ? `Create an annual calendar proposal from this document:\n${body.text}`
           : 'Create an annual calendar proposal from the supplied image. Return JSON only.',
+        userImageDataUrls: body.imageBase64s,
         userImageDataUrl: body.imageBase64
       });
     }

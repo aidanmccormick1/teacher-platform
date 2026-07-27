@@ -14,11 +14,11 @@ type TeachingDataImporterProps = {
 
 type ImportSource = {
   text: string;
-  imageBase64: string | null;
+  imageBase64s: string[];
   fileName: string | null;
 };
 
-const emptySource: ImportSource = { text: '', imageBase64: null, fileName: null };
+const emptySource: ImportSource = { text: '', imageBase64s: [], fileName: null };
 
 async function extractFileText(file: File): Promise<string> {
   if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
@@ -42,6 +42,29 @@ async function extractFileText(file: File): Promise<string> {
     );
   }
   return pages.join('\n\n');
+}
+
+async function renderPdfPages(file: File): Promise<string[]> {
+  const [{ getDocument, GlobalWorkerOptions }, pdfWorkerModule] = await Promise.all([
+    import('pdfjs-dist'),
+    import('pdfjs-dist/build/pdf.worker.min.mjs?url')
+  ]);
+  GlobalWorkerOptions.workerSrc = pdfWorkerModule.default;
+  const pdfDocument = await getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+  const images: string[] = [];
+  for (let pageNumber = 1; pageNumber <= Math.min(pdfDocument.numPages, 3); pageNumber += 1) {
+    const page = await pdfDocument.getPage(pageNumber);
+    const viewport = page.getViewport({ scale: 1.5 });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(viewport.width);
+    canvas.height = Math.round(viewport.height);
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Your browser could not prepare this PDF for reading.');
+    await page.render({ canvasContext: context, viewport }).promise;
+    const image = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+    if (image) images.push(await readAsDataUrl(image));
+  }
+  return images;
 }
 
 function readAsDataUrl(file: Blob): Promise<string> {
@@ -88,8 +111,16 @@ async function extractImage(file: File): Promise<string> {
 }
 
 function sourcePayload(source: ImportSource): ScheduleSetupSource | null {
-  if (source.text.trim()) return { text: source.text.trim() };
-  if (source.imageBase64) return { imageBase64: source.imageBase64 };
+  if (source.text.trim() || source.imageBase64s.length) {
+    return {
+      ...(source.text.trim() ? { text: source.text.trim() } : {}),
+      ...(source.imageBase64s.length === 1
+        ? { imageBase64: source.imageBase64s[0] }
+        : source.imageBase64s.length > 1
+          ? { imageBase64s: source.imageBase64s }
+          : {})
+    };
+  }
   return null;
 }
 
@@ -125,14 +156,17 @@ function SourceUploader({
           try {
             const isImage = file.type.startsWith('image/') || /\.hei[cf]$/i.test(file.name);
             if (isImage) {
-              onChange({ text: '', imageBase64: await extractImage(file), fileName: file.name });
+              onChange({ text: '', imageBase64s: [await extractImage(file)], fileName: file.name });
               return;
             }
             const text = await extractFileText(file);
-            if (!text.trim()) {
-              throw new Error('No readable text was found. Upload a clear image or a text-based PDF.');
+            const pdfImages = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
+              ? await renderPdfPages(file)
+              : [];
+            if (!text.trim() && !pdfImages.length) {
+              throw new Error('No readable pages were found. Upload a clearer photo or PDF.');
             }
-            onChange({ text, imageBase64: null, fileName: file.name });
+            onChange({ text, imageBase64s: pdfImages, fileName: file.name });
           } catch (error) {
             onChange({ ...source, fileName: null });
             onError(error instanceof Error ? error.message : 'Unable to read this file.');
@@ -144,13 +178,13 @@ function SourceUploader({
         value={source.text}
         disabled={busy}
         onChange={(event) =>
-          onChange({ text: event.target.value, imageBase64: null, fileName: source.fileName })
+          onChange({ text: event.target.value, imageBase64s: [], fileName: source.fileName })
         }
         placeholder="Or paste schedule or calendar text here."
       />
       {source.fileName ? <p className="muted">Ready to parse: {source.fileName}</p> : null}
-      {source.imageBase64 ? (
-        <img className="import-image-preview" src={source.imageBase64} alt="Schedule ready to parse" />
+      {source.imageBase64s.length ? (
+        <img className="import-image-preview" src={source.imageBase64s[0]} alt="Schedule ready to parse" />
       ) : null}
     </div>
   );

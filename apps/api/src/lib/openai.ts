@@ -12,6 +12,8 @@ type PromptInput = {
   userImageDataUrls?: string[];
 };
 
+const OPENAI_REQUEST_TIMEOUT_MS = 45_000;
+
 function extractOutputText(payload: unknown): string {
   if (!payload || typeof payload !== 'object') {
     throw new Error('Could not extract output text from OpenAI response');
@@ -54,7 +56,10 @@ export async function runStructuredPrompt<T>(params: PromptInput): Promise<T> {
   let lastError: unknown;
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
+      const controller = new AbortController();
+      timeout = setTimeout(() => controller.abort(), OPENAI_REQUEST_TIMEOUT_MS);
       const response = await fetch('https://api.openai.com/v1/responses', {
         method: 'POST',
         headers: {
@@ -82,9 +87,9 @@ export async function runStructuredPrompt<T>(params: PromptInput): Promise<T> {
               schema: schemaJson
             }
           }
-        })
+        }),
+        signal: controller.signal
       });
-
       if (!response.ok) {
         const errorPayload = (await response.json().catch(() => null)) as {
           error?: { message?: unknown };
@@ -103,7 +108,16 @@ export async function runStructuredPrompt<T>(params: PromptInput): Promise<T> {
 
       return params.schema.parse(parsedOutput) as T;
     } catch (error) {
-      lastError = error;
+      lastError =
+        error instanceof Error && error.name === 'AbortError'
+          ? new Error('OpenAI request timed out after 45 seconds. Try a clearer or smaller schedule file.')
+          : error;
+
+      if (attempt === 0 && lastError instanceof Error && /status (400|401|403|404)/.test(lastError.message)) {
+        break;
+      }
+    } finally {
+      if (timeout) clearTimeout(timeout);
     }
   }
 
