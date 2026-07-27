@@ -1382,7 +1382,8 @@ export async function v1Routes(app: FastifyInstance) {
           'Extract schedule classes and assignments. Return JSON only. Ignore non-teaching blocks like lunch/planning.',
         userPrompt: body.text
           ? `Parse this teacher schedule and assignments:\n${body.text}`
-          : 'Parse the provided schedule image and return classes + assignments. Output JSON only.'
+          : 'Parse the provided schedule image and return classes + assignments. Output JSON only.',
+        userImageDataUrl: body.imageBase64
       });
 
       return ParseScheduleResponseSchema.parse(response);
@@ -1413,7 +1414,10 @@ export async function v1Routes(app: FastifyInstance) {
         schema: AcademicCalendarParseResponseSchema,
         systemPrompt:
           'Extract every date when students are not in regular class from a school academic calendar. Expand multi-day breaks into one entry per date. Keep event names clear and practical. Return only dates that are explicit or unambiguously part of a stated date range; do not guess dates.',
-        userPrompt: `Academic calendar:\n${body.text}`
+        userPrompt: body.text
+          ? `Academic calendar:\n${body.text}`
+          : 'Extract all no-school dates from the provided academic-calendar image.',
+        userImageDataUrl: body.imageBase64
       });
     }
   );

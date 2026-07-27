@@ -151,7 +151,10 @@ export const ScheduleImportResponseSchema = z.object({
 });
 
 export const AcademicCalendarParseRequestSchema = z.object({
-  text: z.string().min(1)
+  text: z.string().min(1).optional(),
+  imageBase64: z.string().min(1).optional()
+}).refine((value) => Boolean(value.text || value.imageBase64), {
+  message: 'text or imageBase64 is required'
 });
 
 export const AcademicCalendarParseResponseSchema = z.object({

@@ -193,6 +193,16 @@ label {
   background: #f8fbff;
 }
 
+.import-image-preview {
+  display: block;
+  width: min(100%, 760px);
+  max-height: 420px;
+  object-fit: contain;
+  border: 1px solid #d8e3f0;
+  border-radius: 10px;
+  background: #f8fbff;
+}
+
 .import-review {
   border-top: 1px solid #e1e9f3;
   padding-top: 16px;

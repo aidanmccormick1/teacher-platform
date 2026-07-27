@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 
 import type { CourseListResponse } from '@teacheros/contracts';
 
+import { TeachingDataImporter } from '../components/TeachingDataImporter.js';
 import { ApiError, useApiClient } from '../lib/api.js';
 
 type CourseRow = CourseListResponse['courses'][number];
@@ -48,8 +49,10 @@ export function CurriculumPage() {
       <h1>Curriculum</h1>
       {error ? <p style={{ color: '#b02020' }}>{error}</p> : null}
 
-      <div className="card stack">
-        <h3>Create course</h3>
+      <TeachingDataImporter onApplied={loadCourses} />
+
+      <details className="card stack">
+        <summary>Add one course manually</summary>
         <div className="stack">
           <input
             className="input"
@@ -94,7 +97,7 @@ export function CurriculumPage() {
             {saving ? 'Creating...' : 'Create course'}
           </button>
         </div>
-      </div>
+      </details>
 
       <div className="card stack">
         <h3>Courses</h3>

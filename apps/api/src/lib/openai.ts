@@ -8,6 +8,7 @@ type PromptInput = {
   schema: z.ZodTypeAny;
   systemPrompt: string;
   userPrompt: string;
+  userImageDataUrl?: string;
 };
 
 function extractOutputText(payload: unknown): string {
@@ -39,7 +40,15 @@ export async function runStructuredPrompt<T>(params: PromptInput): Promise<T> {
           model: params.model,
           messages: [
             { role: 'system', content: params.systemPrompt },
-            { role: 'user', content: params.userPrompt }
+            {
+              role: 'user',
+              content: params.userImageDataUrl
+                ? [
+                    { type: 'text', text: params.userPrompt },
+                    { type: 'image_url', image_url: { url: params.userImageDataUrl } }
+                  ]
+                : params.userPrompt
+            }
           ],
           response_format: {
             type: 'json_schema',

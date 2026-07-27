@@ -35,9 +35,31 @@ async function extractFileText(file: File): Promise<string> {
   return pages.join('\n\n');
 }
 
+function readAsDataUrl(file: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') resolve(reader.result);
+      else reject(new Error('Unable to read image'));
+    };
+    reader.onerror = () => reject(reader.error ?? new Error('Unable to read image'));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function extractScheduleImage(file: File): Promise<string> {
+  const isHeic = /\.hei[cf]$/i.test(file.name) || /image\/hei[cf]/i.test(file.type);
+  if (!isHeic) return readAsDataUrl(file);
+
+  const { default: heic2any } = await import('heic2any');
+  const converted = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.9 });
+  return readAsDataUrl(Array.isArray(converted) ? converted[0] : converted);
+}
+
 export function TeachingDataImporter({ onApplied }: TeachingDataImporterProps) {
   const api = useApiClient();
   const [sourceText, setSourceText] = useState('');
+  const [sourceImageDataUrl, setSourceImageDataUrl] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [classes, setClasses] = useState<ImportedClass[]>([]);
   const [holidays, setHolidays] = useState<ImportedHoliday[]>([]);
@@ -46,13 +68,16 @@ export function TeachingDataImporter({ onApplied }: TeachingDataImporterProps) {
   const [message, setMessage] = useState<string | null>(null);
 
   const parseSchedule = async () => {
-    if (!sourceText.trim()) {
+    if (!sourceText.trim() && !sourceImageDataUrl) {
       setError('Paste or upload a schedule before parsing.');
       return;
     }
     try {
       setBusy(true);
-      const parsed = await api.importSchedule({ text: sourceText.trim() });
+      const parsed = await api.importSchedule({
+        text: sourceText.trim() || undefined,
+        imageBase64: sourceImageDataUrl ?? undefined
+      });
       setClasses(parsed.classes);
       setError(null);
       setMessage(`Found ${parsed.classes.length} class sections. Review them before applying.`);
@@ -64,13 +89,16 @@ export function TeachingDataImporter({ onApplied }: TeachingDataImporterProps) {
   };
 
   const parseCalendar = async () => {
-    if (!sourceText.trim()) {
+    if (!sourceText.trim() && !sourceImageDataUrl) {
       setError('Paste or upload an academic calendar before parsing.');
       return;
     }
     try {
       setBusy(true);
-      const parsed = await api.parseAcademicCalendar({ text: sourceText.trim() });
+      const parsed = await api.parseAcademicCalendar({
+        text: sourceText.trim() || undefined,
+        imageBase64: sourceImageDataUrl ?? undefined
+      });
       setHolidays(parsed.holidays);
       setError(null);
       setMessage(`Found ${parsed.holidays.length} no-school dates. Review them before applying.`);
@@ -86,19 +114,29 @@ export function TeachingDataImporter({ onApplied }: TeachingDataImporterProps) {
       <div>
         <h2>Import teaching information</h2>
         <p className="muted">
-          Upload an academic calendar, bell schedule, course schedule, or calendar export. Nothing
-          is added until you review it.
+          Upload an academic calendar, bell schedule, course schedule, calendar export, or a photo
+          of any of them. Nothing is added until you review it.
         </p>
       </div>
       <input
         className="file-input"
         type="file"
-        accept=".pdf,.txt,.csv,.ics,text/plain,text/csv,text/calendar,application/pdf"
+        accept=".pdf,.txt,.csv,.ics,.heic,.heif,image/*,text/plain,text/csv,text/calendar,application/pdf"
         onChange={async (event) => {
           const file = event.target.files?.[0];
           if (!file) return;
           try {
             setBusy(true);
+            const isImage = file.type.startsWith('image/') || /\.hei[cf]$/i.test(file.name);
+            if (isImage) {
+              const imageDataUrl = await extractScheduleImage(file);
+              setSourceImageDataUrl(imageDataUrl);
+              setSourceText('');
+              setFileName(file.name);
+              setMessage(`Loaded ${file.name}. Choose what you want to extract.`);
+              setError(null);
+              return;
+            }
             const extractedText = await extractFileText(file);
             if (!extractedText.trim()) {
               throw new Error(
@@ -106,6 +144,7 @@ export function TeachingDataImporter({ onApplied }: TeachingDataImporterProps) {
               );
             }
             setSourceText(extractedText);
+            setSourceImageDataUrl(null);
             setFileName(file.name);
             setMessage(`Loaded ${file.name}. Choose what you want to extract.`);
             setError(null);
@@ -119,14 +158,20 @@ export function TeachingDataImporter({ onApplied }: TeachingDataImporterProps) {
       <textarea
         rows={7}
         value={sourceText}
-        onChange={(event) => setSourceText(event.target.value)}
+        onChange={(event) => {
+          setSourceText(event.target.value);
+          if (event.target.value.trim()) setSourceImageDataUrl(null);
+        }}
         placeholder="Or paste a school calendar, bell schedule, course schedule, or exported calendar text here."
       />
       {fileName ? <p className="muted">Loaded file: {fileName}</p> : null}
+      {sourceImageDataUrl ? (
+        <img className="import-image-preview" src={sourceImageDataUrl} alt="Schedule or calendar ready to parse" />
+      ) : null}
       <div className="row">
         <button
           type="button"
-          disabled={busy || !sourceText.trim()}
+          disabled={busy || (!sourceText.trim() && !sourceImageDataUrl)}
           onClick={() => void parseSchedule()}
         >
           Parse class schedule
@@ -134,7 +179,7 @@ export function TeachingDataImporter({ onApplied }: TeachingDataImporterProps) {
         <button
           className="secondary"
           type="button"
-          disabled={busy || !sourceText.trim()}
+          disabled={busy || (!sourceText.trim() && !sourceImageDataUrl)}
           onClick={() => void parseCalendar()}
         >
           Parse academic calendar
