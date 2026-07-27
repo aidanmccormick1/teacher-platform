@@ -46,7 +46,16 @@ export const authPlugin = fp(async (app) => {
         clerkUserId: tokenClaims.sub,
         email: typeof tokenClaims.email === 'string' ? tokenClaims.email : null
       };
-    } catch {
+    } catch (error) {
+      const clerkError = error as { message?: unknown; code?: unknown };
+      request.log.warn(
+        {
+          clerkErrorCode: typeof clerkError.code === 'string' ? clerkError.code : undefined,
+          clerkErrorMessage:
+            typeof clerkError.message === 'string' ? clerkError.message : 'Unknown Clerk token verification error'
+        },
+        'Clerk token verification failed'
+      );
       reply.code(401).send({ error: 'Invalid authentication token', requestId: request.id });
     }
   });
