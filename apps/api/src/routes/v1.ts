@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { and, asc, desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, lte } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
@@ -8,6 +8,9 @@ import {
   AiJobControlResponseSchema,
   AiJobEnqueueResponseSchema,
   AiJobStatusResponseSchema,
+  ClassroomCheckinResolveRequestSchema,
+  ClassroomCheckinResolveResponseSchema,
+  ClassroomCheckinResponseSchema,
   ClassNotesUpsertRequestSchema,
   ClassNotesUpsertResponseSchema,
   CreateUploadUrlRequestSchema,
@@ -20,8 +23,12 @@ import {
   DeleteEntityResponseSchema,
   GenerateContinuityRequestSchema,
   GenerateContinuityResponseSchema,
+  GenerateActivityRequestSchema,
+  GenerateActivityResponseSchema,
   GenerateSegmentsRequestSchema,
   GenerateSegmentsResponseSchema,
+  GenerateSemesterRequestSchema,
+  GenerateSemesterResponseSchema,
   GetScheduleResponseSchema,
   HolidaysUpsertRequestSchema,
   HolidaysUpsertResponseSchema,
@@ -52,6 +59,7 @@ import {
   lessons,
   schoolHolidays,
   sectionLessonState,
+  sectionSessionEvents,
   sectionMeetings,
   sections,
   teacherProfiles,
@@ -113,6 +121,26 @@ function isInSession(meetingTime: string | null): boolean {
   const startMinutes = hours * 60 + minutes;
   const nowMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
   return nowMinutes >= startMinutes && nowMinutes <= startMinutes + 55;
+}
+
+function dateDaysAgo(daysAgo: number): Date {
+  const date = new Date();
+  date.setUTCHours(0, 0, 0, 0);
+  date.setUTCDate(date.getUTCDate() - daysAgo);
+  return date;
+}
+
+function hasMeetingPassed(meetingTime: string | null, date: Date, today: string): boolean {
+  const isoDate = dateToIso(date);
+  if (isoDate < today) return true;
+  if (isoDate > today || !meetingTime) return false;
+
+  const [hours, minutes] = meetingTime.split(':').map(Number);
+  if (hours === undefined || minutes === undefined || !Number.isFinite(hours) || !Number.isFinite(minutes)) {
+    return false;
+  }
+  const now = new Date();
+  return now.getUTCHours() * 60 + now.getUTCMinutes() > hours * 60 + minutes + 55;
 }
 
 async function loadTeacherSchoolId(userId: string): Promise<string> {
@@ -493,6 +521,176 @@ export async function v1Routes(app: FastifyInstance) {
 
       await safeRedisSet(app.redis, cacheKey, JSON.stringify(response), 30);
       return response;
+    }
+  );
+
+  app.get(
+    '/v1/classroom/check-in',
+    {
+      schema: { response: { 200: ClassroomCheckinResponseSchema } }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const today = dateToIso(new Date());
+      const earliestDate = dateToIso(dateDaysAgo(14));
+      const schoolId = await loadTeacherSchoolId(user.id);
+
+      const meetings = await db
+        .select({
+          sectionId: sections.id,
+          sectionName: sections.name,
+          courseName: courses.name,
+          day: sectionMeetings.day,
+          meetingTime: sectionMeetings.meetingTime
+        })
+        .from(sections)
+        .innerJoin(courses, eq(sections.courseId, courses.id))
+        .innerJoin(sectionMeetings, eq(sectionMeetings.sectionId, sections.id))
+        .where(eq(courses.teacherId, user.id));
+
+      if (!meetings.length) return { pendingSessions: [] };
+
+      const [holidayRows, eventRows, noteRows, progressRows] = await Promise.all([
+        db
+          .select({ date: schoolHolidays.date })
+          .from(schoolHolidays)
+          .where(
+            and(
+              eq(schoolHolidays.schoolId, schoolId),
+              gte(schoolHolidays.date, earliestDate),
+              lte(schoolHolidays.date, today)
+            )
+          ),
+        db
+          .select({
+            sectionId: sectionSessionEvents.sectionId,
+            sessionDate: sectionSessionEvents.sessionDate
+          })
+          .from(sectionSessionEvents)
+          .where(
+            inArray(sectionSessionEvents.sectionId, [
+              ...new Set(meetings.map((meeting) => meeting.sectionId))
+            ])
+          ),
+        db
+          .select({ sectionId: classNotes.sectionId, sessionDate: classNotes.date })
+          .from(classNotes)
+          .where(
+            and(
+              eq(classNotes.userId, user.id),
+              gte(classNotes.date, earliestDate),
+              lte(classNotes.date, today)
+            )
+          ),
+        db
+          .select({ sectionId: sectionLessonState.sectionId, sessionDate: sectionLessonState.lastTaughtDate })
+          .from(sectionLessonState)
+          .innerJoin(sections, eq(sectionLessonState.sectionId, sections.id))
+          .innerJoin(courses, eq(sections.courseId, courses.id))
+          .where(
+            and(
+              eq(courses.teacherId, user.id),
+              gte(sectionLessonState.lastTaughtDate, earliestDate),
+              lte(sectionLessonState.lastTaughtDate, today)
+            )
+          )
+      ]);
+
+      const holidays = new Set(holidayRows.map((holiday) => String(holiday.date)));
+      const resolvedSessions = new Set(
+        [...eventRows, ...noteRows, ...progressRows].map(
+          (event) => `${event.sectionId}:${String(event.sessionDate)}`
+        )
+      );
+      const pendingSessions: Array<{
+        sectionId: string;
+        sessionDate: string;
+        courseName: string;
+        sectionName: string;
+        meetingTime: string | null;
+      }> = [];
+
+      for (let daysAgo = 0; daysAgo <= 14; daysAgo += 1) {
+        const date = dateDaysAgo(daysAgo);
+        const sessionDate = dateToIso(date);
+        if (holidays.has(sessionDate)) continue;
+        const weekday = dayName(date);
+
+        for (const meeting of meetings) {
+          if (meeting.day !== weekday || !hasMeetingPassed(meeting.meetingTime, date, today))
+            continue;
+          if (resolvedSessions.has(`${meeting.sectionId}:${sessionDate}`)) continue;
+          pendingSessions.push({
+            sectionId: meeting.sectionId,
+            sessionDate,
+            courseName: meeting.courseName,
+            sectionName: meeting.sectionName,
+            meetingTime: meeting.meetingTime ? meeting.meetingTime.slice(0, 5) : null
+          });
+        }
+      }
+
+      return { pendingSessions: pendingSessions.slice(0, 5) };
+    }
+  );
+
+  app.post(
+    '/v1/classroom/check-in',
+    {
+      schema: {
+        body: ClassroomCheckinResolveRequestSchema,
+        response: { 200: ClassroomCheckinResolveResponseSchema }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const body = ClassroomCheckinResolveRequestSchema.parse(request.body);
+
+      const [ownedSection] = await db
+        .select({ id: sections.id })
+        .from(sections)
+        .innerJoin(courses, eq(sections.courseId, courses.id))
+        .where(and(eq(sections.id, body.sectionId), eq(courses.teacherId, user.id)))
+        .limit(1);
+      if (!ownedSection) {
+        (reply as any).code(404);
+        return { error: 'Section not found', requestId: request.id };
+      }
+
+      const [event] = await db
+        .insert(sectionSessionEvents)
+        .values({
+          sectionId: body.sectionId,
+          userId: user.id,
+          sessionDate: body.sessionDate,
+          outcome: body.outcome,
+          coveredPlannedLesson: body.coveredPlannedLesson,
+          note: body.note
+        })
+        .onConflictDoUpdate({
+          target: [sectionSessionEvents.sectionId, sectionSessionEvents.sessionDate],
+          set: {
+            outcome: body.outcome,
+            coveredPlannedLesson: body.coveredPlannedLesson,
+            note: body.note,
+            updatedAt: new Date()
+          }
+        })
+        .returning({ id: sectionSessionEvents.id });
+      if (!event) throw new Error('Failed to save classroom check-in');
+
+      const carryForward = body.outcome !== 'taught' && !body.coveredPlannedLesson;
+      return {
+        eventId: event.id,
+        carryForward,
+        message: carryForward
+          ? 'Your next planned lesson stays next, so the remaining sequence rolls forward.'
+          : 'This class is marked as covered, so your lesson sequence can continue as planned.'
+      };
     }
   );
 
@@ -1749,6 +1947,64 @@ export async function v1Routes(app: FastifyInstance) {
           .where(eq(aiJobs.id, job.id));
         throw error;
       }
+    }
+  );
+
+  app.post(
+    '/v1/ai/generate-activity',
+    {
+      schema: {
+        body: GenerateActivityRequestSchema,
+        response: { 200: GenerateActivityResponseSchema }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      if (!app.config.OPENROUTER_API_KEY) {
+        (reply as any).code(503);
+        return { error: 'OPENROUTER_API_KEY is not configured', requestId: request.id };
+      }
+
+      const body = GenerateActivityRequestSchema.parse(request.body);
+      return runStructuredPrompt<z.infer<typeof GenerateActivityResponseSchema>>({
+        apiKey: app.config.OPENROUTER_API_KEY,
+        model: app.config.OPENROUTER_MODEL_GENERATE_SEGMENTS,
+        schemaName: 'classroom_activity',
+        schema: GenerateActivityResponseSchema,
+        systemPrompt:
+          'Create a practical, classroom-ready activity. Sound like a skilled teaching colleague, not an AI assistant. Keep directions clear, age-appropriate, and immediately usable. Make the student handout self-contained, concise, and printable. Do not invent standards, links, citations, or facts.',
+        userPrompt: `Course: ${body.courseName}\nSubject: ${body.subject ?? 'Not specified'}\nGrade: ${body.gradeLevel ?? 'Not specified'}\nLesson: ${body.lessonTitle}\nObjective: ${body.objective ?? 'Not specified'}\nClass time: ${body.durationMinutes} minutes\nActivity format: ${body.activityType}\nTeacher context: ${body.teacherNotes ?? 'None provided'}`
+      });
+    }
+  );
+
+  app.post(
+    '/v1/ai/generate-semester',
+    {
+      schema: {
+        body: GenerateSemesterRequestSchema,
+        response: { 200: GenerateSemesterResponseSchema }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      if (!app.config.OPENROUTER_API_KEY) {
+        (reply as any).code(503);
+        return { error: 'OPENROUTER_API_KEY is not configured', requestId: request.id };
+      }
+
+      const body = GenerateSemesterRequestSchema.parse(request.body);
+      return runStructuredPrompt<z.infer<typeof GenerateSemesterResponseSchema>>({
+        apiKey: app.config.OPENROUTER_API_KEY,
+        model: app.config.OPENROUTER_MODEL_GENERATE_SEGMENTS,
+        schemaName: 'semester_outline',
+        schema: GenerateSemesterResponseSchema,
+        systemPrompt:
+          'Design a realistic teacher-owned semester outline. Use the requested number of units and distribute the requested total class meetings across them. Each lesson must be concise enough to review and edit. Favor coherent progression, formative checks, and practical pacing. Do not claim alignment to a standard unless the teacher supplied it.',
+        userPrompt: `Course: ${body.courseName}\nSubject: ${body.subject ?? 'Not specified'}\nGrade: ${body.gradeLevel ?? 'Not specified'}\nTimeframe: ${body.timeframeWeeks} weeks, ${body.meetingsPerWeek} meetings each week\nRequested units: ${body.unitCount}\nTeacher priorities and constraints: ${body.teacherNotes ?? 'None provided'}`
+      });
     }
   );
 

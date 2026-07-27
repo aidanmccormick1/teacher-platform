@@ -71,6 +71,114 @@ a {
   align-items: center;
 }
 
+.spread {
+  justify-content: space-between;
+}
+
+.two-column,
+.three-column {
+  display: grid;
+  gap: 12px;
+}
+
+.two-column {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.three-column {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+label {
+  display: grid;
+  gap: 6px;
+  font-weight: 600;
+  color: #31415f;
+}
+
+.activity-studio-panel,
+.semester-plan {
+  margin-top: 12px;
+  border: 1px solid #d7e4f4;
+  border-radius: 12px;
+  padding: 16px;
+  background: #f8fbff;
+}
+
+.activity-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.step-box,
+.lesson-plan-row {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) minmax(220px, 2fr) 88px;
+  gap: 8px;
+  align-items: start;
+  padding: 10px;
+  border: 1px solid #dfe8f3;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.minutes-input {
+  min-width: 0;
+}
+
+.handout-preview {
+  background: #fff;
+}
+
+.semester-planner h3,
+.activity-studio-panel h4 {
+  margin: 0 0 4px;
+}
+
+.semester-planner p,
+.activity-studio-panel p {
+  margin: 0;
+}
+
+.error-message {
+  margin: 0;
+  color: #b02020;
+  font-weight: 600;
+}
+
+.classroom-checkin {
+  border-color: #b9d8f8;
+  background: #f7fbff;
+}
+
+.classroom-checkin h3 {
+  margin: 0 0 6px;
+}
+
+.classroom-checkin p {
+  margin: 0 0 6px;
+}
+
+.checkin-outcomes {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.checkin-checkbox {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  font-weight: 500;
+}
+
+.checkin-message {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #edf8ef;
+  color: #1d6332;
+}
+
 .input,
 textarea,
 select,
@@ -154,5 +262,13 @@ button.secondary {
   .sidebar {
     border-right: 0;
     border-bottom: 1px solid #e4e8f0;
+  }
+
+  .two-column,
+  .three-column,
+  .step-box,
+  .lesson-plan-row,
+  .checkin-outcomes {
+    grid-template-columns: 1fr;
   }
 }

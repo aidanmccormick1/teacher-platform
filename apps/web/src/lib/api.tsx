@@ -4,6 +4,9 @@ import type {
   AiJobControlResponse,
   AiJobEnqueueResponse,
   AiJobStatusResponse,
+  ClassroomCheckinResolveRequest,
+  ClassroomCheckinResolveResponse,
+  ClassroomCheckinResponse,
   ClassNotesUpsertRequest,
   ClassNotesUpsertResponse,
   CourseCreateRequest,
@@ -14,8 +17,12 @@ import type {
   DeleteEntityResponse,
   GenerateContinuityRequest,
   GenerateContinuityResponse,
+  GenerateActivityRequest,
+  GenerateActivityResponse,
   GenerateSegmentsRequest,
   GenerateSegmentsResponse,
+  GenerateSemesterRequest,
+  GenerateSemesterResponse,
   GetScheduleResponse,
   HolidaysUpsertRequest,
   HolidaysUpsertResponse,
@@ -82,14 +89,31 @@ export function useApiClient() {
   return useMemo(
     () => ({
       onboarding: (body: OnboardingRequest) =>
-        request<OnboardingResponse>('/v1/onboarding', { method: 'POST', body: JSON.stringify(body) }, auth),
-      dashboardToday: () => request<DashboardTodayResponse>('/v1/dashboard/today', { method: 'GET' }, auth),
+        request<OnboardingResponse>(
+          '/v1/onboarding',
+          { method: 'POST', body: JSON.stringify(body) },
+          auth
+        ),
+      dashboardToday: () =>
+        request<DashboardTodayResponse>('/v1/dashboard/today', { method: 'GET' }, auth),
+      classroomCheckin: () =>
+        request<ClassroomCheckinResponse>('/v1/classroom/check-in', { method: 'GET' }, auth),
+      resolveClassroomCheckin: (body: ClassroomCheckinResolveRequest) =>
+        request<ClassroomCheckinResolveResponse>(
+          '/v1/classroom/check-in',
+          { method: 'POST', body: JSON.stringify(body) },
+          auth
+        ),
       getSchedule: () => request<GetScheduleResponse>('/v1/schedule', { method: 'GET' }, auth),
       listCourses: () => request<CourseListResponse>('/v1/courses', { method: 'GET' }, auth),
       getCourseDetail: (courseId: string) =>
         request<CourseDetailResponse>(`/v1/courses/${courseId}`, { method: 'GET' }, auth),
       createCourse: (body: CourseCreateRequest) =>
-        request<CourseDetailResponse>('/v1/courses', { method: 'POST', body: JSON.stringify(body) }, auth),
+        request<CourseDetailResponse>(
+          '/v1/courses',
+          { method: 'POST', body: JSON.stringify(body) },
+          auth
+        ),
       updateCourse: (courseId: string, body: CourseUpdateRequest) =>
         request<CourseDetailResponse>(
           `/v1/courses/${courseId}`,
@@ -105,7 +129,11 @@ export function useApiClient() {
           auth
         ),
       updateUnit: (unitId: string, body: UnitUpdateRequest) =>
-        request<CourseDetailResponse>(`/v1/units/${unitId}`, { method: 'PATCH', body: JSON.stringify(body) }, auth),
+        request<CourseDetailResponse>(
+          `/v1/units/${unitId}`,
+          { method: 'PATCH', body: JSON.stringify(body) },
+          auth
+        ),
       deleteUnit: (unitId: string) =>
         request<DeleteEntityResponse>(`/v1/units/${unitId}`, { method: 'DELETE' }, auth),
       createLesson: (unitId: string, body: LessonCreateRequest) =>
@@ -145,7 +173,11 @@ export function useApiClient() {
       deleteSegment: (segmentId: string) =>
         request<DeleteEntityResponse>(`/v1/segments/${segmentId}`, { method: 'DELETE' }, auth),
       importSchedule: (body: ScheduleImportRequest) =>
-        request<ParseScheduleResponse>('/v1/schedule/import', { method: 'POST', body: JSON.stringify(body) }, auth),
+        request<ParseScheduleResponse>(
+          '/v1/schedule/import',
+          { method: 'POST', body: JSON.stringify(body) },
+          auth
+        ),
       enqueueParseSchedule: (body: ScheduleImportRequest) =>
         request<AiJobEnqueueResponse>(
           '/v1/ai/parse-schedule/queue',
@@ -171,7 +203,11 @@ export function useApiClient() {
       retryAiJob: (jobId: string) =>
         request<AiJobControlResponse>(`/v1/ai/jobs/${jobId}/retry`, { method: 'POST' }, auth),
       upsertHolidays: (body: HolidaysUpsertRequest) =>
-        request<HolidaysUpsertResponse>('/v1/holidays', { method: 'POST', body: JSON.stringify(body) }, auth),
+        request<HolidaysUpsertResponse>(
+          '/v1/holidays',
+          { method: 'POST', body: JSON.stringify(body) },
+          auth
+        ),
       upsertLessonProgress: (body: LessonProgressUpsertRequest) =>
         request<LessonProgressUpsertResponse>(
           '/v1/lesson-progress/upsert',
@@ -187,6 +223,18 @@ export function useApiClient() {
       generateSegments: (body: GenerateSegmentsRequest) =>
         request<GenerateSegmentsResponse>(
           '/v1/ai/generate-segments',
+          { method: 'POST', body: JSON.stringify(body) },
+          auth
+        ),
+      generateActivity: (body: GenerateActivityRequest) =>
+        request<GenerateActivityResponse>(
+          '/v1/ai/generate-activity',
+          { method: 'POST', body: JSON.stringify(body) },
+          auth
+        ),
+      generateSemester: (body: GenerateSemesterRequest) =>
+        request<GenerateSemesterResponse>(
+          '/v1/ai/generate-semester',
           { method: 'POST', body: JSON.stringify(body) },
           auth
         ),

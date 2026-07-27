@@ -93,6 +93,34 @@ export const DashboardTodayResponseSchema = z.object({
     .nullable()
 });
 
+export const ClassSessionOutcomeSchema = z.enum(['taught', 'substitute', 'cancelled', 'shortened']);
+
+export const ClassroomCheckinPendingSchema = z.object({
+  sectionId: UuidSchema,
+  sessionDate: IsoDateSchema,
+  courseName: z.string(),
+  sectionName: z.string(),
+  meetingTime: IsoTimeSchema.nullable()
+});
+
+export const ClassroomCheckinResponseSchema = z.object({
+  pendingSessions: z.array(ClassroomCheckinPendingSchema)
+});
+
+export const ClassroomCheckinResolveRequestSchema = z.object({
+  sectionId: UuidSchema,
+  sessionDate: IsoDateSchema,
+  outcome: ClassSessionOutcomeSchema,
+  coveredPlannedLesson: z.boolean().default(false),
+  note: z.string().nullable()
+});
+
+export const ClassroomCheckinResolveResponseSchema = z.object({
+  eventId: UuidSchema,
+  carryForward: z.boolean(),
+  message: z.string()
+});
+
 export const GetScheduleResponseSchema = z.object({
   sections: z.array(
     z.object({
@@ -207,6 +235,62 @@ export const GenerateContinuityResponseSchema = z.object({
   recap: z.string(),
   nextStep: z.string(),
   adjustment: z.string().nullable()
+});
+
+export const GenerateActivityRequestSchema = z.object({
+  courseName: z.string().min(1),
+  subject: z.string().nullable(),
+  gradeLevel: z.string().nullable(),
+  lessonTitle: z.string().min(1),
+  objective: z.string().nullable(),
+  durationMinutes: z.number().int().positive().max(180),
+  activityType: z.string().min(1),
+  teacherNotes: z.string().nullable()
+});
+
+export const GenerateActivityResponseSchema = z.object({
+  title: z.string(),
+  teacherSummary: z.string(),
+  materials: z.array(z.string()),
+  steps: z.array(
+    z.object({
+      title: z.string(),
+      directions: z.string(),
+      durationMinutes: z.number().int().positive()
+    })
+  ),
+  studentHandout: z.object({
+    title: z.string(),
+    directions: z.string(),
+    questions: z.array(z.string())
+  })
+});
+
+export const GenerateSemesterRequestSchema = z.object({
+  courseName: z.string().min(1),
+  subject: z.string().nullable(),
+  gradeLevel: z.string().nullable(),
+  timeframeWeeks: z.number().int().min(1).max(52),
+  meetingsPerWeek: z.number().int().min(1).max(7),
+  unitCount: z.number().int().min(1).max(12),
+  teacherNotes: z.string().nullable()
+});
+
+export const GenerateSemesterResponseSchema = z.object({
+  overview: z.string(),
+  units: z.array(
+    z.object({
+      title: z.string(),
+      description: z.string(),
+      lessons: z.array(
+        z.object({
+          title: z.string(),
+          description: z.string(),
+          estimatedDurationMinutes: z.number().int().positive()
+        })
+      )
+    })
+  )
 });
 
 export const AiJobTypeSchema = z.enum([
@@ -377,6 +461,9 @@ export const ApiErrorSchema = z.object({
 export type OnboardingRequest = z.infer<typeof OnboardingRequestSchema>;
 export type OnboardingResponse = z.infer<typeof OnboardingResponseSchema>;
 export type DashboardTodayResponse = z.infer<typeof DashboardTodayResponseSchema>;
+export type ClassroomCheckinResponse = z.infer<typeof ClassroomCheckinResponseSchema>;
+export type ClassroomCheckinResolveRequest = z.infer<typeof ClassroomCheckinResolveRequestSchema>;
+export type ClassroomCheckinResolveResponse = z.infer<typeof ClassroomCheckinResolveResponseSchema>;
 export type GetScheduleResponse = z.infer<typeof GetScheduleResponseSchema>;
 export type ScheduleImportRequest = z.infer<typeof ScheduleImportRequestSchema>;
 export type ScheduleImportResponse = z.infer<typeof ScheduleImportResponseSchema>;
@@ -392,6 +479,10 @@ export type GenerateSegmentsRequest = z.infer<typeof GenerateSegmentsRequestSche
 export type GenerateSegmentsResponse = z.infer<typeof GenerateSegmentsResponseSchema>;
 export type GenerateContinuityRequest = z.infer<typeof GenerateContinuityRequestSchema>;
 export type GenerateContinuityResponse = z.infer<typeof GenerateContinuityResponseSchema>;
+export type GenerateActivityRequest = z.infer<typeof GenerateActivityRequestSchema>;
+export type GenerateActivityResponse = z.infer<typeof GenerateActivityResponseSchema>;
+export type GenerateSemesterRequest = z.infer<typeof GenerateSemesterRequestSchema>;
+export type GenerateSemesterResponse = z.infer<typeof GenerateSemesterResponseSchema>;
 export type CreateUploadUrlRequest = z.infer<typeof CreateUploadUrlRequestSchema>;
 export type CreateUploadUrlResponse = z.infer<typeof CreateUploadUrlResponseSchema>;
 export type AiJobEnqueueResponse = z.infer<typeof AiJobEnqueueResponseSchema>;

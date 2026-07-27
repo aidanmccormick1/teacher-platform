@@ -33,6 +33,12 @@ export const aiJobStatusEnum = pgEnum('ai_job_status', [
   'cancelled'
 ]);
 export const classNoteTypeEnum = pgEnum('class_note_type', ['raw', 'cleaned']);
+export const classSessionOutcomeEnum = pgEnum('class_session_outcome', [
+  'taught',
+  'substitute',
+  'cancelled',
+  'shortened'
+]);
 export const lessonMaterialKindEnum = pgEnum('lesson_material_kind', [
   'google_drive',
   'pdf',
@@ -258,6 +264,29 @@ export const classNotes = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
   },
   (table) => [unique('uniq_class_note').on(table.sectionId, table.userId, table.date, table.noteType)]
+);
+
+export const sectionSessionEvents = pgTable(
+  'section_session_events',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    sectionId: uuid('section_id')
+      .notNull()
+      .references(() => sections.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    sessionDate: date('session_date').notNull(),
+    outcome: classSessionOutcomeEnum('outcome').notNull(),
+    coveredPlannedLesson: boolean('covered_planned_lesson').notNull().default(false),
+    note: text('note'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [
+    unique('uniq_section_session_event').on(table.sectionId, table.sessionDate),
+    index('idx_section_session_events_date').on(table.sectionId, table.sessionDate)
+  ]
 );
 
 export const aiJobs = pgTable(

@@ -3,6 +3,8 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import type { CourseDetailResponse } from '@teacheros/contracts';
 
+import { ActivityStudio } from '../components/ActivityStudio.js';
+import { SemesterPlanner } from '../components/SemesterPlanner.js';
 import { ApiError, useApiClient } from '../lib/api.js';
 import type { LessonMaterialKind } from '@teacheros/contracts';
 
@@ -167,6 +169,40 @@ export function CoursePage() {
             </div>
           </div>
 
+          <SemesterPlanner
+            courseName={course.name}
+            subject={course.subject}
+            gradeLevel={course.gradeLevel}
+            onApplyPlan={async (plan) => {
+              let latestDetail: CourseDetailResponse | null = null;
+              for (const [unitIndex, unit] of plan.units.entries()) {
+                const unitDetail = await api.createUnit(course.id, {
+                  title: unit.title.trim() || `Unit ${unitIndex + 1}`,
+                  description: toNullable(unit.description),
+                  orderIndex: undefined
+                });
+                const createdUnit = [...unitDetail.course.units]
+                  .reverse()
+                  .find(
+                    (candidate) =>
+                      candidate.title === (unit.title.trim() || `Unit ${unitIndex + 1}`)
+                  );
+                if (!createdUnit) throw new Error('Unable to find the new unit');
+
+                latestDetail = unitDetail;
+                for (const lesson of unit.lessons) {
+                  latestDetail = await api.createLesson(createdUnit.id, {
+                    title: lesson.title.trim() || 'Untitled lesson',
+                    description: toNullable(lesson.description),
+                    estimatedDurationMinutes: lesson.estimatedDurationMinutes,
+                    orderIndex: undefined
+                  });
+                }
+              }
+              if (latestDetail) updateFromDetail(latestDetail);
+            }}
+          />
+
           <div className="card stack">
             <h3>Add unit</h3>
             <input
@@ -237,7 +273,10 @@ export function CoursePage() {
                           'Unit description (optional)',
                           unit.description ?? ''
                         );
-                        const nextOrder = window.prompt('Unit order index', String(unit.orderIndex));
+                        const nextOrder = window.prompt(
+                          'Unit order index',
+                          String(unit.orderIndex)
+                        );
                         try {
                           setSaving(true);
                           const detail = await api.updateUnit(unit.id, {
@@ -322,7 +361,9 @@ export function CoursePage() {
                           const detail = await api.createLesson(unit.id, {
                             title: lessonDraft.title.trim(),
                             description: toNullable(lessonDraft.description),
-                            estimatedDurationMinutes: parseNullablePositiveInt(lessonDraft.duration),
+                            estimatedDurationMinutes: parseNullablePositiveInt(
+                              lessonDraft.duration
+                            ),
                             orderIndex: undefined
                           });
                           updateFromDetail(detail);
@@ -420,6 +461,27 @@ export function CoursePage() {
                           </button>
                         </div>
                         {lesson.description ? <p className="muted">{lesson.description}</p> : null}
+
+                        <ActivityStudio
+                          courseName={course.name}
+                          subject={course.subject}
+                          gradeLevel={course.gradeLevel}
+                          lessonTitle={lesson.title}
+                          objective={lesson.description}
+                          estimatedDurationMinutes={lesson.estimatedDurationMinutes}
+                          onAddSteps={async (steps) => {
+                            let latestDetail: CourseDetailResponse | null = null;
+                            for (const step of steps) {
+                              latestDetail = await api.createSegment(lesson.id, {
+                                title: step.title.trim() || 'Activity step',
+                                description: toNullable(step.directions),
+                                durationMinutes: step.durationMinutes,
+                                orderIndex: undefined
+                              });
+                            }
+                            if (latestDetail) updateFromDetail(latestDetail);
+                          }}
+                        />
 
                         <div className="card stack">
                           <div>
@@ -660,7 +722,9 @@ export function CoursePage() {
                                   updateFromDetail(detail);
                                 } catch (err) {
                                   setError(
-                                    err instanceof ApiError ? err.message : 'Failed to update segment'
+                                    err instanceof ApiError
+                                      ? err.message
+                                      : 'Failed to update segment'
                                   );
                                 } finally {
                                   setSaving(false);
@@ -682,7 +746,9 @@ export function CoursePage() {
                                   await loadCourse();
                                 } catch (err) {
                                   setError(
-                                    err instanceof ApiError ? err.message : 'Failed to delete segment'
+                                    err instanceof ApiError
+                                      ? err.message
+                                      : 'Failed to delete segment'
                                   );
                                 } finally {
                                   setSaving(false);
