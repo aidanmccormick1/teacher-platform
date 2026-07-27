@@ -8,6 +8,8 @@ import {
   AiJobControlResponseSchema,
   AiJobEnqueueResponseSchema,
   AiJobStatusResponseSchema,
+  AcademicCalendarParseRequestSchema,
+  AcademicCalendarParseResponseSchema,
   ClassroomCheckinResolveRequestSchema,
   ClassroomCheckinResolveResponseSchema,
   ClassroomCheckinResponseSchema,
@@ -41,6 +43,8 @@ import {
   SegmentUpdateRequestSchema,
   ScheduleImportRequestSchema,
   ScheduleImportResponseSchema,
+  TeachingDataImportApplyRequestSchema,
+  TeachingDataImportApplyResponseSchema,
   UnitCreateRequestSchema,
   UnitUpdateRequestSchema,
   LessonCreateRequestSchema,
@@ -1382,6 +1386,142 @@ export async function v1Routes(app: FastifyInstance) {
       });
 
       return ParseScheduleResponseSchema.parse(response);
+    }
+  );
+
+  app.post(
+    '/v1/academic-calendar/parse',
+    {
+      schema: {
+        body: AcademicCalendarParseRequestSchema,
+        response: { 200: AcademicCalendarParseResponseSchema }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      if (!app.config.OPENROUTER_API_KEY) {
+        (reply as any).code(503);
+        return { error: 'OPENROUTER_API_KEY is not configured', requestId: request.id };
+      }
+
+      const body = AcademicCalendarParseRequestSchema.parse(request.body);
+      return runStructuredPrompt<z.infer<typeof AcademicCalendarParseResponseSchema>>({
+        apiKey: app.config.OPENROUTER_API_KEY,
+        model: app.config.OPENROUTER_MODEL_PARSE_SCHEDULE,
+        schemaName: 'academic_calendar',
+        schema: AcademicCalendarParseResponseSchema,
+        systemPrompt:
+          'Extract every date when students are not in regular class from a school academic calendar. Expand multi-day breaks into one entry per date. Keep event names clear and practical. Return only dates that are explicit or unambiguously part of a stated date range; do not guess dates.',
+        userPrompt: `Academic calendar:\n${body.text}`
+      });
+    }
+  );
+
+  app.post(
+    '/v1/schedule/import/apply',
+    {
+      schema: {
+        body: TeachingDataImportApplyRequestSchema,
+        response: { 200: TeachingDataImportApplyResponseSchema }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const schoolId = await loadTeacherSchoolId(user.id);
+      const body = TeachingDataImportApplyRequestSchema.parse(request.body);
+      let coursesCreated = 0;
+      let sectionsCreated = 0;
+      let meetingsCreated = 0;
+
+      for (const importedClass of body.classes) {
+        const [existingCourse] = await db
+          .select({ id: courses.id })
+          .from(courses)
+          .where(and(eq(courses.teacherId, user.id), eq(courses.name, importedClass.name)))
+          .limit(1);
+
+        let courseId = existingCourse?.id;
+        if (!courseId) {
+          const [course] = await db
+            .insert(courses)
+            .values({
+              teacherId: user.id,
+              schoolId,
+              name: importedClass.name,
+              subject: importedClass.subject,
+              gradeLevel: importedClass.grade || null
+            })
+            .returning({ id: courses.id });
+          if (!course) throw new Error('Failed to create course from import');
+          courseId = course.id;
+          coursesCreated += 1;
+        }
+
+        const [existingSection] = await db
+          .select({ id: sections.id })
+          .from(sections)
+          .where(and(eq(sections.courseId, courseId), eq(sections.name, importedClass.period)))
+          .limit(1);
+        let sectionId = existingSection?.id;
+        if (!sectionId) {
+          const [section] = await db
+            .insert(sections)
+            .values({ courseId, name: importedClass.period })
+            .returning({ id: sections.id });
+          if (!section) throw new Error('Failed to create section from import');
+          sectionId = section.id;
+          sectionsCreated += 1;
+        }
+
+        const existingMeetings = await db
+          .select({ day: sectionMeetings.day, meetingTime: sectionMeetings.meetingTime, room: sectionMeetings.room })
+          .from(sectionMeetings)
+          .where(eq(sectionMeetings.sectionId, sectionId));
+        const missingMeetings = importedClass.days.filter(
+          (day) =>
+            !existingMeetings.some(
+              (meeting) =>
+                meeting.day === day &&
+                (meeting.meetingTime ? meeting.meetingTime.slice(0, 5) : null) === importedClass.time &&
+                meeting.room === importedClass.room
+            )
+        );
+        if (missingMeetings.length) {
+          await db.insert(sectionMeetings).values(
+            missingMeetings.map((day) => ({
+              sectionId,
+              day,
+              meetingTime: importedClass.time,
+              room: importedClass.room
+            }))
+          );
+          meetingsCreated += missingMeetings.length;
+        }
+      }
+
+      if (body.holidays.length) {
+        await db
+          .insert(schoolHolidays)
+          .values(
+            body.holidays.map((holiday) => ({
+              schoolId,
+              date: holiday.date,
+              name: holiday.name,
+              createdByUserId: user.id
+            }))
+          )
+          .onConflictDoNothing({ target: [schoolHolidays.schoolId, schoolHolidays.date] });
+      }
+
+      return {
+        coursesCreated,
+        sectionsCreated,
+        meetingsCreated,
+        holidaysSaved: body.holidays.length
+      };
     }
   );
 

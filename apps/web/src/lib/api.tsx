@@ -4,6 +4,8 @@ import type {
   AiJobControlResponse,
   AiJobEnqueueResponse,
   AiJobStatusResponse,
+  AcademicCalendarParseRequest,
+  AcademicCalendarParseResponse,
   ClassroomCheckinResolveRequest,
   ClassroomCheckinResolveResponse,
   ClassroomCheckinResponse,
@@ -37,6 +39,8 @@ import type {
   SegmentCreateRequest,
   SegmentUpdateRequest,
   ScheduleImportRequest,
+  TeachingDataImportApplyRequest,
+  TeachingDataImportApplyResponse,
   UnitCreateRequest,
   UnitUpdateRequest
 } from '@teacheros/contracts';
@@ -175,6 +179,18 @@ export function useApiClient() {
       importSchedule: (body: ScheduleImportRequest) =>
         request<ParseScheduleResponse>(
           '/v1/schedule/import',
+          { method: 'POST', body: JSON.stringify(body) },
+          auth
+        ),
+      parseAcademicCalendar: (body: AcademicCalendarParseRequest) =>
+        request<AcademicCalendarParseResponse>(
+          '/v1/academic-calendar/parse',
+          { method: 'POST', body: JSON.stringify(body) },
+          auth
+        ),
+      applyTeachingDataImport: (body: TeachingDataImportApplyRequest) =>
+        request<TeachingDataImportApplyResponse>(
+          '/v1/schedule/import/apply',
           { method: 'POST', body: JSON.stringify(body) },
           auth
         ),

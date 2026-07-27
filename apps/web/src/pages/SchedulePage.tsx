@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import type { AiJobStatusResponse, GetScheduleResponse } from '@teacheros/contracts';
 
+import { TeachingDataImporter } from '../components/TeachingDataImporter.js';
 import { ApiError, useApiClient } from '../lib/api.js';
 
 function isTerminalStatus(status: AiJobStatusResponse['status']): boolean {
@@ -80,6 +81,8 @@ export function SchedulePage() {
     <div className="stack">
       <h1>Schedule</h1>
       {error ? <p style={{ color: '#b02020' }}>{error}</p> : null}
+
+      <TeachingDataImporter onApplied={loadSchedule} />
 
       <div className="card stack">
         <h3>AI: Parse Schedule</h3>

@@ -150,6 +150,36 @@ export const ScheduleImportResponseSchema = z.object({
   assignments: z.array(AssignmentItemSchema)
 });
 
+export const AcademicCalendarParseRequestSchema = z.object({
+  text: z.string().min(1)
+});
+
+export const AcademicCalendarParseResponseSchema = z.object({
+  holidays: z.array(
+    z.object({
+      date: IsoDateSchema,
+      name: z.string().min(1)
+    })
+  )
+});
+
+export const TeachingDataImportApplyRequestSchema = z.object({
+  classes: z.array(ScheduleClassSchema),
+  holidays: z.array(
+    z.object({
+      date: IsoDateSchema,
+      name: z.string().min(1)
+    })
+  )
+});
+
+export const TeachingDataImportApplyResponseSchema = z.object({
+  coursesCreated: z.number().int().nonnegative(),
+  sectionsCreated: z.number().int().nonnegative(),
+  meetingsCreated: z.number().int().nonnegative(),
+  holidaysSaved: z.number().int().nonnegative()
+});
+
 export const HolidaysUpsertRequestSchema = z.object({
   holidays: z.array(
     z.object({
@@ -467,6 +497,10 @@ export type ClassroomCheckinResolveResponse = z.infer<typeof ClassroomCheckinRes
 export type GetScheduleResponse = z.infer<typeof GetScheduleResponseSchema>;
 export type ScheduleImportRequest = z.infer<typeof ScheduleImportRequestSchema>;
 export type ScheduleImportResponse = z.infer<typeof ScheduleImportResponseSchema>;
+export type AcademicCalendarParseRequest = z.infer<typeof AcademicCalendarParseRequestSchema>;
+export type AcademicCalendarParseResponse = z.infer<typeof AcademicCalendarParseResponseSchema>;
+export type TeachingDataImportApplyRequest = z.infer<typeof TeachingDataImportApplyRequestSchema>;
+export type TeachingDataImportApplyResponse = z.infer<typeof TeachingDataImportApplyResponseSchema>;
 export type HolidaysUpsertRequest = z.infer<typeof HolidaysUpsertRequestSchema>;
 export type HolidaysUpsertResponse = z.infer<typeof HolidaysUpsertResponseSchema>;
 export type LessonProgressUpsertRequest = z.infer<typeof LessonProgressUpsertRequestSchema>;

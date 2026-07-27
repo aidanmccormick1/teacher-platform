@@ -179,6 +179,45 @@ label {
   color: #1d6332;
 }
 
+.teaching-importer h2,
+.teaching-importer h3,
+.teaching-importer p {
+  margin-top: 0;
+}
+
+.file-input {
+  width: 100%;
+  border: 1px dashed #9ab8d7;
+  border-radius: 10px;
+  padding: 12px;
+  background: #f8fbff;
+}
+
+.import-review {
+  border-top: 1px solid #e1e9f3;
+  padding-top: 16px;
+}
+
+.import-class-row,
+.import-holiday-row {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr 1.2fr 100px auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.import-holiday-row {
+  grid-template-columns: 160px minmax(0, 1fr) auto;
+}
+
+.import-message {
+  margin: 0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #f1f6ff;
+  color: #254f84;
+}
+
 .input,
 textarea,
 select,
@@ -268,7 +307,9 @@ button.secondary {
   .three-column,
   .step-box,
   .lesson-plan-row,
-  .checkin-outcomes {
+  .checkin-outcomes,
+  .import-class-row,
+  .import-holiday-row {
     grid-template-columns: 1fr;
   }
 }
