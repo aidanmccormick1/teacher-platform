@@ -16,7 +16,7 @@ type AiQueuePayload = {
 
 type WorkerConfig = {
   redisUrl: string;
-  openAiApiKey: string;
+  openRouterApiKey: string;
   modelParseSchedule: string;
   modelGenerateSegments: string;
   modelContinuity: string;
@@ -29,7 +29,7 @@ class CancelledError extends Error {
 }
 
 export function createAiJobsWorker(config: WorkerConfig): Worker<AiQueuePayload> {
-  const { redisUrl, openAiApiKey, modelParseSchedule, modelGenerateSegments, modelContinuity } =
+  const { redisUrl, openRouterApiKey, modelParseSchedule, modelGenerateSegments, modelContinuity } =
     config;
   const connection = new Redis(redisUrl, {
     maxRetriesPerRequest: null
@@ -109,7 +109,7 @@ export function createAiJobsWorker(config: WorkerConfig): Worker<AiQueuePayload>
         if (aiJob.type === 'parse_schedule') {
           const input = aiJob.input as { text?: string; imageBase64?: string };
           output = await runStructuredPrompt({
-            apiKey: openAiApiKey,
+            apiKey: openRouterApiKey,
             model: modelParseSchedule,
             schemaName: 'parse_schedule',
             schema: ParseScheduleResponseSchema,
@@ -126,7 +126,7 @@ export function createAiJobsWorker(config: WorkerConfig): Worker<AiQueuePayload>
             durationMinutes: number;
           };
           output = await runStructuredPrompt({
-            apiKey: openAiApiKey,
+            apiKey: openRouterApiKey,
             model: modelGenerateSegments,
             schemaName: 'generate_segments',
             schema: GenerateSegmentsResponseSchema,
@@ -142,7 +142,7 @@ export function createAiJobsWorker(config: WorkerConfig): Worker<AiQueuePayload>
             previousLessonSummary: string | null;
           };
           output = await runStructuredPrompt({
-            apiKey: openAiApiKey,
+            apiKey: openRouterApiKey,
             model: modelContinuity,
             schemaName: 'generate_continuity',
             schema: GenerateContinuityResponseSchema,

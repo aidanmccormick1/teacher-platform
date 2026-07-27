@@ -6,10 +6,10 @@ import { createAiJobsWorker } from './jobs/ai-jobs.js';
 
 const EnvSchema = z.object({
   REDIS_URL: z.string().min(1).optional(),
-  OPENAI_API_KEY: z.string().min(1),
-  OPENAI_MODEL_PARSE_SCHEDULE: z.string().default('gpt-4o-mini'),
-  OPENAI_MODEL_GENERATE_SEGMENTS: z.string().default('gpt-4o'),
-  OPENAI_MODEL_CONTINUITY: z.string().default('gpt-4o')
+  OPENROUTER_API_KEY: z.string().min(1),
+  OPENROUTER_MODEL_PARSE_SCHEDULE: z.string().default('openai/gpt-4o-mini'),
+  OPENROUTER_MODEL_GENERATE_SEGMENTS: z.string().default('openai/gpt-4o-mini'),
+  OPENROUTER_MODEL_CONTINUITY: z.string().default('openai/gpt-4o-mini')
 });
 
 const env = EnvSchema.parse(process.env);
@@ -21,10 +21,10 @@ if (!env.REDIS_URL) {
 
 const worker = createAiJobsWorker({
   redisUrl: env.REDIS_URL,
-  openAiApiKey: env.OPENAI_API_KEY,
-  modelParseSchedule: env.OPENAI_MODEL_PARSE_SCHEDULE,
-  modelGenerateSegments: env.OPENAI_MODEL_GENERATE_SEGMENTS,
-  modelContinuity: env.OPENAI_MODEL_CONTINUITY
+  openRouterApiKey: env.OPENROUTER_API_KEY,
+  modelParseSchedule: env.OPENROUTER_MODEL_PARSE_SCHEDULE,
+  modelGenerateSegments: env.OPENROUTER_MODEL_GENERATE_SEGMENTS,
+  modelContinuity: env.OPENROUTER_MODEL_CONTINUITY
 });
 
 worker.on('ready', () => {

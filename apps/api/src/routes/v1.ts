@@ -1166,14 +1166,14 @@ export async function v1Routes(app: FastifyInstance) {
         return { error: 'text or imageBase64 is required', requestId: request.id };
       }
 
-      if (!app.config.OPENAI_API_KEY) {
+      if (!app.config.OPENROUTER_API_KEY) {
         (reply as any).code(503);
-        return { error: 'OPENAI_API_KEY is not configured', requestId: request.id };
+        return { error: 'OPENROUTER_API_KEY is not configured', requestId: request.id };
       }
 
       const response = await runStructuredPrompt<z.infer<typeof InternalParseScheduleSchema>>({
-        apiKey: app.config.OPENAI_API_KEY,
-        model: app.config.OPENAI_MODEL_PARSE_SCHEDULE,
+        apiKey: app.config.OPENROUTER_API_KEY,
+        model: app.config.OPENROUTER_MODEL_PARSE_SCHEDULE,
         schemaName: 'schedule_import',
         schema: InternalParseScheduleSchema,
         systemPrompt:
@@ -1704,9 +1704,9 @@ export async function v1Routes(app: FastifyInstance) {
         return { error: 'text or imageBase64 is required', requestId: request.id };
       }
 
-      if (!app.config.OPENAI_API_KEY) {
+      if (!app.config.OPENROUTER_API_KEY) {
         (reply as any).code(503);
-        return { error: 'OPENAI_API_KEY is not configured', requestId: request.id };
+        return { error: 'OPENROUTER_API_KEY is not configured', requestId: request.id };
       }
 
       const user = await ensureUserFromPrincipal(principal);
@@ -1723,8 +1723,8 @@ export async function v1Routes(app: FastifyInstance) {
 
       try {
         const output = await runStructuredPrompt<z.infer<typeof InternalParseScheduleSchema>>({
-          apiKey: app.config.OPENAI_API_KEY,
-          model: app.config.OPENAI_MODEL_PARSE_SCHEDULE,
+          apiKey: app.config.OPENROUTER_API_KEY,
+          model: app.config.OPENROUTER_MODEL_PARSE_SCHEDULE,
           schemaName: 'parse_schedule',
           schema: InternalParseScheduleSchema,
           systemPrompt:
@@ -1766,9 +1766,9 @@ export async function v1Routes(app: FastifyInstance) {
       const principal = requirePrincipal(request, reply);
       if (!principal) return;
 
-      if (!app.config.OPENAI_API_KEY) {
+      if (!app.config.OPENROUTER_API_KEY) {
         (reply as any).code(503);
-        return { error: 'OPENAI_API_KEY is not configured', requestId: request.id };
+        return { error: 'OPENROUTER_API_KEY is not configured', requestId: request.id };
       }
 
       const body = GenerateSegmentsRequestSchema.parse(request.body);
@@ -1787,8 +1787,8 @@ export async function v1Routes(app: FastifyInstance) {
 
       try {
         const output = await runStructuredPrompt<z.infer<typeof GenerateSegmentsResponseSchema>>({
-          apiKey: app.config.OPENAI_API_KEY,
-          model: app.config.OPENAI_MODEL_GENERATE_SEGMENTS,
+          apiKey: app.config.OPENROUTER_API_KEY,
+          model: app.config.OPENROUTER_MODEL_GENERATE_SEGMENTS,
           schemaName: 'generate_segments',
           schema: GenerateSegmentsResponseSchema,
           systemPrompt:
@@ -1827,9 +1827,9 @@ export async function v1Routes(app: FastifyInstance) {
       const principal = requirePrincipal(request, reply);
       if (!principal) return;
 
-      if (!app.config.OPENAI_API_KEY) {
+      if (!app.config.OPENROUTER_API_KEY) {
         (reply as any).code(503);
-        return { error: 'OPENAI_API_KEY is not configured', requestId: request.id };
+        return { error: 'OPENROUTER_API_KEY is not configured', requestId: request.id };
       }
 
       const body = GenerateContinuityRequestSchema.parse(request.body);
@@ -1848,8 +1848,8 @@ export async function v1Routes(app: FastifyInstance) {
 
       try {
         const output = await runStructuredPrompt<z.infer<typeof GenerateContinuityResponseSchema>>({
-          apiKey: app.config.OPENAI_API_KEY,
-          model: app.config.OPENAI_MODEL_CONTINUITY,
+          apiKey: app.config.OPENROUTER_API_KEY,
+          model: app.config.OPENROUTER_MODEL_CONTINUITY,
           schemaName: 'generate_continuity',
           schema: GenerateContinuityResponseSchema,
           systemPrompt:

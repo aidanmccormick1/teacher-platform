@@ -11,37 +11,22 @@ type PromptInput = {
 };
 
 function extractOutputText(payload: unknown): string {
-  if (
-    payload &&
-    typeof payload === 'object' &&
-    'output_text' in payload &&
-    typeof payload.output_text === 'string'
-  ) {
-    return payload.output_text;
+  if (!payload || typeof payload !== 'object' || !('choices' in payload) || !Array.isArray(payload.choices)) {
+    throw new Error('Could not extract output text from OpenRouter response');
   }
 
-  if (payload && typeof payload === 'object' && 'output' in payload && Array.isArray(payload.output)) {
-    const firstOutput = payload.output[0];
-    if (firstOutput && typeof firstOutput === 'object' && 'content' in firstOutput) {
-      const content = firstOutput.content;
-      if (Array.isArray(content)) {
-        const textPart = content.find(
-          (part) => part && typeof part === 'object' && 'text' in part && typeof part.text === 'string'
-        );
-        if (textPart && typeof textPart === 'object' && 'text' in textPart) {
-          return textPart.text as string;
-        }
-      }
-    }
+  const content = payload.choices[0]?.message?.content;
+  if (typeof content !== 'string') {
+    throw new Error('OpenRouter response did not include a text completion');
   }
 
-  throw new Error('Could not extract output text from OpenAI response');
+  return content;
 }
 
 export async function runStructuredPrompt<T>(params: PromptInput): Promise<T> {
   const schemaJson = zodToJsonSchema(params.schema, params.schemaName);
 
-  const response = await fetch('https://api.openai.com/v1/responses', {
+  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${params.apiKey}`,
@@ -49,13 +34,13 @@ export async function runStructuredPrompt<T>(params: PromptInput): Promise<T> {
     },
     body: JSON.stringify({
       model: params.model,
-      input: [
+      messages: [
         { role: 'system', content: params.systemPrompt },
         { role: 'user', content: params.userPrompt }
       ],
-      text: {
-        format: {
-          type: 'json_schema',
+      response_format: {
+        type: 'json_schema',
+        json_schema: {
           name: params.schemaName,
           strict: true,
           schema: schemaJson
@@ -65,7 +50,7 @@ export async function runStructuredPrompt<T>(params: PromptInput): Promise<T> {
   });
 
   if (!response.ok) {
-    throw new Error(`OpenAI request failed with status ${response.status}`);
+    throw new Error(`OpenRouter request failed with status ${response.status}`);
   }
 
   const payload = (await response.json()) as unknown;
