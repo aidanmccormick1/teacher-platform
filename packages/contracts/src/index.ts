@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const UuidSchema = z.string().uuid();
 export const IsoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
-export const IsoTimeSchema = z.string().regex(/^\d{2}:\d{2}$/);
+export const IsoTimeSchema = z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/);
 
 export const MeetingDaySchema = z.enum([
   'Monday',
@@ -17,7 +17,83 @@ export const MeetingDaySchema = z.enum([
 export const SectionMeetingSchema = z.object({
   day: MeetingDaySchema,
   time: IsoTimeSchema.nullable(),
+  endTime: IsoTimeSchema.nullable().default(null),
   room: z.string().nullable()
+});
+
+export const ScheduleBlockKindSchema = z.enum([
+  'homeroom',
+  'lunch',
+  'break',
+  'planning',
+  'duty',
+  'meeting',
+  'dismissal',
+  'other'
+]);
+
+export const ScheduleBlockProposalSchema = z.object({
+  day: MeetingDaySchema,
+  startTime: IsoTimeSchema.nullable(),
+  endTime: IsoTimeSchema.nullable(),
+  label: z.string().min(1),
+  kind: ScheduleBlockKindSchema
+});
+
+export const ScheduleMeetingProposalSchema = z.object({
+  day: MeetingDaySchema,
+  startTime: IsoTimeSchema.nullable(),
+  endTime: IsoTimeSchema.nullable(),
+  room: z.string().nullable()
+});
+
+export const ScheduleSectionProposalSchema = z.object({
+  name: z.string().min(1),
+  meetings: z.array(ScheduleMeetingProposalSchema).min(1)
+});
+
+export const ScheduleCourseProposalSchema = z.object({
+  name: z.string().min(1),
+  subject: z.string().nullable(),
+  gradeLevel: z.string().nullable(),
+  sections: z.array(ScheduleSectionProposalSchema).min(1)
+});
+
+export const ScheduleDateOverrideKindSchema = z.enum([
+  'no_school',
+  'early_release',
+  'assembly',
+  'testing',
+  'special_schedule',
+  'other'
+]);
+
+export const ScheduleDateOverrideMeetingSchema = z.object({
+  courseName: z.string().min(1),
+  sectionName: z.string().min(1),
+  startTime: IsoTimeSchema.nullable(),
+  endTime: IsoTimeSchema.nullable(),
+  room: z.string().nullable()
+});
+
+export const ScheduleDateOverrideProposalSchema = z.object({
+  date: IsoDateSchema,
+  label: z.string().min(1),
+  kind: ScheduleDateOverrideKindSchema,
+  rotationDay: z.enum(['A-Day', 'B-Day']).nullable(),
+  replaceWeeklySchedule: z.boolean().default(false),
+  meetings: z.array(ScheduleDateOverrideMeetingSchema).default([])
+});
+
+export const WeeklyScheduleProposalSchema = z.object({
+  courses: z.array(ScheduleCourseProposalSchema),
+  blocks: z.array(ScheduleBlockProposalSchema),
+  warnings: z.array(z.string())
+});
+
+export const AnnualCalendarProposalSchema = z.object({
+  overrides: z.array(ScheduleDateOverrideProposalSchema),
+  warnings: z.array(z.string())
 });
 
 export const ScheduleClassSchema = z.object({
@@ -63,6 +139,7 @@ export const DashboardTodayResponseSchema = z.object({
       courseName: z.string(),
       sectionName: z.string(),
       meetingTime: IsoTimeSchema.nullable(),
+      meetingEndTime: IsoTimeSchema.nullable(),
       room: z.string().nullable()
     })
     .nullable(),
@@ -71,7 +148,8 @@ export const DashboardTodayResponseSchema = z.object({
       sectionId: UuidSchema,
       courseName: z.string(),
       sectionName: z.string(),
-      meetingTime: IsoTimeSchema.nullable()
+      meetingTime: IsoTimeSchema.nullable(),
+      meetingEndTime: IsoTimeSchema.nullable()
     })
     .nullable(),
   todaySchedule: z.array(
@@ -80,6 +158,7 @@ export const DashboardTodayResponseSchema = z.object({
       courseName: z.string(),
       sectionName: z.string(),
       meetingTime: IsoTimeSchema.nullable(),
+      meetingEndTime: IsoTimeSchema.nullable(),
       room: z.string().nullable(),
       isInSession: z.boolean()
     })
@@ -90,7 +169,14 @@ export const DashboardTodayResponseSchema = z.object({
       date: IsoDateSchema,
       name: z.string()
     })
-    .nullable()
+    .nullable(),
+  specialDay: z
+    .object({
+      label: z.string(),
+      kind: ScheduleDateOverrideKindSchema
+    })
+    .nullable(),
+  needsScheduleSetup: z.boolean().default(false)
 });
 
 export const ClassSessionOutcomeSchema = z.enum(['taught', 'substitute', 'cancelled', 'shortened']);
@@ -137,7 +223,43 @@ export const GetScheduleResponseSchema = z.object({
       date: IsoDateSchema,
       name: z.string()
     })
-  )
+  ),
+  blocks: z.array(
+    z.object({
+      day: MeetingDaySchema,
+      startTime: IsoTimeSchema.nullable(),
+      endTime: IsoTimeSchema.nullable(),
+      label: z.string(),
+      kind: ScheduleBlockKindSchema
+    })
+  ),
+  overrides: z.array(ScheduleDateOverrideProposalSchema),
+  hasScheduleSetup: z.boolean()
+});
+
+export const ScheduleSetupSourceSchema = z
+  .object({
+    text: z.string().min(1).optional(),
+    imageBase64: z.string().min(1).optional()
+  })
+  .refine((value) => Boolean(value.text || value.imageBase64), {
+    message: 'text or imageBase64 is required'
+  });
+
+export const ParseWeeklyScheduleResponseSchema = WeeklyScheduleProposalSchema;
+export const ParseAnnualCalendarResponseSchema = AnnualCalendarProposalSchema;
+
+export const ScheduleSetupApplyRequestSchema = z.object({
+  weekly: WeeklyScheduleProposalSchema,
+  annualCalendar: AnnualCalendarProposalSchema.optional()
+});
+
+export const ScheduleSetupApplyResponseSchema = z.object({
+  coursesCreated: z.number().int().nonnegative(),
+  sectionsCreated: z.number().int().nonnegative(),
+  meetingsSaved: z.number().int().nonnegative(),
+  blocksSaved: z.number().int().nonnegative(),
+  overridesSaved: z.number().int().nonnegative()
 });
 
 export const ScheduleImportRequestSchema = z.object({
@@ -150,12 +272,14 @@ export const ScheduleImportResponseSchema = z.object({
   assignments: z.array(AssignmentItemSchema)
 });
 
-export const AcademicCalendarParseRequestSchema = z.object({
-  text: z.string().min(1).optional(),
-  imageBase64: z.string().min(1).optional()
-}).refine((value) => Boolean(value.text || value.imageBase64), {
-  message: 'text or imageBase64 is required'
-});
+export const AcademicCalendarParseRequestSchema = z
+  .object({
+    text: z.string().min(1).optional(),
+    imageBase64: z.string().min(1).optional()
+  })
+  .refine((value) => Boolean(value.text || value.imageBase64), {
+    message: 'text or imageBase64 is required'
+  });
 
 export const AcademicCalendarParseResponseSchema = z.object({
   holidays: z.array(
@@ -498,6 +622,11 @@ export type ClassroomCheckinResponse = z.infer<typeof ClassroomCheckinResponseSc
 export type ClassroomCheckinResolveRequest = z.infer<typeof ClassroomCheckinResolveRequestSchema>;
 export type ClassroomCheckinResolveResponse = z.infer<typeof ClassroomCheckinResolveResponseSchema>;
 export type GetScheduleResponse = z.infer<typeof GetScheduleResponseSchema>;
+export type ScheduleSetupSource = z.infer<typeof ScheduleSetupSourceSchema>;
+export type WeeklyScheduleProposal = z.infer<typeof WeeklyScheduleProposalSchema>;
+export type AnnualCalendarProposal = z.infer<typeof AnnualCalendarProposalSchema>;
+export type ScheduleSetupApplyRequest = z.infer<typeof ScheduleSetupApplyRequestSchema>;
+export type ScheduleSetupApplyResponse = z.infer<typeof ScheduleSetupApplyResponseSchema>;
 export type ScheduleImportRequest = z.infer<typeof ScheduleImportRequestSchema>;
 export type ScheduleImportResponse = z.infer<typeof ScheduleImportResponseSchema>;
 export type AcademicCalendarParseRequest = z.infer<typeof AcademicCalendarParseRequestSchema>;

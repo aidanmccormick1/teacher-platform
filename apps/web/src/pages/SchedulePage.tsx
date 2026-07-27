@@ -12,7 +12,6 @@ function isTerminalStatus(status: AiJobStatusResponse['status']): boolean {
 export function SchedulePage() {
   const api = useApiClient();
   const [schedule, setSchedule] = useState<GetScheduleResponse | null>(null);
-  const [importText, setImportText] = useState('');
   const [segmentLessonTitle, setSegmentLessonTitle] = useState('');
   const [segmentObjective, setSegmentObjective] = useState('');
   const [segmentDuration, setSegmentDuration] = useState('45');
@@ -84,35 +83,15 @@ export function SchedulePage() {
 
       <TeachingDataImporter onApplied={loadSchedule} />
 
-      <div className="card stack">
-        <h3>AI: Parse Schedule</h3>
-        <textarea
-          rows={6}
-          value={importText}
-          onChange={(event) => setImportText(event.target.value)}
-          placeholder="Paste schedule text to parse..."
-        />
-        <button
-          type="button"
-          disabled={busy || !importText.trim()}
-          onClick={async () => {
-            try {
-              setBusy(true);
-              const queued = await api.enqueueParseSchedule({ text: importText });
-              setActiveJobId(queued.jobId);
-              setActiveJob(null);
-              setJobOutput(null);
-              setError(null);
-            } catch (err) {
-              setError(err instanceof ApiError ? err.message : 'Failed to import schedule');
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          {busy ? 'Starting...' : 'Queue parse job'}
-        </button>
-      </div>
+      {schedule?.hasScheduleSetup ? (
+        <div className="card stack">
+          <h3>Your active schedule</h3>
+          <p className="muted">
+            {schedule.sections.length} class sections, {schedule.blocks.length} non-class blocks, and{' '}
+            {schedule.overrides.length} calendar overrides are active. Import again above whenever your schedule changes.
+          </p>
+        </div>
+      ) : null}
 
       <div className="card stack">
         <h3>AI: Generate Lesson Segments</h3>

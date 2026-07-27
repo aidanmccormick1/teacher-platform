@@ -69,7 +69,7 @@ export function LoginPage() {
     );
   }
 
-  function useDevAccount(userId: string, email: string) {
+  function selectDevAccount(userId: string, email: string) {
     setDevUserId(userId);
     setDevEmail(email);
   }
@@ -89,7 +89,7 @@ export function LoginPage() {
               className="secondary"
               type="button"
               key={account.userId}
-              onClick={() => useDevAccount(account.userId, account.email)}
+              onClick={() => selectDevAccount(account.userId, account.email)}
             >
               {account.label}
             </button>

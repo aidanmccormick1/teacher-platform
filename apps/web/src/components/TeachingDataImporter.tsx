@@ -1,6 +1,10 @@
 import { useState } from 'react';
 
-import type { AcademicCalendarParseResponse, ScheduleImportResponse } from '@teacheros/contracts';
+import type {
+  AnnualCalendarProposal,
+  ScheduleSetupSource,
+  WeeklyScheduleProposal
+} from '@teacheros/contracts';
 
 import { ApiError, useApiClient } from '../lib/api.js';
 
@@ -8,8 +12,13 @@ type TeachingDataImporterProps = {
   onApplied: () => Promise<void>;
 };
 
-type ImportedClass = ScheduleImportResponse['classes'][number];
-type ImportedHoliday = AcademicCalendarParseResponse['holidays'][number];
+type ImportSource = {
+  text: string;
+  imageBase64: string | null;
+  fileName: string | null;
+};
+
+const emptySource: ImportSource = { text: '', imageBase64: null, fileName: null };
 
 async function extractFileText(file: File): Promise<string> {
   if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
@@ -47,297 +56,413 @@ function readAsDataUrl(file: Blob): Promise<string> {
   });
 }
 
-async function extractScheduleImage(file: File): Promise<string> {
+async function extractImage(file: File): Promise<string> {
   const isHeic = /\.hei[cf]$/i.test(file.name) || /image\/hei[cf]/i.test(file.type);
-  if (!isHeic) return readAsDataUrl(file);
+  let image: Blob = file;
+  if (isHeic) {
+    const importedModule = await import('heic2any');
+    const converted = await importedModule.default({ blob: file, toType: 'image/jpeg', quality: 0.9 });
+    const convertedImage = Array.isArray(converted) ? converted[0] : converted;
+    if (!convertedImage) throw new Error('Unable to convert this HEIC image');
+    image = convertedImage;
+  }
 
-  const { default: heic2any } = await import('heic2any');
-  const converted = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.9 });
-  return readAsDataUrl(Array.isArray(converted) ? converted[0] : converted);
+  if (image.size <= 3 * 1024 * 1024) return readAsDataUrl(image);
+  try {
+    const bitmap = await createImageBitmap(image);
+    const scale = Math.min(1, 1800 / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    const context = canvas.getContext('2d');
+    if (!context) return readAsDataUrl(image);
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    const compressed = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, 'image/jpeg', 0.88)
+    );
+    return readAsDataUrl(compressed ?? image);
+  } catch {
+    return readAsDataUrl(image);
+  }
+}
+
+function sourcePayload(source: ImportSource): ScheduleSetupSource | null {
+  if (source.text.trim()) return { text: source.text.trim() };
+  if (source.imageBase64) return { imageBase64: source.imageBase64 };
+  return null;
+}
+
+function SourceUploader({
+  heading,
+  description,
+  source,
+  busy,
+  onChange,
+  onError
+}: {
+  heading: string;
+  description: string;
+  source: ImportSource;
+  busy: boolean;
+  onChange: (source: ImportSource) => void;
+  onError: (message: string) => void;
+}) {
+  return (
+    <div className="stack schedule-source">
+      <div>
+        <h3>{heading}</h3>
+        <p className="muted">{description}</p>
+      </div>
+      <input
+        className="file-input"
+        type="file"
+        disabled={busy}
+        accept=".pdf,.txt,.csv,.ics,.heic,.heif,image/*,text/plain,text/csv,text/calendar,application/pdf"
+        onChange={async (event) => {
+          const file = event.target.files?.[0];
+          if (!file) return;
+          try {
+            const isImage = file.type.startsWith('image/') || /\.hei[cf]$/i.test(file.name);
+            if (isImage) {
+              onChange({ text: '', imageBase64: await extractImage(file), fileName: file.name });
+              return;
+            }
+            const text = await extractFileText(file);
+            if (!text.trim()) {
+              throw new Error('No readable text was found. Upload a clear image or a text-based PDF.');
+            }
+            onChange({ text, imageBase64: null, fileName: file.name });
+          } catch (error) {
+            onChange({ ...source, fileName: null });
+            onError(error instanceof Error ? error.message : 'Unable to read this file.');
+          }
+        }}
+      />
+      <textarea
+        rows={7}
+        value={source.text}
+        disabled={busy}
+        onChange={(event) =>
+          onChange({ text: event.target.value, imageBase64: null, fileName: source.fileName })
+        }
+        placeholder="Or paste schedule or calendar text here."
+      />
+      {source.fileName ? <p className="muted">Ready to parse: {source.fileName}</p> : null}
+      {source.imageBase64 ? (
+        <img className="import-image-preview" src={source.imageBase64} alt="Schedule ready to parse" />
+      ) : null}
+    </div>
+  );
+}
+
+function updateCourse(
+  proposal: WeeklyScheduleProposal,
+  courseIndex: number,
+  update: Partial<WeeklyScheduleProposal['courses'][number]>
+) {
+  const courses = [...proposal.courses];
+  courses[courseIndex] = { ...courses[courseIndex], ...update } as WeeklyScheduleProposal['courses'][number];
+  return { ...proposal, courses };
 }
 
 export function TeachingDataImporter({ onApplied }: TeachingDataImporterProps) {
   const api = useApiClient();
-  const [sourceText, setSourceText] = useState('');
-  const [sourceImageDataUrl, setSourceImageDataUrl] = useState<string | null>(null);
-  const [fileName, setFileName] = useState<string | null>(null);
-  const [classes, setClasses] = useState<ImportedClass[]>([]);
-  const [holidays, setHolidays] = useState<ImportedHoliday[]>([]);
+  const [step, setStep] = useState<'weekly' | 'calendar' | 'review'>('weekly');
+  const [weeklySource, setWeeklySource] = useState<ImportSource>(emptySource);
+  const [calendarSource, setCalendarSource] = useState<ImportSource>(emptySource);
+  const [weekly, setWeekly] = useState<WeeklyScheduleProposal | null>(null);
+  const [annualCalendar, setAnnualCalendar] = useState<AnnualCalendarProposal | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
-  const parseSchedule = async () => {
-    if (!sourceText.trim() && !sourceImageDataUrl) {
-      setError('Paste or upload a schedule before parsing.');
+  const parseWeekly = async () => {
+    const source = sourcePayload(weeklySource);
+    if (!source) {
+      setError('Upload or paste your weekly/block schedule first.');
       return;
     }
     try {
       setBusy(true);
-      const parsed = await api.importSchedule({
-        text: sourceText.trim() || undefined,
-        imageBase64: sourceImageDataUrl ?? undefined
-      });
-      setClasses(parsed.classes);
+      const proposal = await api.parseWeeklyScheduleSetup(source);
+      setWeekly(proposal);
+      setStep('calendar');
       setError(null);
-      setMessage(`Found ${parsed.classes.length} class sections. Review them before applying.`);
+      setMessage('Weekly schedule found. Add the annual calendar next, or continue to review.');
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Unable to parse this schedule');
+      setError(err instanceof ApiError ? err.message : 'Unable to parse this weekly schedule.');
     } finally {
       setBusy(false);
     }
   };
 
   const parseCalendar = async () => {
-    if (!sourceText.trim() && !sourceImageDataUrl) {
-      setError('Paste or upload an academic calendar before parsing.');
+    const source = sourcePayload(calendarSource);
+    if (!source) {
+      setError('Upload or paste an annual calendar before parsing, or skip this step.');
       return;
     }
     try {
       setBusy(true);
-      const parsed = await api.parseAcademicCalendar({
-        text: sourceText.trim() || undefined,
-        imageBase64: sourceImageDataUrl ?? undefined
-      });
-      setHolidays(parsed.holidays);
+      const proposal = await api.parseAnnualCalendarSetup(source);
+      setAnnualCalendar(proposal);
+      setStep('review');
       setError(null);
-      setMessage(`Found ${parsed.holidays.length} no-school dates. Review them before applying.`);
+      setMessage('Annual calendar found. Review everything before it is added to your dashboard.');
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Unable to parse this academic calendar');
+      setError(err instanceof ApiError ? err.message : 'Unable to parse this annual calendar.');
     } finally {
       setBusy(false);
     }
   };
 
+  const moveSection = (fromCourseIndex: number, sectionIndex: number, toCourseIndex: number) => {
+    if (!weekly || fromCourseIndex === toCourseIndex) return;
+    const courses = weekly.courses.map((course) => ({ ...course, sections: [...course.sections] }));
+    const [section] = courses[fromCourseIndex]?.sections.splice(sectionIndex, 1) ?? [];
+    if (!section || !courses[toCourseIndex]) return;
+    courses[toCourseIndex].sections.push(section);
+    setWeekly({ ...weekly, courses: courses.filter((course) => course.sections.length > 0) });
+  };
+
   return (
-    <section className="card stack teaching-importer">
+    <section className="card stack teaching-importer schedule-setup">
       <div>
-        <h2>Import teaching information</h2>
+        <p className="eyebrow">Schedule setup</p>
+        <h2>Set up your teaching schedule</h2>
         <p className="muted">
-          Upload an academic calendar, bell schedule, course schedule, calendar export, or a photo
-          of any of them. Nothing is added until you review it.
+          Start with the way your week runs, then add the school-year calendar. You review every
+          detail before it affects your dashboard.
         </p>
       </div>
-      <input
-        className="file-input"
-        type="file"
-        accept=".pdf,.txt,.csv,.ics,.heic,.heif,image/*,text/plain,text/csv,text/calendar,application/pdf"
-        onChange={async (event) => {
-          const file = event.target.files?.[0];
-          if (!file) return;
-          try {
-            setBusy(true);
-            const isImage = file.type.startsWith('image/') || /\.hei[cf]$/i.test(file.name);
-            if (isImage) {
-              const imageDataUrl = await extractScheduleImage(file);
-              setSourceImageDataUrl(imageDataUrl);
-              setSourceText('');
-              setFileName(file.name);
-              setMessage(`Loaded ${file.name}. Choose what you want to extract.`);
-              setError(null);
-              return;
-            }
-            const extractedText = await extractFileText(file);
-            if (!extractedText.trim()) {
-              throw new Error(
-                'No selectable text was found. Try a text-based PDF, CSV, ICS, or paste the schedule text.'
-              );
-            }
-            setSourceText(extractedText);
-            setSourceImageDataUrl(null);
-            setFileName(file.name);
-            setMessage(`Loaded ${file.name}. Choose what you want to extract.`);
-            setError(null);
-          } catch (err) {
-            setError(err instanceof Error ? err.message : 'Unable to read this file');
-          } finally {
-            setBusy(false);
-          }
-        }}
-      />
-      <textarea
-        rows={7}
-        value={sourceText}
-        onChange={(event) => {
-          setSourceText(event.target.value);
-          if (event.target.value.trim()) setSourceImageDataUrl(null);
-        }}
-        placeholder="Or paste a school calendar, bell schedule, course schedule, or exported calendar text here."
-      />
-      {fileName ? <p className="muted">Loaded file: {fileName}</p> : null}
-      {sourceImageDataUrl ? (
-        <img className="import-image-preview" src={sourceImageDataUrl} alt="Schedule or calendar ready to parse" />
-      ) : null}
-      <div className="row">
-        <button
-          type="button"
-          disabled={busy || (!sourceText.trim() && !sourceImageDataUrl)}
-          onClick={() => void parseSchedule()}
-        >
-          Parse class schedule
-        </button>
-        <button
-          className="secondary"
-          type="button"
-          disabled={busy || (!sourceText.trim() && !sourceImageDataUrl)}
-          onClick={() => void parseCalendar()}
-        >
-          Parse academic calendar
-        </button>
+
+      <div className="setup-steps" aria-label="Schedule setup progress">
+        <span className={step === 'weekly' ? 'active' : weekly ? 'complete' : ''}>1. Weekly schedule</span>
+        <span className={step === 'calendar' ? 'active' : annualCalendar ? 'complete' : ''}>2. Annual calendar</span>
+        <span className={step === 'review' ? 'active' : ''}>3. Review</span>
       </div>
+
+      {step === 'weekly' ? (
+        <>
+          <SourceUploader
+            heading="Your weekly or block schedule"
+            description="Upload a bell schedule, class grid, or a clear photo. We will separate classes from lunch, homeroom, breaks, prep, and dismissal."
+            source={weeklySource}
+            busy={busy}
+            onChange={setWeeklySource}
+            onError={setError}
+          />
+          <button type="button" disabled={busy || !sourcePayload(weeklySource)} onClick={() => void parseWeekly()}>
+            {busy ? 'Reading schedule…' : 'Find my classes and periods'}
+          </button>
+        </>
+      ) : null}
+
+      {step === 'calendar' ? (
+        <>
+          <SourceUploader
+            heading="Your annual school calendar"
+            description="Optional, but useful for holidays, A/B rotations, early release, assemblies, testing, and other unusual days."
+            source={calendarSource}
+            busy={busy}
+            onChange={setCalendarSource}
+            onError={setError}
+          />
+          <div className="row">
+            <button type="button" disabled={busy || !sourcePayload(calendarSource)} onClick={() => void parseCalendar()}>
+              {busy ? 'Reading calendar…' : 'Find school-year dates'}
+            </button>
+            <button className="secondary" type="button" disabled={busy} onClick={() => setStep('review')}>
+              Skip for now
+            </button>
+          </div>
+        </>
+      ) : null}
+
+      {step === 'review' && weekly ? (
+        <div className="stack import-review schedule-review">
+          <div>
+            <h3>Review your teaching week</h3>
+            <p className="muted">
+              Edit course groups, section names, period times, and rooms. Removing or moving a section is safe until you save.
+            </p>
+          </div>
+          {weekly.warnings.length ? (
+            <div className="schedule-warnings">
+              <strong>Please check:</strong>
+              <ul>{weekly.warnings.map((warning, index) => <li key={`${warning}-${index}`}>{warning}</li>)}</ul>
+            </div>
+          ) : null}
+          {weekly.courses.map((course, courseIndex) => (
+            <div className="schedule-course-card" key={`${course.name}-${courseIndex}`}>
+              <div className="import-course-heading">
+                <input
+                  className="input"
+                  value={course.name}
+                  aria-label="Course name"
+                  onChange={(event) => setWeekly(updateCourse(weekly, courseIndex, { name: event.target.value }))}
+                />
+                <input
+                  className="input"
+                  value={course.subject ?? ''}
+                  placeholder="Subject"
+                  aria-label="Course subject"
+                  onChange={(event) => setWeekly(updateCourse(weekly, courseIndex, { subject: event.target.value || null }))}
+                />
+                <input
+                  className="input"
+                  value={course.gradeLevel ?? ''}
+                  placeholder="Grades"
+                  aria-label="Course grade levels"
+                  onChange={(event) => setWeekly(updateCourse(weekly, courseIndex, { gradeLevel: event.target.value || null }))}
+                />
+                <button className="secondary" type="button" onClick={() => setWeekly({ ...weekly, courses: weekly.courses.filter((_, index) => index !== courseIndex) })}>
+                  Remove course
+                </button>
+              </div>
+              {course.sections.map((section, sectionIndex) => (
+                <div className="schedule-section-card" key={`${section.name}-${sectionIndex}`}>
+                  <div className="row">
+                    <input
+                      className="input"
+                      value={section.name}
+                      aria-label="Section name"
+                      onChange={(event) => {
+                        const courses = [...weekly.courses];
+                        const sections = [...course.sections];
+                        sections[sectionIndex] = { ...section, name: event.target.value };
+                        courses[courseIndex] = { ...course, sections };
+                        setWeekly({ ...weekly, courses });
+                      }}
+                    />
+                    {weekly.courses.length > 1 ? (
+                      <select
+                        className="input"
+                        value={String(courseIndex)}
+                        aria-label="Move section to course"
+                        onChange={(event) => moveSection(courseIndex, sectionIndex, Number(event.target.value))}
+                      >
+                        {weekly.courses.map((option, optionIndex) => (
+                          <option key={`${option.name}-${optionIndex}`} value={optionIndex}>
+                            {optionIndex === courseIndex ? 'This course' : `Move to ${option.name}`}
+                          </option>
+                        ))}
+                      </select>
+                    ) : null}
+                    <button
+                      className="secondary"
+                      type="button"
+                      onClick={() => {
+                        const courses = [...weekly.courses];
+                        courses[courseIndex] = { ...course, sections: course.sections.filter((_, index) => index !== sectionIndex) };
+                        setWeekly({ ...weekly, courses: courses.filter((item) => item.sections.length > 0) });
+                      }}
+                    >
+                      Remove section
+                    </button>
+                  </div>
+                  {section.meetings.map((meeting, meetingIndex) => (
+                    <div className="schedule-meeting-row" key={`${meeting.day}-${meetingIndex}`}>
+                      <select
+                        className="input"
+                        value={meeting.day}
+                        aria-label="Meeting day"
+                        onChange={(event) => {
+                          const courses = [...weekly.courses];
+                          const sections = [...course.sections];
+                          const meetings = [...section.meetings];
+                          meetings[meetingIndex] = { ...meeting, day: event.target.value as typeof meeting.day };
+                          sections[sectionIndex] = { ...section, meetings };
+                          courses[courseIndex] = { ...course, sections };
+                          setWeekly({ ...weekly, courses });
+                        }}
+                      >
+                        {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'A-Day', 'B-Day'].map((day) => <option key={day}>{day}</option>)}
+                      </select>
+                      <input className="input" type="time" value={meeting.startTime ?? ''} aria-label="Start time" onChange={(event) => {
+                        const courses = [...weekly.courses]; const sections = [...course.sections]; const meetings = [...section.meetings];
+                        meetings[meetingIndex] = { ...meeting, startTime: event.target.value || null }; sections[sectionIndex] = { ...section, meetings }; courses[courseIndex] = { ...course, sections }; setWeekly({ ...weekly, courses });
+                      }} />
+                      <input className="input" type="time" value={meeting.endTime ?? ''} aria-label="End time" onChange={(event) => {
+                        const courses = [...weekly.courses]; const sections = [...course.sections]; const meetings = [...section.meetings];
+                        meetings[meetingIndex] = { ...meeting, endTime: event.target.value || null }; sections[sectionIndex] = { ...section, meetings }; courses[courseIndex] = { ...course, sections }; setWeekly({ ...weekly, courses });
+                      }} />
+                      <input className="input" value={meeting.room ?? ''} placeholder="Room" aria-label="Room" onChange={(event) => {
+                        const courses = [...weekly.courses]; const sections = [...course.sections]; const meetings = [...section.meetings];
+                        meetings[meetingIndex] = { ...meeting, room: event.target.value || null }; sections[sectionIndex] = { ...section, meetings }; courses[courseIndex] = { ...course, sections }; setWeekly({ ...weekly, courses });
+                      }} />
+                    </div>
+                  ))}
+                </div>
+              ))}
+              <button className="secondary" type="button" onClick={() => setWeekly(updateCourse(weekly, courseIndex, { sections: [...course.sections, { name: 'New section', meetings: [{ day: 'Monday', startTime: null, endTime: null, room: null }] }] }))}>
+                Add section
+              </button>
+            </div>
+          ))}
+          <button className="secondary" type="button" onClick={() => setWeekly({ ...weekly, courses: [...weekly.courses, { name: 'New course', subject: null, gradeLevel: null, sections: [{ name: 'New section', meetings: [{ day: 'Monday', startTime: null, endTime: null, room: null }] }] }] })}>
+            Add course
+          </button>
+
+          <div className="schedule-block-summary">
+            <h4>Non-class blocks</h4>
+            {weekly.blocks.length ? weekly.blocks.map((block, index) => (
+              <p key={`${block.label}-${index}`}>
+                {block.day} · {block.startTime ?? 'time TBD'}–{block.endTime ?? 'time TBD'} · {block.label}
+              </p>
+            )) : <p className="muted">No non-class blocks were identified.</p>}
+          </div>
+
+          <div className="schedule-calendar-review">
+            <h3>Annual calendar {annualCalendar ? '' : '(not added yet)'}</h3>
+            {annualCalendar?.warnings.length ? <ul className="schedule-warnings">{annualCalendar.warnings.map((warning, index) => <li key={`${warning}-${index}`}>{warning}</li>)}</ul> : null}
+            {annualCalendar?.overrides.map((override, index) => (
+              <div className="schedule-override-row" key={`${override.date}-${index}`}>
+                <input className="input" type="date" value={override.date} onChange={(event) => {
+                  const overrides = [...annualCalendar.overrides]; overrides[index] = { ...override, date: event.target.value }; setAnnualCalendar({ ...annualCalendar, overrides });
+                }} />
+                <input className="input" value={override.label} onChange={(event) => {
+                  const overrides = [...annualCalendar.overrides]; overrides[index] = { ...override, label: event.target.value }; setAnnualCalendar({ ...annualCalendar, overrides });
+                }} />
+                <select className="input" value={override.kind} onChange={(event) => {
+                  const overrides = [...annualCalendar.overrides]; overrides[index] = { ...override, kind: event.target.value as typeof override.kind }; setAnnualCalendar({ ...annualCalendar, overrides });
+                }}>
+                  {['no_school', 'early_release', 'assembly', 'testing', 'special_schedule', 'other'].map((kind) => <option key={kind}>{kind.replace('_', ' ')}</option>)}
+                </select>
+                <button className="secondary" type="button" onClick={() => setAnnualCalendar({ ...annualCalendar, overrides: annualCalendar.overrides.filter((_, itemIndex) => itemIndex !== index) })}>Remove</button>
+              </div>
+            ))}
+            {!annualCalendar ? <button className="secondary" type="button" onClick={() => setStep('calendar')}>Add annual calendar</button> : null}
+          </div>
+
+          <div className="row">
+            <button className="secondary" type="button" disabled={busy} onClick={() => setStep('calendar')}>Back</button>
+            <button
+              type="button"
+              disabled={busy || weekly.courses.length === 0}
+              onClick={async () => {
+                try {
+                  setBusy(true);
+                  const result = await api.applyScheduleSetup({ weekly, annualCalendar: annualCalendar ?? undefined });
+                  await onApplied();
+                  setMessage(`Saved ${result.coursesCreated} courses, ${result.sectionsCreated} sections, ${result.meetingsSaved} class periods, and ${result.overridesSaved} calendar overrides.`);
+                  setError(null);
+                } catch (err) {
+                  setError(err instanceof ApiError ? err.message : 'Unable to save this schedule.');
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              {busy ? 'Saving schedule…' : 'Add reviewed schedule to my dashboard'}
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {error ? <p className="error-message">{error}</p> : null}
       {message ? <p className="import-message">{message}</p> : null}
-
-      {classes.length ? (
-        <div className="stack import-review">
-          <div>
-            <h3>Class schedule</h3>
-            <p className="muted">
-              These entries create or update courses, sections, and meeting times across the
-              dashboard.
-            </p>
-          </div>
-          {classes.map((item, index) => (
-            <div className="import-class-row" key={`${item.name}-${item.period}-${index}`}>
-              <input
-                className="input"
-                value={item.name}
-                onChange={(event) => {
-                  const next = [...classes];
-                  next[index] = { ...item, name: event.target.value };
-                  setClasses(next);
-                }}
-                aria-label="Course name"
-              />
-              <input
-                className="input"
-                value={item.period}
-                onChange={(event) => {
-                  const next = [...classes];
-                  next[index] = { ...item, period: event.target.value };
-                  setClasses(next);
-                }}
-                aria-label="Section or period"
-              />
-              <input
-                className="input"
-                value={item.days.join(', ')}
-                onChange={(event) => {
-                  const next = [...classes];
-                  const days = event.target.value
-                    .split(',')
-                    .map((day) => day.trim())
-                    .filter((day) =>
-                      [
-                        'Monday',
-                        'Tuesday',
-                        'Wednesday',
-                        'Thursday',
-                        'Friday',
-                        'A-Day',
-                        'B-Day'
-                      ].includes(day)
-                    );
-                  next[index] = { ...item, days: days as ImportedClass['days'] };
-                  setClasses(next);
-                }}
-                aria-label="Meeting days"
-              />
-              <input
-                className="input"
-                value={item.time ?? ''}
-                onChange={(event) => {
-                  const next = [...classes];
-                  next[index] = { ...item, time: event.target.value || null };
-                  setClasses(next);
-                }}
-                placeholder="HH:MM"
-                aria-label="Meeting time"
-              />
-              <button
-                className="secondary"
-                type="button"
-                onClick={() =>
-                  setClasses((current) =>
-                    current.filter((_, currentIndex) => currentIndex !== index)
-                  )
-                }
-              >
-                Remove
-              </button>
-            </div>
-          ))}
-        </div>
-      ) : null}
-
-      {holidays.length ? (
-        <div className="stack import-review">
-          <div>
-            <h3>Academic calendar</h3>
-            <p className="muted">
-              No-school days prevent missed-class prompts and keep the dashboard calendar accurate.
-            </p>
-          </div>
-          {holidays.map((holiday, index) => (
-            <div className="import-holiday-row" key={`${holiday.date}-${index}`}>
-              <input
-                className="input"
-                type="date"
-                value={holiday.date}
-                onChange={(event) => {
-                  const next = [...holidays];
-                  next[index] = { ...holiday, date: event.target.value };
-                  setHolidays(next);
-                }}
-              />
-              <input
-                className="input"
-                value={holiday.name}
-                onChange={(event) => {
-                  const next = [...holidays];
-                  next[index] = { ...holiday, name: event.target.value };
-                  setHolidays(next);
-                }}
-              />
-              <button
-                className="secondary"
-                type="button"
-                onClick={() =>
-                  setHolidays((current) =>
-                    current.filter((_, currentIndex) => currentIndex !== index)
-                  )
-                }
-              >
-                Remove
-              </button>
-            </div>
-          ))}
-        </div>
-      ) : null}
-
-      {classes.length || holidays.length ? (
-        <button
-          type="button"
-          disabled={busy}
-          onClick={async () => {
-            try {
-              setBusy(true);
-              const result = await api.applyTeachingDataImport({ classes, holidays });
-              await onApplied();
-              setMessage(
-                `Added ${result.coursesCreated} courses, ${result.sectionsCreated} sections, ${result.meetingsCreated} meeting times, and ${result.holidaysSaved} calendar dates.`
-              );
-              setError(null);
-            } catch (err) {
-              setError(err instanceof ApiError ? err.message : 'Unable to apply this import');
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          Apply reviewed information to my dashboard
-        </button>
-      ) : null}
     </section>
   );
 }

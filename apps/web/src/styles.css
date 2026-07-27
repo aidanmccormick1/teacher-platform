@@ -228,6 +228,127 @@ label {
   color: #254f84;
 }
 
+.eyebrow {
+  margin: 0 0 4px;
+  color: #315d9b;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.setup-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.setup-steps span {
+  border: 1px solid #dce5f0;
+  border-radius: 999px;
+  color: #75829b;
+  font-size: 0.88rem;
+  font-weight: 700;
+  padding: 8px 12px;
+  text-align: center;
+}
+
+.setup-steps .active {
+  background: #172b4d;
+  border-color: #172b4d;
+  color: #fff;
+}
+
+.setup-steps .complete {
+  background: #e8f5ed;
+  border-color: #b8dcc3;
+  color: #1d6332;
+}
+
+.schedule-source {
+  border: 1px solid #dce8f5;
+  border-radius: 12px;
+  padding: 16px;
+  background: #fbfdff;
+}
+
+.schedule-source h3,
+.schedule-source p,
+.schedule-review h3,
+.schedule-review h4 {
+  margin: 0;
+}
+
+.schedule-warnings {
+  border-left: 4px solid #d89b24;
+  border-radius: 8px;
+  margin: 0;
+  padding: 10px 14px;
+  background: #fff8e6;
+  color: #674d13;
+}
+
+.schedule-warnings ul {
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+
+.schedule-course-card,
+.schedule-section-card,
+.schedule-block-summary,
+.schedule-calendar-review {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #dce5f0;
+  border-radius: 12px;
+  padding: 12px;
+  background: #fbfdff;
+}
+
+.schedule-section-card {
+  background: #fff;
+}
+
+.import-course-heading,
+.schedule-meeting-row,
+.schedule-override-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 1.3fr) minmax(110px, 0.8fr) minmax(90px, 0.6fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.schedule-meeting-row {
+  grid-template-columns: minmax(120px, 1fr) 130px 130px minmax(100px, 1fr);
+}
+
+.schedule-override-row {
+  grid-template-columns: 150px minmax(180px, 1fr) 150px auto;
+}
+
+.button-link {
+  display: inline-flex;
+  width: fit-content;
+  border-radius: 10px;
+  background: #172b4d;
+  color: #fff;
+  font-weight: 700;
+  padding: 10px 14px;
+}
+
+.special-day-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-color: #f0d18c;
+  background: #fffaf0;
+}
+
+.special-day-notice span {
+  color: #7b5d1c;
+  text-transform: capitalize;
+}
+
 .input,
 textarea,
 select,
@@ -320,6 +441,13 @@ button.secondary {
   .checkin-outcomes,
   .import-class-row,
   .import-holiday-row {
+    grid-template-columns: 1fr;
+  }
+
+  .setup-steps,
+  .import-course-heading,
+  .schedule-meeting-row,
+  .schedule-override-row {
     grid-template-columns: 1fr;
   }
 }

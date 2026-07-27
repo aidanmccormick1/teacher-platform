@@ -125,7 +125,7 @@ export function OnboardingPage() {
                 .map((value) => value.trim())
                 .filter(Boolean)
             });
-            navigate('/');
+            navigate('/schedule?setup=1');
           } catch (err) {
             setError(err instanceof ApiError ? err.message : 'Failed to save onboarding data');
           } finally {

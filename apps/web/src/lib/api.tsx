@@ -39,6 +39,11 @@ import type {
   SegmentCreateRequest,
   SegmentUpdateRequest,
   ScheduleImportRequest,
+  ScheduleSetupApplyRequest,
+  ScheduleSetupApplyResponse,
+  ScheduleSetupSource,
+  WeeklyScheduleProposal,
+  AnnualCalendarProposal,
   TeachingDataImportApplyRequest,
   TeachingDataImportApplyResponse,
   UnitCreateRequest,
@@ -191,6 +196,24 @@ export function useApiClient() {
       applyTeachingDataImport: (body: TeachingDataImportApplyRequest) =>
         request<TeachingDataImportApplyResponse>(
           '/v1/schedule/import/apply',
+          { method: 'POST', body: JSON.stringify(body) },
+          auth
+        ),
+      parseWeeklyScheduleSetup: (body: ScheduleSetupSource) =>
+        request<WeeklyScheduleProposal>(
+          '/v1/schedule/setup/weekly/parse',
+          { method: 'POST', body: JSON.stringify(body) },
+          auth
+        ),
+      parseAnnualCalendarSetup: (body: ScheduleSetupSource) =>
+        request<AnnualCalendarProposal>(
+          '/v1/schedule/setup/calendar/parse',
+          { method: 'POST', body: JSON.stringify(body) },
+          auth
+        ),
+      applyScheduleSetup: (body: ScheduleSetupApplyRequest) =>
+        request<ScheduleSetupApplyResponse>(
+          '/v1/schedule/setup/apply',
           { method: 'POST', body: JSON.stringify(body) },
           auth
         ),

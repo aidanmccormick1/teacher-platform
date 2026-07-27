@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { and, asc, desc, eq, gte, inArray, lte } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNull, lte } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
@@ -8,6 +8,7 @@ import {
   AiJobControlResponseSchema,
   AiJobEnqueueResponseSchema,
   AiJobStatusResponseSchema,
+  AnnualCalendarProposalSchema,
   AcademicCalendarParseRequestSchema,
   AcademicCalendarParseResponseSchema,
   ClassroomCheckinResolveRequestSchema,
@@ -43,6 +44,12 @@ import {
   SegmentUpdateRequestSchema,
   ScheduleImportRequestSchema,
   ScheduleImportResponseSchema,
+  ScheduleDateOverrideKindSchema,
+  ScheduleDateOverrideMeetingSchema,
+  ScheduleSetupApplyRequestSchema,
+  ScheduleSetupApplyResponseSchema,
+  ScheduleSetupSourceSchema,
+  WeeklyScheduleProposalSchema,
   TeachingDataImportApplyRequestSchema,
   TeachingDataImportApplyResponseSchema,
   UnitCreateRequestSchema,
@@ -62,11 +69,15 @@ import {
   lessonMaterials,
   lessons,
   schoolHolidays,
+  scheduleBlocks,
+  scheduleDateOverrideMeetings,
+  scheduleDateOverrides,
   sectionLessonState,
   sectionSessionEvents,
   sectionMeetings,
   sections,
   teacherProfiles,
+  teacherScheduleTemplates,
   units
 } from '@teacheros/db';
 
@@ -98,6 +109,9 @@ const InternalParseScheduleSchema = z.object({
   )
 });
 
+const ParseWeeklyScheduleSchema = WeeklyScheduleProposalSchema;
+const ParseAnnualCalendarSchema = AnnualCalendarProposalSchema;
+
 function requirePrincipal(request: FastifyRequest, reply: FastifyReply) {
   if (!request.principal) {
     reply.code(401).send({ error: 'Unauthorized', requestId: request.id });
@@ -114,17 +128,21 @@ function dayName(date: Date): string {
   return date.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
 }
 
-function isInSession(meetingTime: string | null): boolean {
-  if (!meetingTime) return false;
+function timeToMinutes(meetingTime: string | null): number | null {
+  if (!meetingTime) return null;
   const parts = meetingTime.split(':');
   const hours = Number(parts[0] ?? Number.NaN);
   const minutes = Number(parts[1] ?? Number.NaN);
-  if (Number.isNaN(hours) || Number.isNaN(minutes)) return false;
+  if (Number.isNaN(hours) || Number.isNaN(minutes)) return null;
+  return hours * 60 + minutes;
+}
 
+function isInSession(meetingTime: string | null, meetingEndTime: string | null): boolean {
+  const startMinutes = timeToMinutes(meetingTime);
+  if (startMinutes === null) return false;
   const now = new Date();
-  const startMinutes = hours * 60 + minutes;
   const nowMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
-  return nowMinutes >= startMinutes && nowMinutes <= startMinutes + 55;
+  return nowMinutes >= startMinutes && nowMinutes <= (timeToMinutes(meetingEndTime) ?? startMinutes + 55);
 }
 
 function dateDaysAgo(daysAgo: number): Date {
@@ -134,17 +152,30 @@ function dateDaysAgo(daysAgo: number): Date {
   return date;
 }
 
-function hasMeetingPassed(meetingTime: string | null, date: Date, today: string): boolean {
+function hasMeetingPassed(
+  meetingTime: string | null,
+  meetingEndTime: string | null,
+  date: Date,
+  today: string
+): boolean {
   const isoDate = dateToIso(date);
   if (isoDate < today) return true;
   if (isoDate > today || !meetingTime) return false;
 
-  const [hours, minutes] = meetingTime.split(':').map(Number);
-  if (hours === undefined || minutes === undefined || !Number.isFinite(hours) || !Number.isFinite(minutes)) {
-    return false;
-  }
+  const startMinutes = timeToMinutes(meetingTime);
+  if (startMinutes === null) return false;
   const now = new Date();
-  return now.getUTCHours() * 60 + now.getUTCMinutes() > hours * 60 + minutes + 55;
+  return now.getUTCHours() * 60 + now.getUTCMinutes() > (timeToMinutes(meetingEndTime) ?? startMinutes + 55);
+}
+
+async function loadActiveScheduleTemplate(userId: string) {
+  const [template] = await db
+    .select({ id: teacherScheduleTemplates.id })
+    .from(teacherScheduleTemplates)
+    .where(and(eq(teacherScheduleTemplates.teacherId, userId), eq(teacherScheduleTemplates.isActive, true)))
+    .orderBy(desc(teacherScheduleTemplates.updatedAt))
+    .limit(1);
+  return template ?? null;
 }
 
 async function loadTeacherSchoolId(userId: string): Promise<string> {
@@ -440,20 +471,67 @@ export async function v1Routes(app: FastifyInstance) {
 
       const weekday = dayName(date);
       const schoolId = await loadTeacherSchoolId(user.id);
+      const [activeTemplate, dateOverride] = await Promise.all([
+        loadActiveScheduleTemplate(user.id),
+        db
+          .select({
+            id: scheduleDateOverrides.id,
+            label: scheduleDateOverrides.label,
+            kind: scheduleDateOverrides.kind,
+            rotationDay: scheduleDateOverrides.rotationDay,
+            replaceWeeklySchedule: scheduleDateOverrides.replaceWeeklySchedule
+          })
+          .from(scheduleDateOverrides)
+          .where(and(eq(scheduleDateOverrides.teacherId, user.id), eq(scheduleDateOverrides.date, isoDate)))
+          .limit(1)
+          .then((rows) => rows[0] ?? null)
+      ]);
 
-      const rows = await db
-        .select({
-          sectionId: sections.id,
-          sectionName: sections.name,
-          courseName: courses.name,
-          meetingTime: sectionMeetings.meetingTime,
-          room: sectionMeetings.room
-        })
-        .from(sections)
-        .innerJoin(courses, eq(sections.courseId, courses.id))
-        .innerJoin(sectionMeetings, eq(sectionMeetings.sectionId, sections.id))
-        .where(and(eq(courses.teacherId, user.id), eq(sectionMeetings.day, weekday)))
-        .orderBy(asc(sectionMeetings.meetingTime));
+      const effectiveDay = dateOverride?.rotationDay ?? weekday;
+      const useOverrideMeetings = Boolean(dateOverride?.replaceWeeklySchedule);
+      const rows = dateOverride?.kind === 'no_school'
+        ? []
+        : useOverrideMeetings
+          ? await db
+              .select({
+                sectionId: sections.id,
+                sectionName: sections.name,
+                courseName: courses.name,
+                meetingTime: scheduleDateOverrideMeetings.meetingTime,
+                meetingEndTime: scheduleDateOverrideMeetings.meetingEndTime,
+                room: scheduleDateOverrideMeetings.room
+              })
+              .from(scheduleDateOverrideMeetings)
+              .innerJoin(
+                scheduleDateOverrides,
+                eq(scheduleDateOverrideMeetings.scheduleDateOverrideId, scheduleDateOverrides.id)
+              )
+              .innerJoin(sections, eq(scheduleDateOverrideMeetings.sectionId, sections.id))
+              .innerJoin(courses, eq(sections.courseId, courses.id))
+              .where(eq(scheduleDateOverrides.id, dateOverride!.id))
+              .orderBy(asc(scheduleDateOverrideMeetings.meetingTime))
+          : await db
+              .select({
+                sectionId: sections.id,
+                sectionName: sections.name,
+                courseName: courses.name,
+                meetingTime: sectionMeetings.meetingTime,
+                meetingEndTime: sectionMeetings.meetingEndTime,
+                room: sectionMeetings.room
+              })
+              .from(sections)
+              .innerJoin(courses, eq(sections.courseId, courses.id))
+              .innerJoin(sectionMeetings, eq(sectionMeetings.sectionId, sections.id))
+              .where(
+                and(
+                  eq(courses.teacherId, user.id),
+                  eq(sectionMeetings.day, effectiveDay),
+                  activeTemplate
+                    ? eq(sectionMeetings.scheduleTemplateId, activeTemplate.id)
+                    : isNull(sectionMeetings.scheduleTemplateId)
+                )
+              )
+              .orderBy(asc(sectionMeetings.meetingTime));
 
       const [holiday] = await db
         .select({
@@ -470,20 +548,23 @@ export async function v1Routes(app: FastifyInstance) {
         sectionName: row.sectionName,
         courseName: row.courseName,
         meetingTime: row.meetingTime ? row.meetingTime.slice(0, 5) : null,
+        meetingEndTime: row.meetingEndTime ? row.meetingEndTime.slice(0, 5) : null,
         room: row.room,
-        isInSession: isInSession(row.meetingTime ? row.meetingTime.slice(0, 5) : null)
+        isInSession: isInSession(
+          row.meetingTime ? row.meetingTime.slice(0, 5) : null,
+          row.meetingEndTime ? row.meetingEndTime.slice(0, 5) : null
+        )
       }));
 
       const nowMinutes = date.getUTCHours() * 60 + date.getUTCMinutes();
       const withMinutes = todaySchedule.map((entry) => ({
         ...entry,
-        startMinutes: entry.meetingTime
-          ? Number(entry.meetingTime.slice(0, 2)) * 60 + Number(entry.meetingTime.slice(3, 5))
-          : Number.MAX_SAFE_INTEGER
+        startMinutes: timeToMinutes(entry.meetingTime) ?? Number.MAX_SAFE_INTEGER,
+        endMinutes: timeToMinutes(entry.meetingEndTime)
       }));
 
       const currentClass = withMinutes.find(
-        (entry) => nowMinutes >= entry.startMinutes && nowMinutes <= entry.startMinutes + 55
+        (entry) => nowMinutes >= entry.startMinutes && nowMinutes <= (entry.endMinutes ?? entry.startMinutes + 55)
       );
       const nextClass = withMinutes.find((entry) => entry.startMinutes > nowMinutes);
 
@@ -495,6 +576,7 @@ export async function v1Routes(app: FastifyInstance) {
               courseName: currentClass.courseName,
               sectionName: currentClass.sectionName,
               meetingTime: currentClass.meetingTime,
+              meetingEndTime: currentClass.meetingEndTime,
               room: currentClass.room
             }
           : null,
@@ -503,24 +585,35 @@ export async function v1Routes(app: FastifyInstance) {
               sectionId: nextClass.sectionId,
               courseName: nextClass.courseName,
               sectionName: nextClass.sectionName,
-              meetingTime: nextClass.meetingTime
+              meetingTime: nextClass.meetingTime,
+              meetingEndTime: nextClass.meetingEndTime
             }
           : null,
-        todaySchedule: todaySchedule.map(({ sectionId, courseName, sectionName, meetingTime, room, isInSession: inSession }) => ({
-          sectionId,
-          courseName,
-          sectionName,
-          meetingTime,
-          room,
-          isInSession: inSession
-        })),
-        holiday: holiday
+        todaySchedule: todaySchedule.map(
+          ({ sectionId, courseName, sectionName, meetingTime, meetingEndTime, room, isInSession: inSession }) => ({
+            sectionId,
+            courseName,
+            sectionName,
+            meetingTime,
+            meetingEndTime,
+            room,
+            isInSession: inSession
+          })
+        ),
+        holiday: dateOverride?.kind === 'no_school'
+          ? { id: dateOverride.id, date: isoDate, name: dateOverride.label }
+          : holiday
           ? {
               id: holiday.id,
               date: holiday.date,
               name: holiday.name
             }
-          : null
+          : null,
+        specialDay:
+          dateOverride && dateOverride.kind !== 'no_school'
+            ? { label: dateOverride.label, kind: dateOverride.kind as z.infer<typeof ScheduleDateOverrideKindSchema> }
+            : null,
+        needsScheduleSetup: !activeTemplate && rows.length === 0
       };
 
       await safeRedisSet(app.redis, cacheKey, JSON.stringify(response), 30);
@@ -540,6 +633,7 @@ export async function v1Routes(app: FastifyInstance) {
       const today = dateToIso(new Date());
       const earliestDate = dateToIso(dateDaysAgo(14));
       const schoolId = await loadTeacherSchoolId(user.id);
+      const activeTemplate = await loadActiveScheduleTemplate(user.id);
 
       const meetings = await db
         .select({
@@ -547,12 +641,20 @@ export async function v1Routes(app: FastifyInstance) {
           sectionName: sections.name,
           courseName: courses.name,
           day: sectionMeetings.day,
-          meetingTime: sectionMeetings.meetingTime
+          meetingTime: sectionMeetings.meetingTime,
+          meetingEndTime: sectionMeetings.meetingEndTime
         })
         .from(sections)
         .innerJoin(courses, eq(sections.courseId, courses.id))
         .innerJoin(sectionMeetings, eq(sectionMeetings.sectionId, sections.id))
-        .where(eq(courses.teacherId, user.id));
+        .where(
+          and(
+            eq(courses.teacherId, user.id),
+            activeTemplate
+              ? eq(sectionMeetings.scheduleTemplateId, activeTemplate.id)
+              : isNull(sectionMeetings.scheduleTemplateId)
+          )
+        );
 
       if (!meetings.length) return { pendingSessions: [] };
 
@@ -589,7 +691,10 @@ export async function v1Routes(app: FastifyInstance) {
             )
           ),
         db
-          .select({ sectionId: sectionLessonState.sectionId, sessionDate: sectionLessonState.lastTaughtDate })
+          .select({
+            sectionId: sectionLessonState.sectionId,
+            sessionDate: sectionLessonState.lastTaughtDate
+          })
           .from(sectionLessonState)
           .innerJoin(sections, eq(sectionLessonState.sectionId, sections.id))
           .innerJoin(courses, eq(sections.courseId, courses.id))
@@ -602,7 +707,24 @@ export async function v1Routes(app: FastifyInstance) {
           )
       ]);
 
+      const overrideRows = await db
+        .select({
+          date: scheduleDateOverrides.date,
+          kind: scheduleDateOverrides.kind,
+          rotationDay: scheduleDateOverrides.rotationDay,
+          replaceWeeklySchedule: scheduleDateOverrides.replaceWeeklySchedule
+        })
+        .from(scheduleDateOverrides)
+        .where(
+          and(
+            eq(scheduleDateOverrides.teacherId, user.id),
+            gte(scheduleDateOverrides.date, earliestDate),
+            lte(scheduleDateOverrides.date, today)
+          )
+        );
+
       const holidays = new Set(holidayRows.map((holiday) => String(holiday.date)));
+      const overridesByDate = new Map(overrideRows.map((override) => [String(override.date), override]));
       const resolvedSessions = new Set(
         [...eventRows, ...noteRows, ...progressRows].map(
           (event) => `${event.sectionId}:${String(event.sessionDate)}`
@@ -620,10 +742,15 @@ export async function v1Routes(app: FastifyInstance) {
         const date = dateDaysAgo(daysAgo);
         const sessionDate = dateToIso(date);
         if (holidays.has(sessionDate)) continue;
-        const weekday = dayName(date);
+        const override = overridesByDate.get(sessionDate);
+        if (override?.kind === 'no_school' || override?.replaceWeeklySchedule) continue;
+        const weekday = override?.rotationDay ?? dayName(date);
 
         for (const meeting of meetings) {
-          if (meeting.day !== weekday || !hasMeetingPassed(meeting.meetingTime, date, today))
+          if (
+            meeting.day !== weekday ||
+            !hasMeetingPassed(meeting.meetingTime, meeting.meetingEndTime, date, today)
+          )
             continue;
           if (resolvedSessions.has(`${meeting.sectionId}:${sessionDate}`)) continue;
           pendingSessions.push({
@@ -712,6 +839,7 @@ export async function v1Routes(app: FastifyInstance) {
       if (!principal) return;
       const user = await ensureUserFromPrincipal(principal);
       const schoolId = await loadTeacherSchoolId(user.id);
+      const activeTemplate = await loadActiveScheduleTemplate(user.id);
 
       const rows = await db
         .select({
@@ -721,12 +849,20 @@ export async function v1Routes(app: FastifyInstance) {
           courseName: courses.name,
           day: sectionMeetings.day,
           meetingTime: sectionMeetings.meetingTime,
+          meetingEndTime: sectionMeetings.meetingEndTime,
           room: sectionMeetings.room
         })
         .from(sections)
         .innerJoin(courses, eq(sections.courseId, courses.id))
         .leftJoin(sectionMeetings, eq(sectionMeetings.sectionId, sections.id))
-        .where(eq(courses.teacherId, user.id));
+        .where(
+          and(
+            eq(courses.teacherId, user.id),
+            activeTemplate
+              ? eq(sectionMeetings.scheduleTemplateId, activeTemplate.id)
+              : isNull(sectionMeetings.scheduleTemplateId)
+          )
+        );
 
       const holidayRows = await db
         .select({
@@ -738,6 +874,51 @@ export async function v1Routes(app: FastifyInstance) {
         .where(eq(schoolHolidays.schoolId, schoolId))
         .orderBy(asc(schoolHolidays.date));
 
+      const [blockRows, overrideRows, overrideMeetingRows] = await Promise.all([
+        activeTemplate
+          ? db
+              .select({
+                day: scheduleBlocks.day,
+                startTime: scheduleBlocks.startTime,
+                endTime: scheduleBlocks.endTime,
+                label: scheduleBlocks.label,
+                kind: scheduleBlocks.kind
+              })
+              .from(scheduleBlocks)
+              .where(eq(scheduleBlocks.scheduleTemplateId, activeTemplate.id))
+              .orderBy(asc(scheduleBlocks.startTime))
+          : Promise.resolve([]),
+        db
+          .select({
+            id: scheduleDateOverrides.id,
+            date: scheduleDateOverrides.date,
+            label: scheduleDateOverrides.label,
+            kind: scheduleDateOverrides.kind,
+            rotationDay: scheduleDateOverrides.rotationDay,
+            replaceWeeklySchedule: scheduleDateOverrides.replaceWeeklySchedule
+          })
+          .from(scheduleDateOverrides)
+          .where(eq(scheduleDateOverrides.teacherId, user.id))
+          .orderBy(asc(scheduleDateOverrides.date)),
+        db
+          .select({
+            overrideId: scheduleDateOverrides.id,
+            courseName: courses.name,
+            sectionName: sections.name,
+            meetingTime: scheduleDateOverrideMeetings.meetingTime,
+            meetingEndTime: scheduleDateOverrideMeetings.meetingEndTime,
+            room: scheduleDateOverrideMeetings.room
+          })
+          .from(scheduleDateOverrideMeetings)
+          .innerJoin(
+            scheduleDateOverrides,
+            eq(scheduleDateOverrideMeetings.scheduleDateOverrideId, scheduleDateOverrides.id)
+          )
+          .innerJoin(sections, eq(scheduleDateOverrideMeetings.sectionId, sections.id))
+          .innerJoin(courses, eq(sections.courseId, courses.id))
+          .where(eq(scheduleDateOverrides.teacherId, user.id))
+      ]);
+
       const bySection = new Map<
         string,
         {
@@ -745,7 +926,12 @@ export async function v1Routes(app: FastifyInstance) {
           courseId: string;
           courseName: string;
           sectionName: string;
-          meetings: Array<{ day: string; time: string | null; room: string | null }>;
+          meetings: Array<{
+            day: string;
+            time: string | null;
+            endTime: string | null;
+            room: string | null;
+          }>;
         }
       >();
 
@@ -764,14 +950,44 @@ export async function v1Routes(app: FastifyInstance) {
           bySection.get(row.sectionId)?.meetings.push({
             day: row.day,
             time: row.meetingTime ? row.meetingTime.slice(0, 5) : null,
+            endTime: row.meetingEndTime ? row.meetingEndTime.slice(0, 5) : null,
             room: row.room
           });
         }
       });
 
+      const meetingsByOverride = new Map<string, Array<z.infer<typeof ScheduleDateOverrideMeetingSchema>>>();
+      for (const meeting of overrideMeetingRows) {
+        const values = meetingsByOverride.get(meeting.overrideId) ?? [];
+        values.push({
+          courseName: meeting.courseName,
+          sectionName: meeting.sectionName,
+          startTime: meeting.meetingTime ? meeting.meetingTime.slice(0, 5) : null,
+          endTime: meeting.meetingEndTime ? meeting.meetingEndTime.slice(0, 5) : null,
+          room: meeting.room
+        });
+        meetingsByOverride.set(meeting.overrideId, values);
+      }
+
       return {
         sections: Array.from(bySection.values()),
-        holidays: holidayRows.map((row) => ({ id: row.id, date: row.date, name: row.name }))
+        holidays: holidayRows.map((row) => ({ id: row.id, date: row.date, name: row.name })),
+        blocks: blockRows.map((block) => ({
+          day: block.day,
+          startTime: block.startTime ? block.startTime.slice(0, 5) : null,
+          endTime: block.endTime ? block.endTime.slice(0, 5) : null,
+          label: block.label,
+          kind: block.kind
+        })),
+        overrides: overrideRows.map((override) => ({
+          date: override.date,
+          label: override.label,
+          kind: override.kind,
+          rotationDay: override.rotationDay,
+          replaceWeeklySchedule: override.replaceWeeklySchedule,
+          meetings: meetingsByOverride.get(override.id) ?? []
+        })),
+        hasScheduleSetup: Boolean(activeTemplate)
       };
     }
   );
@@ -1349,6 +1565,262 @@ export async function v1Routes(app: FastifyInstance) {
   );
 
   app.post(
+    '/v1/schedule/setup/weekly/parse',
+    {
+      schema: {
+        body: ScheduleSetupSourceSchema,
+        response: { 200: WeeklyScheduleProposalSchema }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      if (!app.config.OPENAI_API_KEY) {
+        (reply as any).code(503);
+        return { error: 'OPENAI_API_KEY is not configured', requestId: request.id };
+      }
+
+      const body = ScheduleSetupSourceSchema.parse(request.body);
+      return runStructuredPrompt<z.infer<typeof ParseWeeklyScheduleSchema>>({
+        apiKey: app.config.OPENAI_API_KEY,
+        model: app.config.OPENAI_MODEL_PARSE_SCHEDULE,
+        schemaName: 'weekly_schedule_proposal',
+        schema: ParseWeeklyScheduleSchema,
+        systemPrompt:
+          "Extract a teacher's weekly or block schedule into a proposal the teacher will review. Group the teacher's classes into the most likely courses and sections. Preserve each distinct weekday or A-Day/B-Day meeting with its own start and end time. Times must be valid zero-padded 24-hour HH:MM values, for example 08:10 or 13:25; never combine a period number with a time. Put homeroom, lunch, nutrition breaks, prep, planning, duty, meetings, Mass, dismissal, and unassigned blocks in blocks, never courses. Use warnings for handwritten notes, missing times, ambiguous labels, conflicts, or anything that requires teacher confirmation. Do not invent classes or times. Return JSON only.",
+        userPrompt: body.text
+          ? `Create a reviewed weekly schedule proposal from this document:\n${body.text}`
+          : 'Create a reviewed weekly schedule proposal from the supplied image. Return JSON only.',
+        userImageDataUrl: body.imageBase64
+      });
+    }
+  );
+
+  app.post(
+    '/v1/schedule/setup/calendar/parse',
+    {
+      schema: {
+        body: ScheduleSetupSourceSchema,
+        response: { 200: AnnualCalendarProposalSchema }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      if (!app.config.OPENAI_API_KEY) {
+        (reply as any).code(503);
+        return { error: 'OPENAI_API_KEY is not configured', requestId: request.id };
+      }
+
+      const body = ScheduleSetupSourceSchema.parse(request.body);
+      return runStructuredPrompt<z.infer<typeof ParseAnnualCalendarSchema>>({
+        apiKey: app.config.OPENAI_API_KEY,
+        model: app.config.OPENAI_MODEL_PARSE_SCHEDULE,
+        schemaName: 'annual_calendar_proposal',
+        schema: ParseAnnualCalendarSchema,
+        systemPrompt:
+          'Extract a teacher-reviewed annual school calendar. Capture no-school dates, early releases, assemblies, testing, special schedules, and A-Day/B-Day labels when explicit. Expand stated date ranges into individual dates. Set replaceWeeklySchedule only when an explicit special bell schedule replaces normal classes. Include special-class meeting times only when the document clearly names the course/section and time. Use warnings instead of guesses. Return JSON only.',
+        userPrompt: body.text
+          ? `Create an annual calendar proposal from this document:\n${body.text}`
+          : 'Create an annual calendar proposal from the supplied image. Return JSON only.',
+        userImageDataUrl: body.imageBase64
+      });
+    }
+  );
+
+  app.post(
+    '/v1/schedule/setup/apply',
+    {
+      schema: {
+        body: ScheduleSetupApplyRequestSchema,
+        response: { 200: ScheduleSetupApplyResponseSchema }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const schoolId = await loadTeacherSchoolId(user.id);
+      const body = ScheduleSetupApplyRequestSchema.parse(request.body);
+
+      const result = await db.transaction(async (tx) => {
+        const [currentTemplate] = await tx
+          .select({ id: teacherScheduleTemplates.id })
+          .from(teacherScheduleTemplates)
+          .where(and(eq(teacherScheduleTemplates.teacherId, user.id), eq(teacherScheduleTemplates.isActive, true)))
+          .limit(1);
+        if (currentTemplate) {
+          await tx
+            .update(teacherScheduleTemplates)
+            .set({ isActive: false, updatedAt: new Date() })
+            .where(eq(teacherScheduleTemplates.id, currentTemplate.id));
+        }
+
+        const [template] = await tx
+          .insert(teacherScheduleTemplates)
+          .values({ teacherId: user.id, schoolId, name: 'Imported weekly schedule', isActive: true })
+          .returning({ id: teacherScheduleTemplates.id });
+        if (!template) throw new Error('Failed to save weekly schedule');
+
+        let coursesCreated = 0;
+        let sectionsCreated = 0;
+        let meetingsSaved = 0;
+        const sectionIds = new Map<string, string>();
+
+        for (const proposalCourse of body.weekly.courses) {
+          const [existingCourse] = await tx
+            .select({ id: courses.id })
+            .from(courses)
+            .where(and(eq(courses.teacherId, user.id), eq(courses.name, proposalCourse.name)))
+            .limit(1);
+          let courseId = existingCourse?.id;
+          if (!courseId) {
+            const [course] = await tx
+              .insert(courses)
+              .values({
+                teacherId: user.id,
+                schoolId,
+                name: proposalCourse.name,
+                subject: proposalCourse.subject,
+                gradeLevel: proposalCourse.gradeLevel
+              })
+              .returning({ id: courses.id });
+            if (!course) throw new Error('Failed to create course from schedule proposal');
+            courseId = course.id;
+            coursesCreated += 1;
+          }
+
+          for (const proposalSection of proposalCourse.sections) {
+            const [existingSection] = await tx
+              .select({ id: sections.id })
+              .from(sections)
+              .where(and(eq(sections.courseId, courseId), eq(sections.name, proposalSection.name)))
+              .limit(1);
+            let sectionId = existingSection?.id;
+            if (!sectionId) {
+              const [section] = await tx
+                .insert(sections)
+                .values({ courseId, name: proposalSection.name })
+                .returning({ id: sections.id });
+              if (!section) throw new Error('Failed to create section from schedule proposal');
+              sectionId = section.id;
+              sectionsCreated += 1;
+            }
+            sectionIds.set(`${proposalCourse.name}::${proposalSection.name}`, sectionId);
+
+            if (proposalSection.meetings.length) {
+              await tx.insert(sectionMeetings).values(
+                proposalSection.meetings.map((meeting) => ({
+                  sectionId,
+                  scheduleTemplateId: template.id,
+                  day: meeting.day,
+                  meetingTime: meeting.startTime,
+                  meetingEndTime: meeting.endTime,
+                  room: meeting.room
+                }))
+              );
+              meetingsSaved += proposalSection.meetings.length;
+            }
+          }
+        }
+
+        if (body.weekly.blocks.length) {
+          await tx.insert(scheduleBlocks).values(
+            body.weekly.blocks.map((block) => ({
+              scheduleTemplateId: template.id,
+              day: block.day,
+              startTime: block.startTime,
+              endTime: block.endTime,
+              label: block.label,
+              kind: block.kind
+            }))
+          );
+        }
+
+        let overridesSaved = 0;
+        for (const override of body.annualCalendar?.overrides ?? []) {
+          const [existingOverride] = await tx
+            .select({ id: scheduleDateOverrides.id })
+            .from(scheduleDateOverrides)
+            .where(and(eq(scheduleDateOverrides.teacherId, user.id), eq(scheduleDateOverrides.date, override.date)))
+            .limit(1);
+          let overrideId = existingOverride?.id;
+          if (overrideId) {
+            await tx
+              .update(scheduleDateOverrides)
+              .set({
+                label: override.label,
+                kind: override.kind,
+                rotationDay: override.rotationDay,
+                replaceWeeklySchedule: override.replaceWeeklySchedule,
+                updatedAt: new Date()
+              })
+              .where(eq(scheduleDateOverrides.id, overrideId));
+            await tx
+              .delete(scheduleDateOverrideMeetings)
+              .where(eq(scheduleDateOverrideMeetings.scheduleDateOverrideId, overrideId));
+          } else {
+            const [createdOverride] = await tx
+              .insert(scheduleDateOverrides)
+              .values({
+                teacherId: user.id,
+                schoolId,
+                date: override.date,
+                label: override.label,
+                kind: override.kind,
+                rotationDay: override.rotationDay,
+                replaceWeeklySchedule: override.replaceWeeklySchedule
+              })
+              .returning({ id: scheduleDateOverrides.id });
+            if (!createdOverride) throw new Error('Failed to save calendar override');
+            overrideId = createdOverride.id;
+          }
+
+          if (override.meetings.length) {
+            const values = override.meetings.map((meeting) => {
+              const sectionId = sectionIds.get(`${meeting.courseName}::${meeting.sectionName}`);
+              if (!sectionId) {
+                throw new Error(
+                  `Calendar override references ${meeting.courseName} / ${meeting.sectionName}, which is not in the reviewed weekly schedule`
+                );
+              }
+              return {
+                scheduleDateOverrideId: overrideId,
+                sectionId,
+                meetingTime: meeting.startTime,
+                meetingEndTime: meeting.endTime,
+                room: meeting.room
+              };
+            });
+            await tx.insert(scheduleDateOverrideMeetings).values(values);
+          }
+
+          if (override.kind === 'no_school') {
+            await tx
+              .insert(schoolHolidays)
+              .values({ schoolId, date: override.date, name: override.label, createdByUserId: user.id })
+              .onConflictDoUpdate({
+                target: [schoolHolidays.schoolId, schoolHolidays.date],
+                set: { name: override.label }
+              });
+          }
+          overridesSaved += 1;
+        }
+
+        return {
+          coursesCreated,
+          sectionsCreated,
+          meetingsSaved,
+          blocksSaved: body.weekly.blocks.length,
+          overridesSaved
+        };
+      });
+
+      return result;
+    }
+  );
+
+  app.post(
     '/v1/schedule/import',
     {
       schema: {
@@ -1368,18 +1840,18 @@ export async function v1Routes(app: FastifyInstance) {
         return { error: 'text or imageBase64 is required', requestId: request.id };
       }
 
-      if (!app.config.OPENROUTER_API_KEY) {
+      if (!app.config.OPENAI_API_KEY) {
         (reply as any).code(503);
-        return { error: 'OPENROUTER_API_KEY is not configured', requestId: request.id };
+        return { error: 'OPENAI_API_KEY is not configured', requestId: request.id };
       }
 
       const response = await runStructuredPrompt<z.infer<typeof InternalParseScheduleSchema>>({
-        apiKey: app.config.OPENROUTER_API_KEY,
-        model: app.config.OPENROUTER_MODEL_PARSE_SCHEDULE,
+        apiKey: app.config.OPENAI_API_KEY,
+        model: app.config.OPENAI_MODEL_PARSE_SCHEDULE,
         schemaName: 'schedule_import',
         schema: InternalParseScheduleSchema,
         systemPrompt:
-          'Extract schedule classes and assignments. Return JSON only. Ignore non-teaching blocks like lunch/planning.',
+          "Extract a teacher's complete teaching schedule. Identify every unique course and section, including all meeting days, start times, rooms, subject, and grade. For a repeating block schedule, use A-Day and B-Day when those labels are shown; otherwise use the named weekdays. Combine repeated occurrences of the same course and period into one class with all applicable days. Ignore lunch, planning, duty, meetings, breaks, and non-teaching blocks. Return JSON only.",
         userPrompt: body.text
           ? `Parse this teacher schedule and assignments:\n${body.text}`
           : 'Parse the provided schedule image and return classes + assignments. Output JSON only.',
@@ -1401,15 +1873,15 @@ export async function v1Routes(app: FastifyInstance) {
     async (request, reply) => {
       const principal = requirePrincipal(request, reply);
       if (!principal) return;
-      if (!app.config.OPENROUTER_API_KEY) {
+      if (!app.config.OPENAI_API_KEY) {
         (reply as any).code(503);
-        return { error: 'OPENROUTER_API_KEY is not configured', requestId: request.id };
+        return { error: 'OPENAI_API_KEY is not configured', requestId: request.id };
       }
 
       const body = AcademicCalendarParseRequestSchema.parse(request.body);
       return runStructuredPrompt<z.infer<typeof AcademicCalendarParseResponseSchema>>({
-        apiKey: app.config.OPENROUTER_API_KEY,
-        model: app.config.OPENROUTER_MODEL_PARSE_SCHEDULE,
+        apiKey: app.config.OPENAI_API_KEY,
+        model: app.config.OPENAI_MODEL_PARSE_SCHEDULE,
         schemaName: 'academic_calendar',
         schema: AcademicCalendarParseResponseSchema,
         systemPrompt:
@@ -1481,7 +1953,11 @@ export async function v1Routes(app: FastifyInstance) {
         }
 
         const existingMeetings = await db
-          .select({ day: sectionMeetings.day, meetingTime: sectionMeetings.meetingTime, room: sectionMeetings.room })
+          .select({
+            day: sectionMeetings.day,
+            meetingTime: sectionMeetings.meetingTime,
+            room: sectionMeetings.room
+          })
           .from(sectionMeetings)
           .where(eq(sectionMeetings.sectionId, sectionId));
         const missingMeetings = importedClass.days.filter(
@@ -1489,7 +1965,8 @@ export async function v1Routes(app: FastifyInstance) {
             !existingMeetings.some(
               (meeting) =>
                 meeting.day === day &&
-                (meeting.meetingTime ? meeting.meetingTime.slice(0, 5) : null) === importedClass.time &&
+                (meeting.meetingTime ? meeting.meetingTime.slice(0, 5) : null) ===
+                  importedClass.time &&
                 meeting.room === importedClass.room
             )
         );
@@ -2046,9 +2523,9 @@ export async function v1Routes(app: FastifyInstance) {
         return { error: 'text or imageBase64 is required', requestId: request.id };
       }
 
-      if (!app.config.OPENROUTER_API_KEY) {
+      if (!app.config.OPENAI_API_KEY) {
         (reply as any).code(503);
-        return { error: 'OPENROUTER_API_KEY is not configured', requestId: request.id };
+        return { error: 'OPENAI_API_KEY is not configured', requestId: request.id };
       }
 
       const user = await ensureUserFromPrincipal(principal);
@@ -2065,8 +2542,8 @@ export async function v1Routes(app: FastifyInstance) {
 
       try {
         const output = await runStructuredPrompt<z.infer<typeof InternalParseScheduleSchema>>({
-          apiKey: app.config.OPENROUTER_API_KEY,
-          model: app.config.OPENROUTER_MODEL_PARSE_SCHEDULE,
+          apiKey: app.config.OPENAI_API_KEY,
+          model: app.config.OPENAI_MODEL_PARSE_SCHEDULE,
           schemaName: 'parse_schedule',
           schema: InternalParseScheduleSchema,
           systemPrompt:
@@ -2081,13 +2558,20 @@ export async function v1Routes(app: FastifyInstance) {
           outputType: 'parse_schedule',
           payload: output
         });
-        await db.update(aiJobs).set({ status: 'succeeded', output, updatedAt: new Date() }).where(eq(aiJobs.id, job.id));
+        await db
+          .update(aiJobs)
+          .set({ status: 'succeeded', output, updatedAt: new Date() })
+          .where(eq(aiJobs.id, job.id));
 
         return ParseScheduleResponseSchema.parse(output);
       } catch (error) {
         await db
           .update(aiJobs)
-          .set({ status: 'failed', error: error instanceof Error ? error.message : 'Unknown error', updatedAt: new Date() })
+          .set({
+            status: 'failed',
+            error: error instanceof Error ? error.message : 'Unknown error',
+            updatedAt: new Date()
+          })
           .where(eq(aiJobs.id, job.id));
         throw error;
       }
@@ -2105,15 +2589,15 @@ export async function v1Routes(app: FastifyInstance) {
     async (request, reply) => {
       const principal = requirePrincipal(request, reply);
       if (!principal) return;
-      if (!app.config.OPENROUTER_API_KEY) {
+      if (!app.config.OPENAI_API_KEY) {
         (reply as any).code(503);
-        return { error: 'OPENROUTER_API_KEY is not configured', requestId: request.id };
+        return { error: 'OPENAI_API_KEY is not configured', requestId: request.id };
       }
 
       const body = GenerateActivityRequestSchema.parse(request.body);
       return runStructuredPrompt<z.infer<typeof GenerateActivityResponseSchema>>({
-        apiKey: app.config.OPENROUTER_API_KEY,
-        model: app.config.OPENROUTER_MODEL_GENERATE_SEGMENTS,
+        apiKey: app.config.OPENAI_API_KEY,
+        model: app.config.OPENAI_MODEL_GENERATE_SEGMENTS,
         schemaName: 'classroom_activity',
         schema: GenerateActivityResponseSchema,
         systemPrompt:
@@ -2134,15 +2618,15 @@ export async function v1Routes(app: FastifyInstance) {
     async (request, reply) => {
       const principal = requirePrincipal(request, reply);
       if (!principal) return;
-      if (!app.config.OPENROUTER_API_KEY) {
+      if (!app.config.OPENAI_API_KEY) {
         (reply as any).code(503);
-        return { error: 'OPENROUTER_API_KEY is not configured', requestId: request.id };
+        return { error: 'OPENAI_API_KEY is not configured', requestId: request.id };
       }
 
       const body = GenerateSemesterRequestSchema.parse(request.body);
       return runStructuredPrompt<z.infer<typeof GenerateSemesterResponseSchema>>({
-        apiKey: app.config.OPENROUTER_API_KEY,
-        model: app.config.OPENROUTER_MODEL_GENERATE_SEGMENTS,
+        apiKey: app.config.OPENAI_API_KEY,
+        model: app.config.OPENAI_MODEL_GENERATE_SEGMENTS,
         schemaName: 'semester_outline',
         schema: GenerateSemesterResponseSchema,
         systemPrompt:
@@ -2166,9 +2650,9 @@ export async function v1Routes(app: FastifyInstance) {
       const principal = requirePrincipal(request, reply);
       if (!principal) return;
 
-      if (!app.config.OPENROUTER_API_KEY) {
+      if (!app.config.OPENAI_API_KEY) {
         (reply as any).code(503);
-        return { error: 'OPENROUTER_API_KEY is not configured', requestId: request.id };
+        return { error: 'OPENAI_API_KEY is not configured', requestId: request.id };
       }
 
       const body = GenerateSegmentsRequestSchema.parse(request.body);
@@ -2187,8 +2671,8 @@ export async function v1Routes(app: FastifyInstance) {
 
       try {
         const output = await runStructuredPrompt<z.infer<typeof GenerateSegmentsResponseSchema>>({
-          apiKey: app.config.OPENROUTER_API_KEY,
-          model: app.config.OPENROUTER_MODEL_GENERATE_SEGMENTS,
+          apiKey: app.config.OPENAI_API_KEY,
+          model: app.config.OPENAI_MODEL_GENERATE_SEGMENTS,
           schemaName: 'generate_segments',
           schema: GenerateSegmentsResponseSchema,
           systemPrompt:
@@ -2201,12 +2685,19 @@ export async function v1Routes(app: FastifyInstance) {
           outputType: 'generate_segments',
           payload: output
         });
-        await db.update(aiJobs).set({ status: 'succeeded', output, updatedAt: new Date() }).where(eq(aiJobs.id, job.id));
+        await db
+          .update(aiJobs)
+          .set({ status: 'succeeded', output, updatedAt: new Date() })
+          .where(eq(aiJobs.id, job.id));
         return output;
       } catch (error) {
         await db
           .update(aiJobs)
-          .set({ status: 'failed', error: error instanceof Error ? error.message : 'Unknown error', updatedAt: new Date() })
+          .set({
+            status: 'failed',
+            error: error instanceof Error ? error.message : 'Unknown error',
+            updatedAt: new Date()
+          })
           .where(eq(aiJobs.id, job.id));
         throw error;
       }
@@ -2227,9 +2718,9 @@ export async function v1Routes(app: FastifyInstance) {
       const principal = requirePrincipal(request, reply);
       if (!principal) return;
 
-      if (!app.config.OPENROUTER_API_KEY) {
+      if (!app.config.OPENAI_API_KEY) {
         (reply as any).code(503);
-        return { error: 'OPENROUTER_API_KEY is not configured', requestId: request.id };
+        return { error: 'OPENAI_API_KEY is not configured', requestId: request.id };
       }
 
       const body = GenerateContinuityRequestSchema.parse(request.body);
@@ -2248,8 +2739,8 @@ export async function v1Routes(app: FastifyInstance) {
 
       try {
         const output = await runStructuredPrompt<z.infer<typeof GenerateContinuityResponseSchema>>({
-          apiKey: app.config.OPENROUTER_API_KEY,
-          model: app.config.OPENROUTER_MODEL_CONTINUITY,
+          apiKey: app.config.OPENAI_API_KEY,
+          model: app.config.OPENAI_MODEL_CONTINUITY,
           schemaName: 'generate_continuity',
           schema: GenerateContinuityResponseSchema,
           systemPrompt:
@@ -2262,12 +2753,19 @@ export async function v1Routes(app: FastifyInstance) {
           outputType: 'generate_continuity',
           payload: output
         });
-        await db.update(aiJobs).set({ status: 'succeeded', output, updatedAt: new Date() }).where(eq(aiJobs.id, job.id));
+        await db
+          .update(aiJobs)
+          .set({ status: 'succeeded', output, updatedAt: new Date() })
+          .where(eq(aiJobs.id, job.id));
         return output;
       } catch (error) {
         await db
           .update(aiJobs)
-          .set({ status: 'failed', error: error instanceof Error ? error.message : 'Unknown error', updatedAt: new Date() })
+          .set({
+            status: 'failed',
+            error: error instanceof Error ? error.message : 'Unknown error',
+            updatedAt: new Date()
+          })
           .where(eq(aiJobs.id, job.id));
         throw error;
       }

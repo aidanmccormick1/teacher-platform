@@ -127,10 +127,94 @@ export const sectionMeetings = pgTable(
       .references(() => sections.id, { onDelete: 'cascade' }),
     day: text('day').notNull(),
     meetingTime: time('meeting_time'),
+    meetingEndTime: time('meeting_end_time'),
     room: text('room'),
+    scheduleTemplateId: uuid('schedule_template_id').references(() => teacherScheduleTemplates.id, {
+      onDelete: 'cascade'
+    }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
   },
   (table) => [index('idx_section_meetings_section').on(table.sectionId)]
+);
+
+export const teacherScheduleTemplates = pgTable(
+  'teacher_schedule_templates',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    teacherId: uuid('teacher_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    schoolId: uuid('school_id')
+      .notNull()
+      .references(() => schools.id, { onDelete: 'cascade' }),
+    name: text('name').notNull().default('Weekly schedule'),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [
+    index('idx_teacher_schedule_templates_teacher').on(table.teacherId),
+    index('idx_teacher_schedule_templates_active').on(table.teacherId, table.isActive)
+  ]
+);
+
+export const scheduleBlocks = pgTable(
+  'schedule_blocks',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    scheduleTemplateId: uuid('schedule_template_id')
+      .notNull()
+      .references(() => teacherScheduleTemplates.id, { onDelete: 'cascade' }),
+    day: text('day').notNull(),
+    startTime: time('start_time'),
+    endTime: time('end_time'),
+    label: text('label').notNull(),
+    kind: text('kind').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [index('idx_schedule_blocks_template').on(table.scheduleTemplateId)]
+);
+
+export const scheduleDateOverrides = pgTable(
+  'schedule_date_overrides',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    teacherId: uuid('teacher_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    schoolId: uuid('school_id')
+      .notNull()
+      .references(() => schools.id, { onDelete: 'cascade' }),
+    date: date('date').notNull(),
+    label: text('label').notNull(),
+    kind: text('kind').notNull(),
+    rotationDay: text('rotation_day'),
+    replaceWeeklySchedule: boolean('replace_weekly_schedule').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [
+    unique('uniq_schedule_date_override_teacher_date').on(table.teacherId, table.date),
+    index('idx_schedule_date_override_teacher_date').on(table.teacherId, table.date)
+  ]
+);
+
+export const scheduleDateOverrideMeetings = pgTable(
+  'schedule_date_override_meetings',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    scheduleDateOverrideId: uuid('schedule_date_override_id')
+      .notNull()
+      .references(() => scheduleDateOverrides.id, { onDelete: 'cascade' }),
+    sectionId: uuid('section_id')
+      .notNull()
+      .references(() => sections.id, { onDelete: 'cascade' }),
+    meetingTime: time('meeting_time'),
+    meetingEndTime: time('meeting_end_time'),
+    room: text('room'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [index('idx_schedule_override_meetings_override').on(table.scheduleDateOverrideId)]
 );
 
 export const schoolHolidays = pgTable(

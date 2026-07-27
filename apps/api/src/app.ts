@@ -30,6 +30,7 @@ export async function createApp(config: AppConfig) {
   }
 
   const app = Fastify({
+    bodyLimit: 12 * 1024 * 1024,
     logger: {
       level: config.NODE_ENV === 'production' ? 'info' : 'debug'
     },

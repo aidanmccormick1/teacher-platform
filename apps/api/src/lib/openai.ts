@@ -9,28 +9,53 @@ type PromptInput = {
   systemPrompt: string;
   userPrompt: string;
   userImageDataUrl?: string;
+  userImageDataUrls?: string[];
 };
 
 function extractOutputText(payload: unknown): string {
-  if (!payload || typeof payload !== 'object' || !('choices' in payload) || !Array.isArray(payload.choices)) {
-    throw new Error('Could not extract output text from OpenRouter response');
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('Could not extract output text from OpenAI response');
   }
 
-  const content = payload.choices[0]?.message?.content;
-  if (typeof content !== 'string') {
-    throw new Error('OpenRouter response did not include a text completion');
+  if ('output_text' in payload && typeof payload.output_text === 'string') {
+    return payload.output_text;
   }
 
-  return content;
+  if ('output' in payload && Array.isArray(payload.output)) {
+    for (const item of payload.output) {
+      if (!item || typeof item !== 'object' || !('content' in item) || !Array.isArray(item.content))
+        continue;
+      for (const content of item.content) {
+        const contentRecord = content as Record<string, unknown>;
+        if (
+          content &&
+          typeof content === 'object' &&
+          contentRecord.type === 'output_text' &&
+          typeof contentRecord.text === 'string'
+        ) {
+          return contentRecord.text;
+        }
+      }
+    }
+  }
+
+  throw new Error('OpenAI response did not include structured output text');
 }
 
 export async function runStructuredPrompt<T>(params: PromptInput): Promise<T> {
-  const schemaJson = zodToJsonSchema(params.schema, params.schemaName);
+  const schemaJson = zodToJsonSchema(params.schema, {
+    name: params.schemaName,
+    $refStrategy: 'none'
+  });
+  const imageUrls = [
+    ...(params.userImageDataUrls ?? []),
+    ...(params.userImageDataUrl ? [params.userImageDataUrl] : [])
+  ];
   let lastError: unknown;
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      const response = await fetch('https://api.openai.com/v1/responses', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${params.apiKey}`,
@@ -38,21 +63,20 @@ export async function runStructuredPrompt<T>(params: PromptInput): Promise<T> {
         },
         body: JSON.stringify({
           model: params.model,
-          messages: [
-            { role: 'system', content: params.systemPrompt },
+          input: [
+            { role: 'system', content: [{ type: 'input_text', text: params.systemPrompt }] },
             {
               role: 'user',
-              content: params.userImageDataUrl
-                ? [
-                    { type: 'text', text: params.userPrompt },
-                    { type: 'image_url', image_url: { url: params.userImageDataUrl } }
-                  ]
-                : params.userPrompt
+              content: [
+                { type: 'input_text', text: params.userPrompt },
+                ...imageUrls.map((imageUrl) => ({ type: 'input_image', image_url: imageUrl }))
+              ]
             }
           ],
-          response_format: {
-            type: 'json_schema',
-            json_schema: {
+          reasoning: { effort: 'low' },
+          text: {
+            format: {
+              type: 'json_schema',
               name: params.schemaName,
               strict: true,
               schema: schemaJson
@@ -62,7 +86,15 @@ export async function runStructuredPrompt<T>(params: PromptInput): Promise<T> {
       });
 
       if (!response.ok) {
-        throw new Error(`OpenRouter request failed with status ${response.status}`);
+        const errorPayload = (await response.json().catch(() => null)) as {
+          error?: { message?: unknown };
+        } | null;
+        const detail = errorPayload?.error?.message;
+        throw new Error(
+          `OpenAI request failed with status ${response.status}${
+            typeof detail === 'string' ? `: ${detail}` : ''
+          }`
+        );
       }
 
       const payload = (await response.json()) as unknown;
@@ -75,5 +107,5 @@ export async function runStructuredPrompt<T>(params: PromptInput): Promise<T> {
     }
   }
 
-  throw lastError instanceof Error ? lastError : new Error('OpenRouter structured request failed');
+  throw lastError instanceof Error ? lastError : new Error('OpenAI structured request failed');
 }
