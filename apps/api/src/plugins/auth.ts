@@ -38,7 +38,9 @@ export const authPlugin = fp(async (app) => {
 
     try {
       const tokenClaims = await verifyToken(token, {
-        secretKey: app.config.CLERK_SECRET_KEY,
+        // Deployment dashboards can preserve a trailing newline when a secret is pasted.
+        // Clerk treats that as a different key, so normalize it at the boundary.
+        secretKey: app.config.CLERK_SECRET_KEY.trim(),
         authorizedParties: app.config.CLERK_AUTHORIZED_PARTIES.split(',').map((value) => value.trim())
       });
 
