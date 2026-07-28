@@ -38,13 +38,21 @@ export const authPlugin = fp(async (app) => {
 
     try {
       const verificationKey = app.config.CLERK_JWT_KEY?.trim();
+      const authorizedParties = [
+        ...new Set([
+          ...app.config.CLERK_AUTHORIZED_PARTIES.split(',').map((value) => value.trim()),
+          // The current Render static-site URL remains valid while the legacy
+          // Blueprint is repointed to this repository.
+          'https://teacheros-aidan-web.onrender.com'
+        ])
+      ];
       const tokenClaims = await verifyToken(token, {
         // Prefer the instance's public JWT key. It avoids a runtime lookup and
         // is safer to deploy than a long-lived backend secret.
         ...(verificationKey
           ? { jwtKey: verificationKey }
           : { secretKey: app.config.CLERK_SECRET_KEY?.trim() }),
-        authorizedParties: app.config.CLERK_AUTHORIZED_PARTIES.split(',').map((value) => value.trim())
+        authorizedParties
       });
 
       request.principal = {
