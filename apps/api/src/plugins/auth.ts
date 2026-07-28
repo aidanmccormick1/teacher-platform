@@ -25,8 +25,8 @@ export const authPlugin = fp(async (app) => {
       return;
     }
 
-    if (!app.config.CLERK_SECRET_KEY) {
-      reply.code(500).send({ error: 'CLERK_SECRET_KEY is not configured', requestId: request.id });
+    if (!app.config.CLERK_SECRET_KEY && !app.config.CLERK_JWT_KEY) {
+      reply.code(500).send({ error: 'Clerk verification is not configured', requestId: request.id });
       return;
     }
 
@@ -37,10 +37,13 @@ export const authPlugin = fp(async (app) => {
     }
 
     try {
+      const verificationKey = app.config.CLERK_JWT_KEY?.trim();
       const tokenClaims = await verifyToken(token, {
-        // Deployment dashboards can preserve a trailing newline when a secret is pasted.
-        // Clerk treats that as a different key, so normalize it at the boundary.
-        secretKey: app.config.CLERK_SECRET_KEY.trim(),
+        // Prefer the instance's public JWT key. It avoids a runtime lookup and
+        // is safer to deploy than a long-lived backend secret.
+        ...(verificationKey
+          ? { jwtKey: verificationKey }
+          : { secretKey: app.config.CLERK_SECRET_KEY?.trim() }),
         authorizedParties: app.config.CLERK_AUTHORIZED_PARTIES.split(',').map((value) => value.trim())
       });
 
