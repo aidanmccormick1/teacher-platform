@@ -13,3 +13,7 @@ Required environment variables:
 - `VITE_API_BASE_URL` (Render API URL, e.g. `https://teacheros-api.onrender.com`)
 - `VITE_CLERK_PUBLISHABLE_KEY`
 - `VITE_SENTRY_DSN` (optional)
+
+The Render API's `CLERK_AUTHORIZED_PARTIES` value must include
+`https://teacher-dashboard-clean.pages.dev`. This lets the API verify Clerk
+tokens issued to the Pages deployment.

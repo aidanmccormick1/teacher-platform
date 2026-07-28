@@ -54,6 +54,10 @@ export const authPlugin = fp(async (app) => {
       const authorizedParties = [
         ...new Set([
           ...app.config.CLERK_AUTHORIZED_PARTIES.split(',').map((value) => value.trim()),
+          // Cloudflare Pages is the public production frontend. Clerk puts the
+          // requesting origin in the token's authorized-party claim, so this
+          // exact origin must be accepted when tokens are verified by Render.
+          'https://teacher-dashboard-clean.pages.dev',
           // The current Render static-site URL remains valid while the legacy
           // Blueprint is repointed to this repository.
           'https://teacheros-aidan-web.onrender.com'

@@ -31,7 +31,7 @@ services:
       - key: CLERK_SECRET_KEY
         sync: false
       - key: CLERK_AUTHORIZED_PARTIES
-        value: https://teacheros-aidan-web.onrender.com,https://teacheros-web.onrender.com
+        value: https://teacher-dashboard-clean.pages.dev,https://teacheros-aidan-web.onrender.com,https://teacheros-web.onrender.com
       - key: OPENAI_API_KEY
         sync: false
       - key: OPENAI_MODEL_PARSE_SCHEDULE

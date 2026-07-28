@@ -101,7 +101,8 @@ export function AppAuthProvider({ children }: PropsWithChildren) {
   // instance until production DNS is completed.
   const configuredPublishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
   const developmentPublishableKey = 'pk_test_ZnVuLXdlZXZpbC0xMS5jbGVyay5hY2NvdW50cy5kZXYk';
-  const publishableKey = configuredPublishableKey?.startsWith('pk_test_')
+  const publishableKey =
+    configuredPublishableKey?.startsWith('pk_test_') || configuredPublishableKey?.startsWith('pk_live_')
     ? configuredPublishableKey
     : developmentPublishableKey;
 
