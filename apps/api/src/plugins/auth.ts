@@ -1,6 +1,19 @@
 import fp from 'fastify-plugin';
 import { verifyToken } from '@clerk/backend';
 
+// Public verification key for the Clerk development instance serving the
+// deployed TeacherOS site. This is not a credential and avoids depending on a
+// dashboard-pasted, multiline environment value.
+const DEPLOYED_CLERK_JWT_KEY = `-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA5eX3zK/SkRroDRqnGyTk
+UZH7GaOJS3OIS1jXxwjZibV3IZoNTUsp6Nv3PdO4eS1gnCwmoj9K1huq32oUf844
+jIrjsM2HPHclmnlSw/vRcNA/XrNJ0iNUVYzCUjWplo77IyotHSQzY1hcSB7BOSLz
+AdtfhNOmDM5T0nu4Sx/UVxC8ngrvVbN81kzslP4R+JIZvDgkZpU0XRoAaYAXsUA7
+UBWWJSk6XxQa5Ycv8W+8gGfdoYn9VFqQOSYYq3B3TQxi66qPBua+5t+9HWGmnoR7
+Vaqef7Zss7xhqRE1N7Cz/GjNkWQq4tYY2IT+EwwkZ8s8DvBUcUQEHLRaUTFkzXjF
+uwIDAQAB
+-----END PUBLIC KEY-----`;
+
 export const authPlugin = fp(async (app) => {
   app.decorateRequest('principal', null);
 
@@ -37,7 +50,7 @@ export const authPlugin = fp(async (app) => {
     }
 
     try {
-      const verificationKey = app.config.CLERK_JWT_KEY?.trim();
+      const verificationKey = DEPLOYED_CLERK_JWT_KEY;
       const authorizedParties = [
         ...new Set([
           ...app.config.CLERK_AUTHORIZED_PARTIES.split(',').map((value) => value.trim()),

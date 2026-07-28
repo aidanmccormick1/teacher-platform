@@ -7,7 +7,7 @@ services:
     # deliberately later if usage requires an always-on instance.
     plan: free
     region: ohio
-    buildCommand: npm ci && npm run build
+    buildCommand: npm ci --include=dev && npm run build
     # Free-tier web services do not support Render's separate pre-deploy hook.
     # Run the idempotent migration immediately before starting the API instead.
     startCommand: npm --workspace @teacheros/db run db:migrate && npm --workspace @teacheros/api run start
@@ -55,7 +55,7 @@ services:
     name: teacheros-web
     runtime: static
     rootDir: .
-    buildCommand: npm ci && npm --workspace @teacheros/web run build
+    buildCommand: npm ci --include=dev && npm --workspace @teacheros/web run build
     staticPublishPath: ./apps/web/dist
     routes:
       - type: rewrite
