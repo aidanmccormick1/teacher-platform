@@ -74,6 +74,9 @@ describe('OpenAI structured schedule prompts', () => {
     expect(body.model).toBe('gpt-5.6-luna');
     expect(body.reasoning).toEqual({ effort: 'low' });
     expect(body.text.format.type).toBe('json_schema');
+    expect(body.text.format.schema.definitions.weekly_schedule_proposal.properties.courses.items.required).toContain(
+      'gradeLevel'
+    );
     expect(body.input[1].content).toContainEqual({
       type: 'input_image',
       image_url: 'data:image/png;base64,test'

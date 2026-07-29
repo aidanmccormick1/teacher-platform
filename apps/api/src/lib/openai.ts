@@ -14,6 +14,28 @@ type PromptInput = {
 
 const OPENAI_REQUEST_TIMEOUT_MS = 45_000;
 
+/**
+ * The Responses API strict-schema mode requires every object property to be
+ * listed in `required`, including properties that Zod models as optional.
+ * Zod's parser still supplies defaults after a response is received; this only
+ * makes the JSON Schema acceptable to the provider and gives the model a
+ * complete response shape to fill.
+ */
+function makeSchemaStrictForOpenAi(schema: unknown): unknown {
+  if (Array.isArray(schema)) return schema.map(makeSchemaStrictForOpenAi);
+  if (!schema || typeof schema !== 'object') return schema;
+
+  const record = schema as Record<string, unknown>;
+  const normalized = Object.fromEntries(
+    Object.entries(record).map(([key, value]) => [key, makeSchemaStrictForOpenAi(value)])
+  );
+  const properties = normalized.properties;
+  if (properties && typeof properties === 'object' && !Array.isArray(properties)) {
+    normalized.required = Object.keys(properties as Record<string, unknown>);
+  }
+  return normalized;
+}
+
 function extractOutputText(payload: unknown): string {
   if (!payload || typeof payload !== 'object') {
     throw new Error('Could not extract output text from OpenAI response');
@@ -45,10 +67,10 @@ function extractOutputText(payload: unknown): string {
 }
 
 export async function runStructuredPrompt<T>(params: PromptInput): Promise<T> {
-  const schemaJson = zodToJsonSchema(params.schema, {
+  const schemaJson = makeSchemaStrictForOpenAi(zodToJsonSchema(params.schema, {
     name: params.schemaName,
     $refStrategy: 'none'
-  });
+  }));
   const imageUrls = [
     ...(params.userImageDataUrls ?? []),
     ...(params.userImageDataUrl ? [params.userImageDataUrl] : [])
