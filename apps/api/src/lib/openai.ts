@@ -31,7 +31,7 @@ function makeSchemaStrictForOpenAi(schema: unknown): unknown {
   );
   const properties = normalized.properties;
   if (properties && typeof properties === 'object' && !Array.isArray(properties)) {
-    normalized.required = Object.keys(properties as Record<string, unknown>);
+    normalized.required = Object.keys(properties);
   }
   return normalized;
 }
