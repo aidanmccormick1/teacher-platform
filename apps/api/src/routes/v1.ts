@@ -137,6 +137,34 @@ function timeToMinutes(meetingTime: string | null): number | null {
   return hours * 60 + minutes;
 }
 
+function normalizeImportedTime(value: string | null): string | null {
+  if (!value) return value;
+  const match = value.match(/(\d{1,2}):(\d{2})(?:\s*(a\.?m\.?|p\.?m\.?)\b)?/i);
+  if (!match) return value;
+
+  let hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (!Number.isInteger(hours) || !Number.isInteger(minutes) || minutes > 59) return value;
+
+  const meridiem = match[3]?.replaceAll('.', '').toLowerCase();
+  if (meridiem) {
+    if (hours < 1 || hours > 12) return value;
+    if (meridiem === 'am') hours = hours === 12 ? 0 : hours;
+    else hours = hours === 12 ? 12 : hours + 12;
+  } else if (hours > 23) {
+    return value;
+  }
+
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+}
+
+function normalizeImportedScheduleTimes(response: z.infer<typeof InternalParseScheduleSchema>) {
+  return {
+    ...response,
+    classes: response.classes.map((item) => ({ ...item, time: normalizeImportedTime(item.time) }))
+  };
+}
+
 function isInSession(meetingTime: string | null, meetingEndTime: string | null): boolean {
   const startMinutes = timeToMinutes(meetingTime);
   if (startMinutes === null) return false;
@@ -1860,7 +1888,7 @@ export async function v1Routes(app: FastifyInstance) {
         userImageDataUrl: body.imageBase64
       });
 
-      return ParseScheduleResponseSchema.parse(response);
+      return ParseScheduleResponseSchema.parse(normalizeImportedScheduleTimes(response));
     }
   );
 
@@ -2565,7 +2593,7 @@ export async function v1Routes(app: FastifyInstance) {
           .set({ status: 'succeeded', output, updatedAt: new Date() })
           .where(eq(aiJobs.id, job.id));
 
-        return ParseScheduleResponseSchema.parse(output);
+        return ParseScheduleResponseSchema.parse(normalizeImportedScheduleTimes(output));
       } catch (error) {
         await db
           .update(aiJobs)
