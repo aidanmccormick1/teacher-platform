@@ -56,7 +56,10 @@ export async function createApp(config: AppConfig) {
 
   await app.register(cors, {
     origin: true,
-    credentials: true
+    credentials: true,
+    // The web client uses PATCH and DELETE for profile and management updates.
+    // Explicitly include them so browser preflights are permitted in production.
+    methods: ['GET', 'HEAD', 'POST', 'PATCH', 'DELETE', 'OPTIONS']
   });
 
   await app.register(helmet);
