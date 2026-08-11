@@ -53,6 +53,8 @@ import type {
 import { useAppAuth } from './auth.js';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3001';
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+const AI_IMPORT_REQUEST_TIMEOUT_MS = 90_000;
 
 export class ApiError extends Error {
   constructor(
@@ -66,7 +68,8 @@ export class ApiError extends Error {
 async function request<TResponse>(
   path: string,
   init: RequestInit,
-  auth: ReturnType<typeof useAppAuth>
+  auth: ReturnType<typeof useAppAuth>,
+  options: { timeoutMs?: number; retries?: number } = {}
 ): Promise<TResponse> {
   const token = await auth.getToken();
   const headers = new Headers(init.headers);
@@ -79,10 +82,37 @@ async function request<TResponse>(
     if (auth.email) headers.set('x-dev-user-email', auth.email);
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
-    headers
-  });
+  const timeoutMs = options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+  const retries = options.retries ?? 0;
+  let response: Response | null = null;
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      response = await fetch(`${API_BASE_URL}${path}`, {
+        ...init,
+        headers,
+        signal: controller.signal
+      });
+      break;
+    } catch (error) {
+      if (attempt === retries) {
+        const timedOut = error instanceof DOMException && error.name === 'AbortError';
+        throw new ApiError(
+          timedOut
+            ? 'This is taking longer than expected. Please try again in a moment.'
+            : 'We could not reach TeacherOS. Check your connection and try again.',
+          timedOut ? 504 : 503
+        );
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 1_000));
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  }
+
+  if (!response) throw new ApiError('We could not reach TeacherOS. Please try again.', 503);
 
   if (!response.ok) {
     const payload = (await response.json().catch(() => null)) as { error?: string } | null;
@@ -203,13 +233,15 @@ export function useApiClient() {
         request<WeeklyScheduleProposal>(
           '/v1/schedule/setup/weekly/parse',
           { method: 'POST', body: JSON.stringify(body) },
-          auth
+          auth,
+          { timeoutMs: AI_IMPORT_REQUEST_TIMEOUT_MS, retries: 1 }
         ),
       parseAnnualCalendarSetup: (body: ScheduleSetupSource) =>
         request<AnnualCalendarProposal>(
           '/v1/schedule/setup/calendar/parse',
           { method: 'POST', body: JSON.stringify(body) },
-          auth
+          auth,
+          { timeoutMs: AI_IMPORT_REQUEST_TIMEOUT_MS, retries: 1 }
         ),
       applyScheduleSetup: (body: ScheduleSetupApplyRequest) =>
         request<ScheduleSetupApplyResponse>(
