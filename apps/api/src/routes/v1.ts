@@ -641,7 +641,10 @@ export async function v1Routes(app: FastifyInstance) {
           dateOverride && dateOverride.kind !== 'no_school'
             ? { label: dateOverride.label, kind: dateOverride.kind as z.infer<typeof ScheduleDateOverrideKindSchema> }
             : null,
-        needsScheduleSetup: !activeTemplate && rows.length === 0
+        // A dashboard cannot be ready until the teacher has an active imported schedule.
+        // `rows` only represents the current day, so it is empty on weekends, holidays,
+        // and days without a class even when a schedule has already been imported.
+        needsScheduleSetup: !activeTemplate
       };
 
       await safeRedisSet(app.redis, cacheKey, JSON.stringify(response), 30);

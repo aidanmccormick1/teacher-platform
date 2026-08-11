@@ -25,19 +25,20 @@ export function DashboardPage() {
       <h1>Dashboard</h1>
       {error ? <p style={{ color: '#b02020' }}>{error}</p> : null}
       {!data ? <p className="muted">Loading...</p> : null}
-      {data ? (
+      {data?.needsScheduleSetup ? (
+        <div className="card stack schedule-empty-state">
+          <p className="eyebrow">Start here</p>
+          <h2>Set up your teaching schedule</h2>
+          <p className="muted">
+            Your dashboard will be ready after you import your weekly or block schedule. You can add
+            your school-year calendar afterward, and will review every class, period, and special date
+            before anything is saved.
+          </p>
+          <Link className="button-link" to="/schedule">Import my schedule</Link>
+        </div>
+      ) : null}
+      {data && !data.needsScheduleSetup ? (
         <>
-          {data.needsScheduleSetup ? (
-            <div className="card stack schedule-empty-state">
-              <p className="eyebrow">Start here</p>
-              <h2>Set up your teaching schedule</h2>
-              <p className="muted">
-                Upload your weekly/block schedule first, then add the school-year calendar when you have it.
-                We will ask you to review every class, period, and special date before saving.
-              </p>
-              <Link className="button-link" to="/schedule">Set up my schedule</Link>
-            </div>
-          ) : null}
           {data.specialDay ? (
             <div className="card special-day-notice">
               <strong>{data.specialDay.label}</strong>
