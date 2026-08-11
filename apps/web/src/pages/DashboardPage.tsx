@@ -9,6 +9,7 @@ export function DashboardPage() {
   const api = useApiClient();
   const [data, setData] = useState<DashboardTodayResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const needsProfileSetup = error?.includes('Complete onboarding first');
 
   useEffect(() => {
     void (async () => {
@@ -23,9 +24,16 @@ export function DashboardPage() {
   return (
     <div className="stack">
       <h1>Dashboard</h1>
-      {error ? <p style={{ color: '#b02020' }}>{error}</p> : null}
-      {!data ? <p className="muted">Loading...</p> : null}
-      {data?.needsScheduleSetup ? (
+      {needsProfileSetup ? (
+        <div className="card stack schedule-empty-state">
+          <p className="eyebrow">Start here</p>
+          <h2>Finish your quick setup</h2>
+          <p className="muted">Before we build your dashboard, we need a few basics about you and your school.</p>
+          <Link className="button-link" to="/onboarding">Start my setup</Link>
+        </div>
+      ) : error ? <p className="error-message">{error}</p> : null}
+      {!data && !needsProfileSetup ? <p className="muted">Loading...</p> : null}
+      {data?.needsScheduleSetup && !needsProfileSetup ? (
         <div className="card stack schedule-empty-state">
           <p className="eyebrow">Start here</p>
           <h2>Set up your teaching schedule</h2>

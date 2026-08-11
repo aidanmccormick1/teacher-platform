@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 
 import type {
   AnnualCalendarProposal,
@@ -202,7 +203,7 @@ function updateCourse(
 
 export function TeachingDataImporter({ onApplied }: TeachingDataImporterProps) {
   const api = useApiClient();
-  const [step, setStep] = useState<'weekly' | 'calendar' | 'review'>('weekly');
+  const [step, setStep] = useState<'weekly' | 'weekly-confirm' | 'calendar' | 'calendar-confirm' | 'review' | 'save-confirm' | 'complete'>('weekly');
   const [weeklySource, setWeeklySource] = useState<ImportSource>(emptySource);
   const [calendarSource, setCalendarSource] = useState<ImportSource>(emptySource);
   const [weekly, setWeekly] = useState<WeeklyScheduleProposal | null>(null);
@@ -221,9 +222,9 @@ export function TeachingDataImporter({ onApplied }: TeachingDataImporterProps) {
       setBusy(true);
       const proposal = await api.parseWeeklyScheduleSetup(source);
       setWeekly(proposal);
-      setStep('calendar');
+      setStep('weekly-confirm');
       setError(null);
-      setMessage('Weekly schedule found. Add the annual calendar next, or continue to review.');
+      setMessage(null);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Unable to parse this weekly schedule.');
     } finally {
@@ -241,9 +242,9 @@ export function TeachingDataImporter({ onApplied }: TeachingDataImporterProps) {
       setBusy(true);
       const proposal = await api.parseAnnualCalendarSetup(source);
       setAnnualCalendar(proposal);
-      setStep('review');
+      setStep('calendar-confirm');
       setError(null);
-      setMessage('Annual calendar found. Review everything before it is added to your dashboard.');
+      setMessage(null);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Unable to parse this annual calendar.');
     } finally {
@@ -264,40 +265,48 @@ export function TeachingDataImporter({ onApplied }: TeachingDataImporterProps) {
     <section className="card stack teaching-importer schedule-setup">
       <div>
         <p className="eyebrow">Schedule setup</p>
-        <h2>Set up your teaching schedule</h2>
+        <h2>Let’s add your teaching schedule</h2>
         <p className="muted">
-          Start with the way your week runs, then add the school-year calendar. You review every
-          detail before it affects your dashboard.
+          We’ll do this one step at a time. Nothing is added to your dashboard until you review and confirm it.
         </p>
       </div>
 
       <div className="setup-steps" aria-label="Schedule setup progress">
-        <span className={step === 'weekly' ? 'active' : weekly ? 'complete' : ''}>1. Weekly schedule</span>
-        <span className={step === 'calendar' ? 'active' : annualCalendar ? 'complete' : ''}>2. Annual calendar</span>
-        <span className={step === 'review' ? 'active' : ''}>3. Review</span>
+        <span className={step === 'weekly' ? 'active' : weekly ? 'complete' : ''}>1. Your week</span>
+        <span className={step === 'calendar' ? 'active' : annualCalendar ? 'complete' : ''}>2. School dates</span>
+        <span className={step === 'review' || step === 'save-confirm' ? 'active' : step === 'complete' ? 'complete' : ''}>3. Check and save</span>
       </div>
 
       {step === 'weekly' ? (
         <>
           <SourceUploader
             heading="Your weekly or block schedule"
-            description="Upload a bell schedule, class grid, or a clear photo. We will separate classes from lunch, homeroom, breaks, prep, and dismissal."
+            description="Choose a PDF, photo, or text file—or paste the schedule below. A picture from your phone is fine. We will separate classes from lunch, homeroom, breaks, prep, and dismissal."
             source={weeklySource}
             busy={busy}
             onChange={setWeeklySource}
             onError={setError}
           />
           <button type="button" disabled={busy || !sourcePayload(weeklySource)} onClick={() => void parseWeekly()}>
-            {busy ? 'Reading schedule…' : 'Find my classes and periods'}
+            {busy ? 'Reading your schedule…' : 'Next: find my classes and periods'}
           </button>
         </>
+      ) : null}
+
+      {step === 'weekly-confirm' && weekly ? (
+        <div className="setup-confirmation stack">
+          <div><h3>We found your teaching week</h3><p className="muted">Please check this quick summary. You’ll be able to edit every detail before saving.</p></div>
+          <dl className="setup-summary"><div><dt>Courses found</dt><dd>{weekly.courses.length}</dd></div><div><dt>Class sections found</dt><dd>{weekly.courses.reduce((total, course) => total + course.sections.length, 0)}</dd></div><div><dt>Non-class times</dt><dd>{weekly.blocks.length}</dd></div></dl>
+          {weekly.warnings.length ? <div className="schedule-warnings"><strong>Before we continue:</strong><ul>{weekly.warnings.map((warning, index) => <li key={`${warning}-${index}`}>{warning}</li>)}</ul></div> : null}
+          <div className="setup-actions"><button className="secondary" type="button" onClick={() => setStep('weekly')}>Try a different schedule</button><button type="button" onClick={() => setStep('calendar')}>Yes, next: add school dates</button></div>
+        </div>
       ) : null}
 
       {step === 'calendar' ? (
         <>
           <SourceUploader
             heading="Your annual school calendar"
-            description="Optional, but useful for holidays, A/B rotations, early release, assemblies, testing, and other unusual days."
+            description="This step is optional. Add a calendar PDF, photo, or pasted text if you have one. We use it for holidays, A/B rotations, early release, assemblies, testing, and other unusual days."
             source={calendarSource}
             busy={busy}
             onChange={setCalendarSource}
@@ -305,22 +314,28 @@ export function TeachingDataImporter({ onApplied }: TeachingDataImporterProps) {
           />
           <div className="row">
             <button type="button" disabled={busy || !sourcePayload(calendarSource)} onClick={() => void parseCalendar()}>
-              {busy ? 'Reading calendar…' : 'Find school-year dates'}
+              {busy ? 'Reading your calendar…' : 'Next: find important school dates'}
             </button>
             <button className="secondary" type="button" disabled={busy} onClick={() => setStep('review')}>
-              Skip for now
+              I don’t have this right now — continue
             </button>
           </div>
         </>
+      ) : null}
+
+      {step === 'calendar-confirm' && annualCalendar ? (
+        <div className="setup-confirmation stack">
+          <div><h3>We found school-year dates</h3><p className="muted">These dates are not saved yet. You’ll see the full list and can change anything next.</p></div>
+          <dl className="setup-summary"><div><dt>Dates found</dt><dd>{annualCalendar.overrides.length}</dd></div><div><dt>Items to check</dt><dd>{annualCalendar.warnings.length}</dd></div></dl>
+          <div className="setup-actions"><button className="secondary" type="button" onClick={() => setStep('calendar')}>Try a different calendar</button><button type="button" onClick={() => setStep('review')}>Yes, show me everything before saving</button></div>
+        </div>
       ) : null}
 
       {step === 'review' && weekly ? (
         <div className="stack import-review schedule-review">
           <div>
             <h3>Review your teaching week</h3>
-            <p className="muted">
-              Edit course groups, section names, period times, and rooms. Removing or moving a section is safe until you save.
-            </p>
+            <p className="muted">Take your time. Edit course groups, section names, period times, and rooms. Nothing changes until you choose “Save my schedule.”</p>
           </div>
           {weekly.warnings.length ? (
             <div className="schedule-warnings">
@@ -471,32 +486,49 @@ export function TeachingDataImporter({ onApplied }: TeachingDataImporterProps) {
           </div>
 
           <div className="row">
-            <button className="secondary" type="button" disabled={busy} onClick={() => setStep('calendar')}>Back</button>
+            <button className="secondary" type="button" disabled={busy} onClick={() => setStep(annualCalendar ? 'calendar-confirm' : 'calendar')}>Back</button>
             <button
               type="button"
               disabled={busy || weekly.courses.length === 0}
-              onClick={async () => {
+              onClick={() => setStep('save-confirm')}
+            >
+              Everything looks right — continue
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {step === 'save-confirm' && weekly ? (
+        <div className="setup-confirmation stack">
+          <div><h3>Ready to save?</h3><p className="muted">This will add your reviewed schedule to TeacherOS. You can always return later to update it.</p></div>
+          <dl className="setup-summary"><div><dt>Courses</dt><dd>{weekly.courses.length}</dd></div><div><dt>Class sections</dt><dd>{weekly.courses.reduce((total, course) => total + course.sections.length, 0)}</dd></div><div><dt>Calendar dates</dt><dd>{annualCalendar?.overrides.length ?? 0}</dd></div></dl>
+          <div className="setup-actions"><button className="secondary" type="button" disabled={busy} onClick={() => setStep('review')}>Go back and check again</button><button type="button" disabled={busy} onClick={async () => {
                 try {
                   setBusy(true);
                   const result = await api.applyScheduleSetup({ weekly, annualCalendar: annualCalendar ?? undefined });
                   await onApplied();
                   setMessage(`Saved ${result.coursesCreated} courses, ${result.sectionsCreated} sections, ${result.meetingsSaved} class periods, and ${result.overridesSaved} calendar overrides.`);
                   setError(null);
+                  setStep('complete');
                 } catch (err) {
                   setError(err instanceof ApiError ? err.message : 'Unable to save this schedule.');
                 } finally {
                   setBusy(false);
                 }
-              }}
-            >
-              {busy ? 'Saving schedule…' : 'Add reviewed schedule to my dashboard'}
-            </button>
-          </div>
+              }}>{busy ? 'Saving your schedule…' : 'Yes, save my schedule'}</button></div>
+        </div>
+      ) : null}
+
+      {step === 'complete' ? (
+        <div className="setup-complete stack">
+          <div><p className="eyebrow">You’re ready</p><h3>Your schedule is set up</h3><p className="muted">Your dashboard can now show the classes that matter today. You can update your schedule anytime.</p></div>
+          {message ? <p className="import-message" role="status">{message}</p> : null}
+          <div className="setup-actions"><Link className="button-link" to="/">Go to my dashboard</Link><button className="secondary" type="button" onClick={() => { setWeekly(null); setAnnualCalendar(null); setWeeklySource(emptySource); setCalendarSource(emptySource); setMessage(null); setStep('weekly'); }}>Start a new schedule instead</button></div>
         </div>
       ) : null}
 
       {error ? <p className="error-message">{error}</p> : null}
-      {message ? <p className="import-message">{message}</p> : null}
+      {message && step !== 'complete' ? <p className="import-message" role="status">{message}</p> : null}
     </section>
   );
 }

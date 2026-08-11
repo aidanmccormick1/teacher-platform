@@ -42,10 +42,12 @@ export async function createApp(config: AppConfig) {
 
   app.decorate('config', config);
 
-  const redis = createRedisClient(config.REDIS_URL);
+  let redis = createRedisClient(config.REDIS_URL);
   if (redis) {
     await redis.connect().catch((error: unknown) => {
       app.log.warn({ error }, 'Redis connection failed; continuing without cache');
+      redis?.disconnect();
+      redis = null;
     });
   }
   app.decorate('redis', redis);

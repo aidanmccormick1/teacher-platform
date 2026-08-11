@@ -243,6 +243,71 @@ label {
   gap: 8px;
 }
 
+.onboarding-page {
+  max-width: 720px;
+}
+
+.onboarding-page .setup-steps {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.onboarding-intro h1,
+.onboarding-intro p {
+  margin: 0;
+}
+
+.onboarding-card h2,
+.setup-confirmation h3,
+.setup-complete h3 {
+  margin: 0 0 4px;
+}
+
+.field-note {
+  color: #6b7a99;
+  font-size: 0.82rem;
+  font-weight: 400;
+}
+
+.setup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.setup-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.setup-summary div {
+  border: 1px solid #dce5f0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #fbfdff;
+}
+
+.setup-summary dt {
+  color: #6b7a99;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.setup-summary dd {
+  margin: 4px 0 0;
+  font-weight: 700;
+}
+
+.setup-confirmation,
+.setup-complete {
+  border: 1px solid #dce8f5;
+  border-radius: 12px;
+  padding: 16px;
+  background: #fbfdff;
+}
+
 .setup-steps span {
   border: 1px solid #dce5f0;
   border-radius: 999px;
@@ -448,6 +513,10 @@ button.secondary {
   .import-course-heading,
   .schedule-meeting-row,
   .schedule-override-row {
+    grid-template-columns: 1fr;
+  }
+
+  .onboarding-page .setup-steps {
     grid-template-columns: 1fr;
   }
 }
