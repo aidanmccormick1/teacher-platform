@@ -102,6 +102,7 @@ const InternalParseScheduleSchema = z.object({
       period: z.string(),
       days: z.array(z.string()),
       time: z.string().nullable(),
+      endTime: z.string().nullable(),
       room: z.string().nullable(),
       subject: z.string(),
       grade: z.string().default('')
@@ -169,7 +170,11 @@ function normalizeImportedTime(value: string | null): string | null {
 function normalizeImportedScheduleTimes(response: z.infer<typeof InternalParseScheduleSchema>) {
   return {
     ...response,
-    classes: response.classes.map((item) => ({ ...item, time: normalizeImportedTime(item.time) }))
+    classes: response.classes.map((item) => ({
+      ...item,
+      time: normalizeImportedTime(item.time),
+      endTime: normalizeImportedTime(item.endTime)
+    }))
   };
 }
 
@@ -2034,7 +2039,7 @@ export async function v1Routes(app: FastifyInstance) {
         schemaName: 'schedule_import',
         schema: InternalParseScheduleSchema,
         systemPrompt:
-          "Extract a teacher's complete teaching schedule. Identify every unique course and section, including all meeting days, start times, rooms, subject, and grade. For a repeating block schedule, use A-Day and B-Day when those labels are shown; otherwise use the named weekdays. Combine repeated occurrences of the same course and period into one class with all applicable days. Ignore lunch, planning, duty, meetings, breaks, and non-teaching blocks. Return JSON only.",
+          "Extract a teacher's complete teaching schedule. Identify every unique course and section, including all meeting days, start times, end times, rooms, subject, and grade. For a repeating block schedule, use A-Day and B-Day when those labels are shown; otherwise use the named weekdays. Combine repeated occurrences of the same course and period into one class with all applicable days. Use valid zero-padded 24-hour HH:MM times. If an end time is not shown, return null rather than guessing. Ignore lunch, planning, duty, meetings, breaks, and non-teaching blocks. Return JSON only.",
         userPrompt: body.text
           ? `Parse this teacher schedule and assignments:\n${body.text}`
           : 'Parse the provided schedule image and return classes + assignments. Output JSON only.',
@@ -2139,6 +2144,7 @@ export async function v1Routes(app: FastifyInstance) {
           .select({
             day: sectionMeetings.day,
             meetingTime: sectionMeetings.meetingTime,
+            meetingEndTime: sectionMeetings.meetingEndTime,
             room: sectionMeetings.room
           })
           .from(sectionMeetings)
@@ -2150,6 +2156,8 @@ export async function v1Routes(app: FastifyInstance) {
                 meeting.day === day &&
                 (meeting.meetingTime ? meeting.meetingTime.slice(0, 5) : null) ===
                   importedClass.time &&
+                (meeting.meetingEndTime ? meeting.meetingEndTime.slice(0, 5) : null) ===
+                  importedClass.endTime &&
                 meeting.room === importedClass.room
             )
         );
@@ -2159,6 +2167,7 @@ export async function v1Routes(app: FastifyInstance) {
               sectionId,
               day,
               meetingTime: importedClass.time,
+              meetingEndTime: importedClass.endTime,
               room: importedClass.room
             }))
           );
@@ -2866,7 +2875,7 @@ export async function v1Routes(app: FastifyInstance) {
           schemaName: 'parse_schedule',
           schema: InternalParseScheduleSchema,
           systemPrompt:
-            'Extract classes and assignments from teacher schedule text. Return JSON only and skip non-teaching events.',
+              'Extract classes and assignments from a teacher schedule. Include start and end time for every class when shown, use HH:MM 24-hour time, return null for a missing end time, and skip non-teaching events. Return JSON only.',
           userPrompt: body.text
             ? `Parse this schedule and assignments:\n${body.text}`
             : 'Parse the supplied schedule image and return classes + assignments.'

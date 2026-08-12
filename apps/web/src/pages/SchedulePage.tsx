@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { AiJobStatusResponse, GetScheduleResponse } from '@teacheros/contracts';
 
 import { TeachingDataImporter } from '../components/TeachingDataImporter.js';
+import { WeeklyScheduleView } from '../components/WeeklyScheduleView.js';
 import { ApiError, useApiClient } from '../lib/api.js';
 
 function isTerminalStatus(status: AiJobStatusResponse['status']): boolean {
@@ -24,6 +25,7 @@ export function SchedulePage() {
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [activeJob, setActiveJob] = useState<AiJobStatusResponse | null>(null);
   const [jobOutput, setJobOutput] = useState<string | null>(null);
+  const [showImporter, setShowImporter] = useState(false);
 
   const loadSchedule = useCallback(async () => {
     try {
@@ -78,17 +80,47 @@ export function SchedulePage() {
 
   return (
     <div className="stack">
-      <h1>Schedule</h1>
+      <div>
+        <p className="eyebrow">Plan your week</p>
+        <h1>Schedule</h1>
+        <p className="muted">See every class, its start time, and its end time in one place.</p>
+      </div>
       {error ? <p style={{ color: '#b02020' }}>{error}</p> : null}
 
-      <TeachingDataImporter onApplied={loadSchedule} />
+      {schedule?.hasScheduleSetup ? (
+        <>
+          <WeeklyScheduleView schedule={schedule} />
+          <div className="card schedule-import-launcher stack">
+            <div>
+              <h3>Need to change your schedule?</h3>
+              <p className="muted">
+                Your saved week has {schedule.sections.length} class sections and {schedule.blocks.length}{' '}
+                non-class blocks. Importing a new file will guide you through a review before it replaces your
+                active week.
+              </p>
+            </div>
+            <button className="secondary" type="button" onClick={() => setShowImporter((visible) => !visible)}>
+              {showImporter ? 'Hide schedule import' : 'Import or update my schedule'}
+            </button>
+          </div>
+        </>
+      ) : null}
+
+      {!schedule?.hasScheduleSetup || showImporter ? (
+        <TeachingDataImporter
+          onApplied={async () => {
+            await loadSchedule();
+            setShowImporter(false);
+          }}
+        />
+      ) : null}
 
       {schedule?.hasScheduleSetup ? (
-        <div className="card stack">
-          <h3>Your active schedule</h3>
+        <div className="card stack schedule-overview">
+          <h3>Schedule details</h3>
           <p className="muted">
-            {schedule.sections.length} class sections, {schedule.blocks.length} non-class blocks, and{' '}
-            {schedule.overrides.length} calendar overrides are active. Import again above whenever your schedule changes.
+            {schedule.overrides.length} special calendar days are saved. You can update your active weekly
+            schedule whenever your bell schedule changes.
           </p>
         </div>
       ) : null}
@@ -278,20 +310,6 @@ export function SchedulePage() {
         </div>
       ) : null}
 
-      <div className="card stack">
-        <h3>Current sections</h3>
-        {schedule?.sections.length ? (
-          <ul>
-            {schedule.sections.map((section) => (
-              <li key={section.sectionId}>
-                {section.courseName} - {section.sectionName}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="muted">No section schedule data yet.</p>
-        )}
-      </div>
     </div>
   );
 }

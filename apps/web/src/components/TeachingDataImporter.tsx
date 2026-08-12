@@ -140,53 +140,81 @@ function SourceUploader({
   onChange: (source: ImportSource) => void;
   onError: (message: string) => void;
 }) {
+  const hasUploadedFile = Boolean(source.fileName);
+
   return (
     <div className="stack schedule-source">
       <div>
         <h3>{heading}</h3>
         <p className="muted">{description}</p>
       </div>
-      <input
-        className="file-input"
-        type="file"
-        disabled={busy}
-        accept=".pdf,.txt,.csv,.ics,.heic,.heif,image/*,text/plain,text/csv,text/calendar,application/pdf"
-        onChange={async (event) => {
-          const file = event.target.files?.[0];
-          if (!file) return;
-          try {
-            const isImage = file.type.startsWith('image/') || /\.hei[cf]$/i.test(file.name);
-            if (isImage) {
-              onChange({ text: '', imageBase64s: [await extractImage(file)], fileName: file.name });
-              return;
-            }
-            const text = await extractFileText(file);
-            const pdfImages = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
-              ? await renderPdfPages(file)
-              : [];
-            if (!text.trim() && !pdfImages.length) {
-              throw new Error('No readable pages were found. Upload a clearer photo or PDF.');
-            }
-            onChange({ text, imageBase64s: pdfImages, fileName: file.name });
-          } catch (error) {
-            onChange({ ...source, fileName: null });
-            onError(error instanceof Error ? error.message : 'Unable to read this file.');
-          }
-        }}
-      />
-      <textarea
-        rows={7}
-        value={source.text}
-        disabled={busy}
-        onChange={(event) =>
-          onChange({ text: event.target.value, imageBase64s: [], fileName: source.fileName })
-        }
-        placeholder="Or paste schedule or calendar text here."
-      />
-      {source.fileName ? <p className="muted">Ready to parse: {source.fileName}</p> : null}
-      {source.imageBase64s.length ? (
-        <img className="import-image-preview" src={source.imageBase64s[0]} alt="Schedule ready to parse" />
-      ) : null}
+      {hasUploadedFile ? (
+        <div className="uploaded-file-confirmation" role="status">
+          <div>
+            <strong>✓ File uploaded: {source.fileName}</strong>
+            <p className="muted">It is ready when you are. We have not read or saved anything from it yet.</p>
+          </div>
+          {source.imageBase64s.length ? (
+            <img
+              className="import-image-preview"
+              src={source.imageBase64s[0]}
+              alt="Uploaded file ready for schedule reading"
+            />
+          ) : null}
+          <button
+            className="secondary"
+            type="button"
+            disabled={busy}
+            onClick={() => onChange(emptySource)}
+          >
+            Choose a different file
+          </button>
+        </div>
+      ) : (
+        <>
+          <input
+            className="file-input"
+            type="file"
+            disabled={busy}
+            accept=".pdf,.txt,.csv,.ics,.heic,.heif,image/*,text/plain,text/csv,text/calendar,application/pdf"
+            onChange={async (event) => {
+              const file = event.target.files?.[0];
+              if (!file) return;
+              try {
+                const isImage = file.type.startsWith('image/') || /\.hei[cf]$/i.test(file.name);
+                if (isImage) {
+                  onChange({ text: '', imageBase64s: [await extractImage(file)], fileName: file.name });
+                  return;
+                }
+                const text = await extractFileText(file);
+                const pdfImages =
+                  file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
+                    ? await renderPdfPages(file)
+                    : [];
+                if (!text.trim() && !pdfImages.length) {
+                  throw new Error('No readable pages were found. Upload a clearer photo or PDF.');
+                }
+                onChange({ text, imageBase64s: pdfImages, fileName: file.name });
+              } catch (error) {
+                onChange(emptySource);
+                onError(error instanceof Error ? error.message : 'Unable to read this file.');
+              }
+            }}
+          />
+          <label>
+            Or paste the schedule text
+            <textarea
+              rows={7}
+              value={source.text}
+              disabled={busy}
+              onChange={(event) =>
+                onChange({ text: event.target.value, imageBase64s: [], fileName: null })
+              }
+              placeholder="Paste schedule or calendar text here."
+            />
+          </label>
+        </>
+      )}
     </div>
   );
 }
@@ -272,7 +300,7 @@ export function TeachingDataImporter({ onApplied }: TeachingDataImporterProps) {
       </div>
 
       <div className="setup-steps" aria-label="Schedule setup progress">
-        <span className={step === 'weekly' ? 'active' : weekly ? 'complete' : ''}>1. Your week</span>
+        <span className={step === 'weekly' ? 'active' : weekly ? 'complete' : ''}>1. Upload your week</span>
         <span className={step === 'calendar' ? 'active' : annualCalendar ? 'complete' : ''}>2. School dates</span>
         <span className={step === 'review' || step === 'save-confirm' ? 'active' : step === 'complete' ? 'complete' : ''}>3. Check and save</span>
       </div>
@@ -287,9 +315,20 @@ export function TeachingDataImporter({ onApplied }: TeachingDataImporterProps) {
             onChange={setWeeklySource}
             onError={setError}
           />
-          <button type="button" disabled={busy || !sourcePayload(weeklySource)} onClick={() => void parseWeekly()}>
-            {busy ? 'Reading your schedule…' : 'Next: find my classes and periods'}
-          </button>
+          {sourcePayload(weeklySource) ? (
+            <div className="import-next-step stack">
+              <div>
+                <h3>Ready for us to read it?</h3>
+                <p className="muted">
+                  We will identify courses, sections, start times, end times, rooms, and non-class blocks.
+                  You will review every detail before anything is saved.
+                </p>
+              </div>
+              <button type="button" disabled={busy} onClick={() => void parseWeekly()}>
+                {busy ? 'Reading your schedule…' : 'Yes, read my schedule'}
+              </button>
+            </div>
+          ) : null}
         </>
       ) : null}
 
@@ -312,14 +351,23 @@ export function TeachingDataImporter({ onApplied }: TeachingDataImporterProps) {
             onChange={setCalendarSource}
             onError={setError}
           />
-          <div className="row">
-            <button type="button" disabled={busy || !sourcePayload(calendarSource)} onClick={() => void parseCalendar()}>
-              {busy ? 'Reading your calendar…' : 'Next: find important school dates'}
-            </button>
-            <button className="secondary" type="button" disabled={busy} onClick={() => setStep('review')}>
-              I don’t have this right now — continue
-            </button>
-          </div>
+          {sourcePayload(calendarSource) ? (
+            <div className="import-next-step stack">
+              <div>
+                <h3>Ready for us to read it?</h3>
+                <p className="muted">
+                  We will look for dates that change the normal school schedule. You can edit the results
+                  before saving.
+                </p>
+              </div>
+              <button type="button" disabled={busy} onClick={() => void parseCalendar()}>
+                {busy ? 'Reading your calendar…' : 'Yes, read my calendar'}
+              </button>
+            </div>
+          ) : null}
+          <button className="secondary" type="button" disabled={busy} onClick={() => setStep('review')}>
+            I don’t have this right now — continue
+          </button>
         </>
       ) : null}
 
@@ -413,34 +461,45 @@ export function TeachingDataImporter({ onApplied }: TeachingDataImporterProps) {
                   </div>
                   {section.meetings.map((meeting, meetingIndex) => (
                     <div className="schedule-meeting-row" key={`${meeting.day}-${meetingIndex}`}>
-                      <select
-                        className="input"
-                        value={meeting.day}
-                        aria-label="Meeting day"
-                        onChange={(event) => {
-                          const courses = [...weekly.courses];
-                          const sections = [...course.sections];
-                          const meetings = [...section.meetings];
-                          meetings[meetingIndex] = { ...meeting, day: event.target.value as typeof meeting.day };
-                          sections[sectionIndex] = { ...section, meetings };
-                          courses[courseIndex] = { ...course, sections };
-                          setWeekly({ ...weekly, courses });
-                        }}
-                      >
-                        {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'A-Day', 'B-Day'].map((day) => <option key={day}>{day}</option>)}
-                      </select>
-                      <input className="input" type="time" value={meeting.startTime ?? ''} aria-label="Start time" onChange={(event) => {
-                        const courses = [...weekly.courses]; const sections = [...course.sections]; const meetings = [...section.meetings];
-                        meetings[meetingIndex] = { ...meeting, startTime: event.target.value || null }; sections[sectionIndex] = { ...section, meetings }; courses[courseIndex] = { ...course, sections }; setWeekly({ ...weekly, courses });
-                      }} />
-                      <input className="input" type="time" value={meeting.endTime ?? ''} aria-label="End time" onChange={(event) => {
-                        const courses = [...weekly.courses]; const sections = [...course.sections]; const meetings = [...section.meetings];
-                        meetings[meetingIndex] = { ...meeting, endTime: event.target.value || null }; sections[sectionIndex] = { ...section, meetings }; courses[courseIndex] = { ...course, sections }; setWeekly({ ...weekly, courses });
-                      }} />
-                      <input className="input" value={meeting.room ?? ''} placeholder="Room" aria-label="Room" onChange={(event) => {
-                        const courses = [...weekly.courses]; const sections = [...course.sections]; const meetings = [...section.meetings];
-                        meetings[meetingIndex] = { ...meeting, room: event.target.value || null }; sections[sectionIndex] = { ...section, meetings }; courses[courseIndex] = { ...course, sections }; setWeekly({ ...weekly, courses });
-                      }} />
+                      <label>
+                        Day
+                        <select
+                          className="input"
+                          value={meeting.day}
+                          onChange={(event) => {
+                            const courses = [...weekly.courses];
+                            const sections = [...course.sections];
+                            const meetings = [...section.meetings];
+                            meetings[meetingIndex] = { ...meeting, day: event.target.value as typeof meeting.day };
+                            sections[sectionIndex] = { ...section, meetings };
+                            courses[courseIndex] = { ...course, sections };
+                            setWeekly({ ...weekly, courses });
+                          }}
+                        >
+                          {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'A-Day', 'B-Day'].map((day) => <option key={day}>{day}</option>)}
+                        </select>
+                      </label>
+                      <label>
+                        Start time
+                        <input className="input" type="time" value={meeting.startTime ?? ''} onChange={(event) => {
+                          const courses = [...weekly.courses]; const sections = [...course.sections]; const meetings = [...section.meetings];
+                          meetings[meetingIndex] = { ...meeting, startTime: event.target.value || null }; sections[sectionIndex] = { ...section, meetings }; courses[courseIndex] = { ...course, sections }; setWeekly({ ...weekly, courses });
+                        }} />
+                      </label>
+                      <label>
+                        End time
+                        <input className="input" type="time" value={meeting.endTime ?? ''} onChange={(event) => {
+                          const courses = [...weekly.courses]; const sections = [...course.sections]; const meetings = [...section.meetings];
+                          meetings[meetingIndex] = { ...meeting, endTime: event.target.value || null }; sections[sectionIndex] = { ...section, meetings }; courses[courseIndex] = { ...course, sections }; setWeekly({ ...weekly, courses });
+                        }} />
+                      </label>
+                      <label>
+                        Room
+                        <input className="input" value={meeting.room ?? ''} placeholder="Room" onChange={(event) => {
+                          const courses = [...weekly.courses]; const sections = [...course.sections]; const meetings = [...section.meetings];
+                          meetings[meetingIndex] = { ...meeting, room: event.target.value || null }; sections[sectionIndex] = { ...section, meetings }; courses[courseIndex] = { ...course, sections }; setWeekly({ ...weekly, courses });
+                        }} />
+                      </label>
                     </div>
                   ))}
                 </div>

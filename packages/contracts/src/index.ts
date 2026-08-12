@@ -101,6 +101,7 @@ export const ScheduleClassSchema = z.object({
   period: z.string().min(1),
   days: z.array(MeetingDaySchema).min(1),
   time: IsoTimeSchema.nullable(),
+  endTime: IsoTimeSchema.nullable(),
   room: z.string().nullable(),
   subject: z.string().min(1),
   grade: z.string().optional().default('')

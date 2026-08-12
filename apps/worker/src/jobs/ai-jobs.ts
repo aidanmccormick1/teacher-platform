@@ -114,7 +114,7 @@ export function createAiJobsWorker(config: WorkerConfig): Worker<AiQueuePayload>
             schemaName: 'parse_schedule',
             schema: ParseScheduleResponseSchema,
             systemPrompt:
-              'Extract classes and assignments from teacher schedule text. Return JSON only and skip non-teaching events.',
+              'Extract classes and assignments from a teacher schedule. Include start and end time for every class when shown, use HH:MM 24-hour time, return null for a missing end time, and skip non-teaching events. Return JSON only.',
             userPrompt: input.text
               ? `Parse this schedule and assignments:\n${input.text}`
               : 'Parse the supplied schedule image and return classes + assignments.'

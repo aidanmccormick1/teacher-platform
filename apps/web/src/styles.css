@@ -451,6 +451,83 @@ label {
   margin: 0;
 }
 
+.uploaded-file-confirmation,
+.import-next-step {
+  display: grid;
+  gap: 12px;
+  border: 1px solid #b9d8c4;
+  border-radius: 12px;
+  padding: 16px;
+  background: #f5fbf7;
+}
+
+.uploaded-file-confirmation strong {
+  color: #1d6332;
+}
+
+.uploaded-file-confirmation p,
+.import-next-step p,
+.weekly-schedule h2,
+.weekly-schedule h3,
+.schedule-import-launcher h3,
+.schedule-overview h3 {
+  margin: 0;
+}
+
+.schedule-meeting-row label {
+  min-width: 0;
+  font-size: 0.8rem;
+}
+
+.weekly-schedule-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  overflow-x: auto;
+}
+
+.weekly-day {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 180px;
+  border: 1px solid #dce5f0;
+  border-radius: 12px;
+  padding: 12px;
+  background: #fbfdff;
+}
+
+.weekly-day h3 {
+  font-size: 0.95rem;
+}
+
+.weekly-event {
+  display: grid;
+  gap: 3px;
+  border-radius: 9px;
+  padding: 10px;
+}
+
+.weekly-event-class {
+  border-left: 4px solid #315d9b;
+  background: #edf5ff;
+}
+
+.weekly-event-block {
+  border-left: 4px solid #8c97a8;
+  background: #f1f3f6;
+}
+
+.weekly-event-time {
+  color: #315d9b;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.weekly-event-block .weekly-event-time {
+  color: #687487;
+}
+
 .button-link {
   display: inline-flex;
   width: fit-content;
@@ -572,7 +649,8 @@ button.secondary {
   .setup-steps,
   .import-course-heading,
   .schedule-meeting-row,
-  .schedule-override-row {
+  .schedule-override-row,
+  .weekly-schedule-grid {
     grid-template-columns: 1fr;
   }
 
