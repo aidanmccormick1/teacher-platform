@@ -42,4 +42,18 @@ describe('health endpoints', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ ok: true });
   });
+
+  it('permits hosted web clients to preflight PUT curriculum updates', async () => {
+    const response = await app.inject({
+      method: 'OPTIONS',
+      url: '/v1/courses/00000000-0000-4000-8000-000000000000/pacing-plan',
+      headers: {
+        origin: 'https://teacher-dashboard-clean.pages.dev',
+        'access-control-request-method': 'PUT'
+      }
+    });
+
+    expect(response.statusCode).toBe(204);
+    expect(response.headers['access-control-allow-methods']).toContain('PUT');
+  });
 });

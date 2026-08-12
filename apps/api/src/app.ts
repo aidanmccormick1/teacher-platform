@@ -59,9 +59,9 @@ export async function createApp(config: AppConfig) {
   await app.register(cors, {
     origin: true,
     credentials: true,
-    // The web client uses PATCH and DELETE for profile and management updates.
+    // The web client uses PUT, PATCH, and DELETE for account and curriculum updates.
     // Explicitly include them so browser preflights are permitted in production.
-    methods: ['GET', 'HEAD', 'POST', 'PATCH', 'DELETE', 'OPTIONS']
+    methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
   });
 
   await app.register(helmet);
