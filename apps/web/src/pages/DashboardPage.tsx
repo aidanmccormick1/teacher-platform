@@ -21,30 +21,52 @@ export function DashboardPage() {
     })();
   }, [api]);
 
+  if (needsProfileSetup) {
+    return (
+      <div className="stack dashboard-locked">
+        <section className="card stack dashboard-unlock-card">
+          <p className="eyebrow">Start here</p>
+          <h1>Finish your quick setup</h1>
+          <p className="muted">
+            Before we build your dashboard, we need a few basics about you and your school.
+          </p>
+          <Link className="button-link dashboard-unlock-button" to="/onboarding">
+            Start my setup
+          </Link>
+        </section>
+      </div>
+    );
+  }
+
+  if (data?.needsScheduleSetup) {
+    return (
+      <div className="stack dashboard-locked">
+        <section className="card stack dashboard-unlock-card">
+          <p className="eyebrow">TeacherOS is ready when you are</p>
+          <h1>Import your schedule to unlock your dashboard</h1>
+          <p className="muted">
+            Your dashboard will fill in with today’s classes, upcoming lessons, and the planning tools that
+            match your teaching week after you import a schedule.
+          </p>
+          <div className="dashboard-unlock-checklist" aria-label="What importing unlocks">
+            <div><span>1</span><strong>Upload your schedule</strong><small>PDF, photo, or pasted text is fine.</small></div>
+            <div><span>2</span><strong>Check the results</strong><small>Confirm class names, start times, end times, and rooms.</small></div>
+            <div><span>3</span><strong>Unlock your workspace</strong><small>See your week, lessons, and daily dashboard.</small></div>
+          </div>
+          <Link className="button-link dashboard-unlock-button" to="/schedule?setup=1">
+            Import my schedule
+          </Link>
+          <p className="field-note">Nothing is saved until you review and confirm it.</p>
+        </section>
+      </div>
+    );
+  }
+
   return (
     <div className="stack">
       <h1>Dashboard</h1>
-      {needsProfileSetup ? (
-        <div className="card stack schedule-empty-state">
-          <p className="eyebrow">Start here</p>
-          <h2>Finish your quick setup</h2>
-          <p className="muted">Before we build your dashboard, we need a few basics about you and your school.</p>
-          <Link className="button-link" to="/onboarding">Start my setup</Link>
-        </div>
-      ) : error ? <p className="error-message">{error}</p> : null}
-      {!data && !needsProfileSetup ? <p className="muted">Loading...</p> : null}
-      {data?.needsScheduleSetup && !needsProfileSetup ? (
-        <div className="card stack schedule-empty-state">
-          <p className="eyebrow">Start here</p>
-          <h2>Set up your teaching schedule</h2>
-          <p className="muted">
-            Your dashboard will be ready after you import your weekly or block schedule. You can add
-            your school-year calendar afterward, and will review every class, period, and special date
-            before anything is saved.
-          </p>
-          <Link className="button-link" to="/schedule">Import my schedule</Link>
-        </div>
-      ) : null}
+      {error ? <p className="error-message">{error}</p> : null}
+      {!data ? <p className="muted">Loading your workspace...</p> : null}
       {data && !data.needsScheduleSetup ? (
         <>
           {data.specialDay ? (

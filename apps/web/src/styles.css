@@ -451,6 +451,64 @@ label {
   margin: 0;
 }
 
+.dashboard-locked {
+  min-height: calc(100vh - 48px);
+  place-items: center;
+  align-content: center;
+}
+
+.dashboard-unlock-card {
+  width: min(100%, 760px);
+  padding: clamp(24px, 5vw, 48px);
+  border-color: #cfe1f5;
+  background: linear-gradient(145deg, #ffffff 0%, #f4f9ff 100%);
+}
+
+.dashboard-unlock-card h1,
+.dashboard-unlock-card p {
+  margin: 0;
+}
+
+.dashboard-unlock-checklist {
+  display: grid;
+  gap: 10px;
+}
+
+.dashboard-unlock-checklist div {
+  display: grid;
+  grid-template-columns: 30px 1fr;
+  column-gap: 10px;
+  align-items: center;
+  border: 1px solid #dce7f4;
+  border-radius: 10px;
+  padding: 11px 12px;
+  background: #fff;
+}
+
+.dashboard-unlock-checklist span {
+  grid-row: span 2;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: #dcecff;
+  color: #315d9b;
+  font-size: 0.85rem;
+  font-weight: 800;
+}
+
+.dashboard-unlock-checklist small {
+  color: #6b7a99;
+}
+
+.dashboard-unlock-button {
+  width: 100%;
+  justify-content: center;
+  padding: 14px 18px;
+  font-size: 1.05rem;
+}
+
 .uploaded-file-confirmation,
 .import-next-step {
   display: grid;
