@@ -493,6 +493,26 @@ export const CourseSummarySchema = z.object({
   createdAt: z.string()
 });
 
+export const CoursePacingPlanSchema = z.object({
+  courseId: UuidSchema,
+  startDate: IsoDateSchema.nullable(),
+  weeks: z.number().int().positive().nullable(),
+  meetingsPerWeek: z.number().int().min(1).max(10).nullable(),
+  plannedClassPeriods: z.number().int().positive().nullable(),
+  classPeriodMinutes: z.number().int().min(10).max(240),
+  notes: z.string().nullable(),
+  updatedAt: z.string()
+});
+
+export const CoursePacingPlanUpsertRequestSchema = z.object({
+  startDate: IsoDateSchema.nullable(),
+  weeks: z.number().int().positive().nullable(),
+  meetingsPerWeek: z.number().int().min(1).max(10).nullable(),
+  plannedClassPeriods: z.number().int().positive().nullable(),
+  classPeriodMinutes: z.number().int().min(10).max(240).default(50),
+  notes: z.string().max(10_000).nullable()
+});
+
 export const CourseListResponseSchema = z.object({
   courses: z.array(CourseSummarySchema)
 });
@@ -547,6 +567,7 @@ export const UnitSchema = z.object({
 
 export const CourseDetailResponseSchema = z.object({
   course: CourseSummarySchema.extend({
+    pacingPlan: CoursePacingPlanSchema.nullable(),
     units: z.array(UnitSchema)
   })
 });
@@ -576,6 +597,37 @@ export const LessonUpdateRequestSchema = z.object({
   estimatedDurationMinutes: z.number().int().positive().nullable().optional(),
   orderIndex: z.number().int().nonnegative().optional()
 });
+
+/** Replaces the order of every lesson in a single stack (unit). */
+export const LessonReorderRequestSchema = z.object({
+  lessonIds: z.array(UuidSchema).min(1)
+});
+
+export const TeacherNoteSchema = z.object({
+  id: UuidSchema,
+  title: z.string(),
+  content: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string()
+});
+
+export const TeacherNotesResponseSchema = z.object({
+  notes: z.array(TeacherNoteSchema)
+});
+
+export const TeacherNoteCreateRequestSchema = z.object({
+  title: z.string().trim().min(1).max(160),
+  content: z.string().max(10_000).default('')
+});
+
+export const TeacherNoteUpdateRequestSchema = z
+  .object({
+    title: z.string().trim().min(1).max(160).optional(),
+    content: z.string().max(10_000).optional()
+  })
+  .refine((body) => body.title !== undefined || body.content !== undefined, {
+    message: 'Provide a title or note text to update.'
+  });
 
 export const SegmentCreateRequestSchema = z.object({
   title: z.string().min(1),
@@ -659,10 +711,17 @@ export type CourseListResponse = z.infer<typeof CourseListResponseSchema>;
 export type CourseDetailResponse = z.infer<typeof CourseDetailResponseSchema>;
 export type CourseCreateRequest = z.infer<typeof CourseCreateRequestSchema>;
 export type CourseUpdateRequest = z.infer<typeof CourseUpdateRequestSchema>;
+export type CoursePacingPlan = z.infer<typeof CoursePacingPlanSchema>;
+export type CoursePacingPlanUpsertRequest = z.infer<typeof CoursePacingPlanUpsertRequestSchema>;
 export type UnitCreateRequest = z.infer<typeof UnitCreateRequestSchema>;
 export type UnitUpdateRequest = z.infer<typeof UnitUpdateRequestSchema>;
 export type LessonCreateRequest = z.infer<typeof LessonCreateRequestSchema>;
 export type LessonUpdateRequest = z.infer<typeof LessonUpdateRequestSchema>;
+export type LessonReorderRequest = z.infer<typeof LessonReorderRequestSchema>;
+export type TeacherNote = z.infer<typeof TeacherNoteSchema>;
+export type TeacherNotesResponse = z.infer<typeof TeacherNotesResponseSchema>;
+export type TeacherNoteCreateRequest = z.infer<typeof TeacherNoteCreateRequestSchema>;
+export type TeacherNoteUpdateRequest = z.infer<typeof TeacherNoteUpdateRequestSchema>;
 export type SegmentCreateRequest = z.infer<typeof SegmentCreateRequestSchema>;
 export type SegmentUpdateRequest = z.infer<typeof SegmentUpdateRequestSchema>;
 export type DeleteEntityResponse = z.infer<typeof DeleteEntityResponseSchema>;

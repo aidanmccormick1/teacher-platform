@@ -11,6 +11,7 @@ import { LoginPage } from './pages/LoginPage.js';
 import { OnboardingPage } from './pages/OnboardingPage.js';
 import { ProfilePage } from './pages/ProfilePage.js';
 import { SchedulePage } from './pages/SchedulePage.js';
+import { TeacherNotesPage } from './pages/TeacherNotesPage.js';
 import { SchoolPage } from './pages/SchoolPage.js';
 
 function RequireAuth() {
@@ -36,6 +37,7 @@ export default function App() {
           <Route path="/curriculum" element={<CurriculumPage />} />
           <Route path="/courses/:id" element={<CoursePage />} />
           <Route path="/schedule" element={<SchedulePage />} />
+          <Route path="/notes" element={<TeacherNotesPage />} />
           <Route path="/sections/:sectionId/lessons/:lessonId" element={<LessonTrackerPage />} />
           <Route path="/profile" element={<ProfilePage />} />
         </Route>

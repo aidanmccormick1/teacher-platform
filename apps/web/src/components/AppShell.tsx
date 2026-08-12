@@ -7,6 +7,7 @@ const links = [
   { path: '/classroom', label: 'Classroom' },
   { path: '/curriculum', label: 'Curriculum' },
   { path: '/schedule', label: 'Schedule' },
+  { path: '/notes', label: 'My notes' },
   { path: '/school', label: 'School' },
   { path: '/profile', label: 'Profile' }
 ];

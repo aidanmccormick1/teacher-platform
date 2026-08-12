@@ -20,6 +20,7 @@ import {
   CreateUploadUrlResponseSchema,
   CourseCreateRequestSchema,
   CourseDetailResponseSchema,
+  CoursePacingPlanUpsertRequestSchema,
   CourseListResponseSchema,
   CourseUpdateRequestSchema,
   DashboardTodayResponseSchema,
@@ -55,14 +56,20 @@ import {
   UnitCreateRequestSchema,
   UnitUpdateRequestSchema,
   LessonCreateRequestSchema,
+  LessonReorderRequestSchema,
   LessonMaterialCreateRequestSchema,
   LessonUpdateRequestSchema,
+  TeacherNoteCreateRequestSchema,
+  TeacherNoteSchema,
+  TeacherNotesResponseSchema,
+  TeacherNoteUpdateRequestSchema,
   UuidSchema
 } from '@teacheros/contracts';
 import {
   aiJobs,
   aiOutputs,
   classNotes,
+  coursePacingPlans,
   courses,
   db,
   lessonSegments,
@@ -77,6 +84,7 @@ import {
   sectionMeetings,
   sections,
   teacherProfiles,
+  teacherNotes,
   teacherScheduleTemplates,
   units
 } from '@teacheros/db';
@@ -224,6 +232,7 @@ const UnitParamsSchema = z.object({ unitId: UuidSchema });
 const LessonParamsSchema = z.object({ lessonId: UuidSchema });
 const SegmentParamsSchema = z.object({ segmentId: UuidSchema });
 const MaterialParamsSchema = z.object({ materialId: UuidSchema });
+const TeacherNoteParamsSchema = z.object({ noteId: UuidSchema });
 const AiJobParamsSchema = z.object({ jobId: UuidSchema });
 
 async function findOwnedCourse(userId: string, courseId: string) {
@@ -301,6 +310,21 @@ async function findOwnedCourseIdForMaterial(userId: string, materialId: string) 
 async function buildCourseDetail(userId: string, courseId: string) {
   const course = await findOwnedCourse(userId, courseId);
   if (!course) return null;
+
+  const [pacingPlan] = await db
+    .select({
+      courseId: coursePacingPlans.courseId,
+      startDate: coursePacingPlans.startDate,
+      weeks: coursePacingPlans.weeks,
+      meetingsPerWeek: coursePacingPlans.meetingsPerWeek,
+      plannedClassPeriods: coursePacingPlans.plannedClassPeriods,
+      classPeriodMinutes: coursePacingPlans.classPeriodMinutes,
+      notes: coursePacingPlans.notes,
+      updatedAt: coursePacingPlans.updatedAt
+    })
+    .from(coursePacingPlans)
+    .where(eq(coursePacingPlans.courseId, courseId))
+    .limit(1);
 
   const unitRows = await db
     .select({
@@ -400,6 +424,18 @@ async function buildCourseDetail(userId: string, courseId: string) {
       subject: course.subject,
       gradeLevel: course.gradeLevel,
       createdAt: course.createdAt.toISOString(),
+      pacingPlan: pacingPlan
+        ? {
+            courseId: pacingPlan.courseId,
+            startDate: pacingPlan.startDate,
+            weeks: pacingPlan.weeks,
+            meetingsPerWeek: pacingPlan.meetingsPerWeek,
+            plannedClassPeriods: pacingPlan.plannedClassPeriods,
+            classPeriodMinutes: pacingPlan.classPeriodMinutes,
+            notes: pacingPlan.notes,
+            updatedAt: pacingPlan.updatedAt.toISOString()
+          }
+        : null,
       units: unitRows.map((unit) => ({
         id: unit.id,
         title: unit.title,
@@ -1164,6 +1200,60 @@ export async function v1Routes(app: FastifyInstance) {
     }
   );
 
+  app.put(
+    '/v1/courses/:courseId/pacing-plan',
+    {
+      schema: {
+        params: CourseParamsSchema,
+        body: CoursePacingPlanUpsertRequestSchema,
+        response: {
+          200: CourseDetailResponseSchema
+        }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const params = CourseParamsSchema.parse(request.params);
+      const body = CoursePacingPlanUpsertRequestSchema.parse(request.body);
+
+      const ownedCourse = await findOwnedCourse(user.id, params.courseId);
+      if (!ownedCourse) {
+        (reply as any).code(404);
+        return { error: 'Course not found', requestId: request.id };
+      }
+
+      await db
+        .insert(coursePacingPlans)
+        .values({
+          courseId: params.courseId,
+          startDate: body.startDate,
+          weeks: body.weeks,
+          meetingsPerWeek: body.meetingsPerWeek,
+          plannedClassPeriods: body.plannedClassPeriods,
+          classPeriodMinutes: body.classPeriodMinutes,
+          notes: body.notes
+        })
+        .onConflictDoUpdate({
+          target: coursePacingPlans.courseId,
+          set: {
+            startDate: body.startDate,
+            weeks: body.weeks,
+            meetingsPerWeek: body.meetingsPerWeek,
+            plannedClassPeriods: body.plannedClassPeriods,
+            classPeriodMinutes: body.classPeriodMinutes,
+            notes: body.notes,
+            updatedAt: new Date()
+          }
+        });
+
+      const detail = await buildCourseDetail(user.id, params.courseId);
+      if (!detail) throw new Error('Failed to load course detail');
+      return detail;
+    }
+  );
+
   app.delete(
     '/v1/courses/:courseId',
     {
@@ -1341,6 +1431,66 @@ export async function v1Routes(app: FastifyInstance) {
         description: body.description,
         estimatedDurationMinutes: body.estimatedDurationMinutes,
         orderIndex: body.orderIndex ?? (latestLesson?.orderIndex ?? -1) + 1
+      });
+
+      const detail = await buildCourseDetail(user.id, courseId);
+      if (!detail) throw new Error('Failed to load course detail');
+      return detail;
+    }
+  );
+
+  app.put(
+    '/v1/units/:unitId/lessons/order',
+    {
+      schema: {
+        params: UnitParamsSchema,
+        body: LessonReorderRequestSchema,
+        response: {
+          200: CourseDetailResponseSchema
+        }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const params = UnitParamsSchema.parse(request.params);
+      const body = LessonReorderRequestSchema.parse(request.body);
+
+      const courseId = await findOwnedCourseIdForUnit(user.id, params.unitId);
+      if (!courseId) {
+        (reply as any).code(404);
+        return { error: 'Unit not found', requestId: request.id };
+      }
+
+      const currentLessons = await db
+        .select({ id: lessons.id })
+        .from(lessons)
+        .where(eq(lessons.unitId, params.unitId));
+      const currentIds = new Set(currentLessons.map((lesson) => lesson.id));
+      const submittedIds = new Set(body.lessonIds);
+      const isCompleteStack =
+        body.lessonIds.length === currentIds.size &&
+        submittedIds.size === currentIds.size &&
+        [...submittedIds].every((id) => currentIds.has(id));
+
+      if (!isCompleteStack) {
+        (reply as any).code(400);
+        return {
+          error: 'Send every lesson in this unit exactly once when rearranging the stack.',
+          requestId: request.id
+        };
+      }
+
+      await db.transaction(async (transaction) => {
+        await Promise.all(
+          body.lessonIds.map((lessonId, orderIndex) =>
+            transaction
+              .update(lessons)
+              .set({ orderIndex, updatedAt: new Date() })
+              .where(and(eq(lessons.id, lessonId), eq(lessons.unitId, params.unitId)))
+          )
+        );
       });
 
       const detail = await buildCourseDetail(user.id, courseId);
@@ -2126,6 +2276,142 @@ export async function v1Routes(app: FastifyInstance) {
         stateId: state.id,
         updatedAt: state.updatedAt.toISOString()
       };
+    }
+  );
+
+  app.get(
+    '/v1/teacher-notes',
+    {
+      schema: {
+        response: {
+          200: TeacherNotesResponseSchema
+        }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const rows = await db
+        .select({
+          id: teacherNotes.id,
+          title: teacherNotes.title,
+          content: teacherNotes.content,
+          createdAt: teacherNotes.createdAt,
+          updatedAt: teacherNotes.updatedAt
+        })
+        .from(teacherNotes)
+        .where(eq(teacherNotes.userId, user.id))
+        .orderBy(desc(teacherNotes.updatedAt));
+
+      return {
+        notes: rows.map((note) => ({
+          id: note.id,
+          title: note.title,
+          content: note.content,
+          createdAt: note.createdAt.toISOString(),
+          updatedAt: note.updatedAt.toISOString()
+        }))
+      };
+    }
+  );
+
+  app.post(
+    '/v1/teacher-notes',
+    {
+      schema: {
+        body: TeacherNoteCreateRequestSchema,
+        response: {
+          200: TeacherNoteSchema
+        }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const body = TeacherNoteCreateRequestSchema.parse(request.body);
+      const [note] = await db
+        .insert(teacherNotes)
+        .values({ userId: user.id, title: body.title, content: body.content })
+        .returning();
+      if (!note) throw new Error('Failed to create teacher note');
+
+      return {
+        id: note.id,
+        title: note.title,
+        content: note.content,
+        createdAt: note.createdAt.toISOString(),
+        updatedAt: note.updatedAt.toISOString()
+      };
+    }
+  );
+
+  app.patch(
+    '/v1/teacher-notes/:noteId',
+    {
+      schema: {
+        params: TeacherNoteParamsSchema,
+        body: TeacherNoteUpdateRequestSchema,
+        response: {
+          200: TeacherNoteSchema
+        }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const params = TeacherNoteParamsSchema.parse(request.params);
+      const body = TeacherNoteUpdateRequestSchema.parse(request.body);
+      const updates: Partial<typeof teacherNotes.$inferInsert> = { updatedAt: new Date() };
+      if (body.title !== undefined) updates.title = body.title;
+      if (body.content !== undefined) updates.content = body.content;
+
+      const [note] = await db
+        .update(teacherNotes)
+        .set(updates)
+        .where(and(eq(teacherNotes.id, params.noteId), eq(teacherNotes.userId, user.id)))
+        .returning();
+      if (!note) {
+        (reply as any).code(404);
+        return { error: 'Note not found', requestId: request.id };
+      }
+
+      return {
+        id: note.id,
+        title: note.title,
+        content: note.content,
+        createdAt: note.createdAt.toISOString(),
+        updatedAt: note.updatedAt.toISOString()
+      };
+    }
+  );
+
+  app.delete(
+    '/v1/teacher-notes/:noteId',
+    {
+      schema: {
+        params: TeacherNoteParamsSchema,
+        response: {
+          200: DeleteEntityResponseSchema
+        }
+      }
+    },
+    async (request, reply) => {
+      const principal = requirePrincipal(request, reply);
+      if (!principal) return;
+      const user = await ensureUserFromPrincipal(principal);
+      const params = TeacherNoteParamsSchema.parse(request.params);
+      const [deleted] = await db
+        .delete(teacherNotes)
+        .where(and(eq(teacherNotes.id, params.noteId), eq(teacherNotes.userId, user.id)))
+        .returning({ id: teacherNotes.id });
+      if (!deleted) {
+        (reply as any).code(404);
+        return { error: 'Note not found', requestId: request.id };
+      }
+      return { deleted: true };
     }
   );
 

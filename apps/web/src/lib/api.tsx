@@ -13,6 +13,7 @@ import type {
   ClassNotesUpsertResponse,
   CourseCreateRequest,
   CourseDetailResponse,
+  CoursePacingPlanUpsertRequest,
   CourseListResponse,
   CourseUpdateRequest,
   DashboardTodayResponse,
@@ -32,6 +33,7 @@ import type {
   LessonProgressUpsertResponse,
   LessonCreateRequest,
   LessonMaterialCreateRequest,
+  LessonReorderRequest,
   LessonUpdateRequest,
   OnboardingRequest,
   OnboardingResponse,
@@ -46,6 +48,10 @@ import type {
   AnnualCalendarProposal,
   TeachingDataImportApplyRequest,
   TeachingDataImportApplyResponse,
+  TeacherNote,
+  TeacherNoteCreateRequest,
+  TeacherNotesResponse,
+  TeacherNoteUpdateRequest,
   UnitCreateRequest,
   UnitUpdateRequest
 } from '@teacheros/contracts';
@@ -159,6 +165,12 @@ export function useApiClient() {
           { method: 'PATCH', body: JSON.stringify(body) },
           auth
         ),
+      updateCoursePacingPlan: (courseId: string, body: CoursePacingPlanUpsertRequest) =>
+        request<CourseDetailResponse>(
+          `/v1/courses/${courseId}/pacing-plan`,
+          { method: 'PUT', body: JSON.stringify(body) },
+          auth
+        ),
       deleteCourse: (courseId: string) =>
         request<DeleteEntityResponse>(`/v1/courses/${courseId}`, { method: 'DELETE' }, auth),
       createUnit: (courseId: string, body: UnitCreateRequest) =>
@@ -179,6 +191,12 @@ export function useApiClient() {
         request<CourseDetailResponse>(
           `/v1/units/${unitId}/lessons`,
           { method: 'POST', body: JSON.stringify(body) },
+          auth
+        ),
+      reorderLessons: (unitId: string, body: LessonReorderRequest) =>
+        request<CourseDetailResponse>(
+          `/v1/units/${unitId}/lessons/order`,
+          { method: 'PUT', body: JSON.stringify(body) },
           auth
         ),
       createLessonMaterial: (lessonId: string, body: LessonMaterialCreateRequest) =>
@@ -291,6 +309,22 @@ export function useApiClient() {
           { method: 'POST', body: JSON.stringify(body) },
           auth
         ),
+      listTeacherNotes: () =>
+        request<TeacherNotesResponse>('/v1/teacher-notes', { method: 'GET' }, auth),
+      createTeacherNote: (body: TeacherNoteCreateRequest) =>
+        request<TeacherNote>(
+          '/v1/teacher-notes',
+          { method: 'POST', body: JSON.stringify(body) },
+          auth
+        ),
+      updateTeacherNote: (noteId: string, body: TeacherNoteUpdateRequest) =>
+        request<TeacherNote>(
+          `/v1/teacher-notes/${noteId}`,
+          { method: 'PATCH', body: JSON.stringify(body) },
+          auth
+        ),
+      deleteTeacherNote: (noteId: string) =>
+        request<DeleteEntityResponse>(`/v1/teacher-notes/${noteId}`, { method: 'DELETE' }, auth),
       generateSegments: (body: GenerateSegmentsRequest) =>
         request<GenerateSegmentsResponse>(
           '/v1/ai/generate-segments',

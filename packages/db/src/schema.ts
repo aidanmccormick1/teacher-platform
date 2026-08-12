@@ -104,6 +104,20 @@ export const courses = pgTable(
   (table) => [index('idx_courses_teacher').on(table.teacherId), index('idx_courses_school').on(table.schoolId)]
 );
 
+export const coursePacingPlans = pgTable('course_pacing_plans', {
+  courseId: uuid('course_id')
+    .primaryKey()
+    .references(() => courses.id, { onDelete: 'cascade' }),
+  startDate: date('start_date'),
+  weeks: integer('weeks'),
+  meetingsPerWeek: integer('meetings_per_week'),
+  plannedClassPeriods: integer('planned_class_periods'),
+  classPeriodMinutes: integer('class_period_minutes').notNull().default(50),
+  notes: text('notes'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+});
+
 export const sections = pgTable(
   'sections',
   {
@@ -350,6 +364,22 @@ export const classNotes = pgTable(
   (table) => [unique('uniq_class_note').on(table.sectionId, table.userId, table.date, table.noteType)]
 );
 
+/** Private planning notes, visible only to the teacher who created them. */
+export const teacherNotes = pgTable(
+  'teacher_notes',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    title: text('title').notNull(),
+    content: text('content').notNull().default(''),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [index('idx_teacher_notes_user_updated').on(table.userId, table.updatedAt)]
+);
+
 export const sectionSessionEvents = pgTable(
   'section_session_events',
   {
@@ -423,12 +453,14 @@ export const auditEvents = pgTable(
 export const usersRelations = relations(users, ({ many, one }) => ({
   teacherProfile: one(teacherProfiles),
   courses: many(courses),
-  classNotes: many(classNotes)
+  classNotes: many(classNotes),
+  teacherNotes: many(teacherNotes)
 }));
 
 export const coursesRelations = relations(courses, ({ many, one }) => ({
   sections: many(sections),
   units: many(units),
+  pacingPlan: one(coursePacingPlans),
   teacher: one(users, {
     fields: [courses.teacherId],
     references: [users.id]

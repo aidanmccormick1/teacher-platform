@@ -40,7 +40,10 @@ async function runMigrations() {
   const migrationFiles = [
     '0000_initial.sql',
     '0001_ai_jobs_cancel_status.sql',
-    '0002_lesson_materials.sql'
+    '0002_lesson_materials.sql',
+    '0003_section_session_events.sql',
+    '0004_schedule_templates_and_overrides.sql',
+    '0005_teacher_notes_and_course_pacing.sql'
   ];
 
   for (const fileName of migrationFiles) {
@@ -55,6 +58,8 @@ async function resetDatabase() {
       ai_outputs,
       ai_jobs,
       class_notes,
+      teacher_notes,
+      course_pacing_plans,
       section_lesson_state,
       lesson_materials,
       lesson_segments,

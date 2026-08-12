@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import type { CourseDetailResponse } from '@teacheros/contracts';
 
 import { ActivityStudio } from '../components/ActivityStudio.js';
+import { CoursePacingPlanner } from '../components/CoursePacingPlanner.js';
 import { SemesterPlanner } from '../components/SemesterPlanner.js';
 import { ApiError, useApiClient } from '../lib/api.js';
 import type { LessonMaterialKind } from '@teacheros/contracts';
@@ -54,17 +55,26 @@ export function CoursePage() {
   const [lessonDrafts, setLessonDrafts] = useState<Record<string, LessonDraft>>({});
   const [segmentDrafts, setSegmentDrafts] = useState<Record<string, SegmentDraft>>({});
   const [materialDrafts, setMaterialDrafts] = useState<Record<string, MaterialDraft>>({});
+  const [scheduleMeetingsPerWeek, setScheduleMeetingsPerWeek] = useState<number | null>(null);
 
   const loadCourse = useCallback(async () => {
     if (!courseId) return;
 
     try {
       setLoading(true);
-      const data = await api.getCourseDetail(courseId);
+      const [data, schedule] = await Promise.all([
+        api.getCourseDetail(courseId),
+        api.getSchedule().catch(() => null)
+      ]);
       setCourse(data.course);
       setCourseName(data.course.name);
       setCourseSubject(data.course.subject ?? '');
       setCourseGradeLevel(data.course.gradeLevel ?? '');
+      const courseSections = schedule?.sections.filter((section) => section.courseId === courseId) ?? [];
+      const meetings = courseSections.map(
+        (section) => new Set(section.meetings.map((meeting) => meeting.day)).size
+      );
+      setScheduleMeetingsPerWeek(meetings.length > 0 ? Math.max(...meetings) : null);
       setError(null);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to load course');
@@ -168,6 +178,24 @@ export function CoursePage() {
               </button>
             </div>
           </div>
+
+          <CoursePacingPlanner
+            course={course}
+            scheduleMeetingsPerWeek={scheduleMeetingsPerWeek}
+            saving={saving}
+            onSave={async (body) => {
+              try {
+                setSaving(true);
+                const detail = await api.updateCoursePacingPlan(course.id, body);
+                updateFromDetail(detail);
+                setError(null);
+              } catch (err) {
+                setError(err instanceof ApiError ? err.message : 'Failed to save your year timeline');
+              } finally {
+                setSaving(false);
+              }
+            }}
+          />
 
           <SemesterPlanner
             courseName={course.name}
@@ -382,7 +410,7 @@ export function CoursePage() {
                     </button>
                   </div>
 
-                  {unit.lessons.map((lesson) => {
+                  {unit.lessons.map((lesson, lessonIndex) => {
                     const segmentDraft = segmentDrafts[lesson.id] ?? {
                       title: '',
                       description: '',
@@ -394,8 +422,64 @@ export function CoursePage() {
                       <div key={lesson.id} className="card stack">
                         <div className="row">
                           <strong>
-                            Lesson {lesson.orderIndex}: {lesson.title}
+                            Lesson {lessonIndex + 1}: {lesson.title}
                           </strong>
+                          <button
+                            className="secondary"
+                            type="button"
+                            disabled={saving || lessonIndex === 0}
+                            onClick={async () => {
+                              const ordered = [...unit.lessons];
+                              [ordered[lessonIndex - 1], ordered[lessonIndex]] = [
+                                ordered[lessonIndex]!,
+                                ordered[lessonIndex - 1]!
+                              ];
+                              try {
+                                setSaving(true);
+                                const detail = await api.reorderLessons(unit.id, {
+                                  lessonIds: ordered.map((item) => item.id)
+                                });
+                                updateFromDetail(detail);
+                                setError(null);
+                              } catch (err) {
+                                setError(
+                                  err instanceof ApiError ? err.message : 'Failed to move this lesson'
+                                );
+                              } finally {
+                                setSaving(false);
+                              }
+                            }}
+                          >
+                            Move up
+                          </button>
+                          <button
+                            className="secondary"
+                            type="button"
+                            disabled={saving || lessonIndex === unit.lessons.length - 1}
+                            onClick={async () => {
+                              const ordered = [...unit.lessons];
+                              [ordered[lessonIndex], ordered[lessonIndex + 1]] = [
+                                ordered[lessonIndex + 1]!,
+                                ordered[lessonIndex]!
+                              ];
+                              try {
+                                setSaving(true);
+                                const detail = await api.reorderLessons(unit.id, {
+                                  lessonIds: ordered.map((item) => item.id)
+                                });
+                                updateFromDetail(detail);
+                                setError(null);
+                              } catch (err) {
+                                setError(
+                                  err instanceof ApiError ? err.message : 'Failed to move this lesson'
+                                );
+                              } finally {
+                                setSaving(false);
+                              }
+                            }}
+                          >
+                            Move down
+                          </button>
                           <button
                             className="secondary"
                             type="button"
