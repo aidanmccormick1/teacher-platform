@@ -2,6 +2,7 @@ import { useState } from 'react';
 
 import type { GenerateActivityResponse } from '@teacheros/contracts';
 
+import { EditFocusDialog } from './EditFocusDialog.js';
 import { ApiError, useApiClient } from '../lib/api.js';
 
 type ActivityStudioProps = {
@@ -45,10 +46,16 @@ export function ActivityStudio(props: ActivityStudioProps) {
 
   return (
     <div className="activity-studio">
-      <button className="secondary" type="button" onClick={() => setOpen((value) => !value)}>
-        {open ? 'Close activity planner' : 'Plan an activity'}
+      <button className="secondary" type="button" onClick={() => setOpen(true)}>
+        Plan an activity
       </button>
-      {open ? (
+      <EditFocusDialog
+        open={open}
+        title="Plan an activity"
+        description="Draft, revise, and apply an activity without losing your place in the course."
+        onClose={() => setOpen(false)}
+        busy={working}
+      >
         <div className="activity-studio-panel stack">
           <div>
             <h4>Make this lesson yours</h4>
@@ -240,6 +247,8 @@ export function ActivityStudio(props: ActivityStudioProps) {
                         setWorking(true);
                         await props.onAddSteps(activity.steps);
                         setError(null);
+                        setActivity(null);
+                        setOpen(false);
                       } catch (err) {
                         setError(
                           err instanceof ApiError ? err.message : 'Unable to add activity steps'
@@ -256,7 +265,7 @@ export function ActivityStudio(props: ActivityStudioProps) {
             </div>
           ) : null}
         </div>
-      ) : null}
+      </EditFocusDialog>
     </div>
   );
 }

@@ -2,7 +2,9 @@ import { useCallback, useEffect, useState } from 'react';
 
 import type { AiJobStatusResponse, GetScheduleResponse } from '@teacheros/contracts';
 
+import { EditFocusDialog } from '../components/EditFocusDialog.js';
 import { TeachingDataImporter } from '../components/TeachingDataImporter.js';
+import { AcademicCalendarPanel } from '../components/AcademicCalendarPanel.js';
 import { WeeklyScheduleView } from '../components/WeeklyScheduleView.js';
 import { ApiError, useApiClient } from '../lib/api.js';
 
@@ -26,6 +28,7 @@ export function SchedulePage() {
   const [activeJob, setActiveJob] = useState<AiJobStatusResponse | null>(null);
   const [jobOutput, setJobOutput] = useState<string | null>(null);
   const [showImporter, setShowImporter] = useState(false);
+  const [aiEditor, setAiEditor] = useState<'segments' | 'continuity' | null>(null);
 
   const loadSchedule = useCallback(async () => {
     try {
@@ -87,6 +90,8 @@ export function SchedulePage() {
       </div>
       {error ? <p style={{ color: '#b02020' }}>{error}</p> : null}
 
+      <AcademicCalendarPanel />
+
       {schedule?.hasScheduleSetup ? (
         <>
           <WeeklyScheduleView schedule={schedule} />
@@ -94,141 +99,195 @@ export function SchedulePage() {
             <div>
               <h3>Need to change your schedule?</h3>
               <p className="muted">
-                Your saved week has {schedule.sections.length} class sections and {schedule.blocks.length}{' '}
-                non-class blocks. Importing a new file will guide you through a review before it replaces your
-                active week.
+                Your saved week has {schedule.sections.length} class sections and{' '}
+                {schedule.blocks.length} non-class blocks. Importing a new file will guide you
+                through a review before it replaces your active week.
               </p>
             </div>
-            <button className="secondary" type="button" onClick={() => setShowImporter((visible) => !visible)}>
-              {showImporter ? 'Hide schedule import' : 'Import or update my schedule'}
+            <button className="secondary" type="button" onClick={() => setShowImporter(true)}>
+              Import or update my schedule
             </button>
           </div>
         </>
       ) : null}
 
-      {!schedule?.hasScheduleSetup || showImporter ? (
+      {!schedule?.hasScheduleSetup ? (
+        <div className="card schedule-import-launcher stack">
+          <h3>Set up your schedule</h3>
+          <p className="muted">
+            Add or import the weekly schedule in a focused editing workspace. Nothing changes until
+            you save it there.
+          </p>
+          <button type="button" onClick={() => setShowImporter(true)}>
+            Set up my schedule
+          </button>
+        </div>
+      ) : null}
+
+      <EditFocusDialog
+        open={showImporter}
+        title="Edit schedule"
+        description="Review every class, meeting time, and special date before applying changes."
+        onClose={() => setShowImporter(false)}
+      >
         <TeachingDataImporter
           onApplied={async () => {
             await loadSchedule();
             setShowImporter(false);
           }}
         />
-      ) : null}
+      </EditFocusDialog>
 
       {schedule?.hasScheduleSetup ? (
         <div className="card stack schedule-overview">
           <h3>Schedule details</h3>
           <p className="muted">
-            {schedule.overrides.length} special calendar days are saved. You can update your active weekly
-            schedule whenever your bell schedule changes.
+            {schedule.overrides.length} special calendar days are saved. You can update your active
+            weekly schedule whenever your bell schedule changes.
           </p>
         </div>
       ) : null}
 
-      <div className="card stack">
-        <h3>AI: Generate Lesson Segments</h3>
-        <input
-          className="input"
-          value={segmentLessonTitle}
-          onChange={(event) => setSegmentLessonTitle(event.target.value)}
-          placeholder="Lesson title"
-        />
-        <input
-          className="input"
-          value={segmentObjective}
-          onChange={(event) => setSegmentObjective(event.target.value)}
-          placeholder="Objective (optional)"
-        />
-        <input
-          className="input"
-          value={segmentDuration}
-          onChange={(event) => setSegmentDuration(event.target.value)}
-          placeholder="Duration in minutes"
-        />
-        <button
-          type="button"
-          disabled={busy || !segmentLessonTitle.trim()}
-          onClick={async () => {
-            const parsedDuration = Number(segmentDuration);
-            if (!Number.isInteger(parsedDuration) || parsedDuration <= 0) {
-              setError('Duration must be a positive integer');
-              return;
-            }
-
-            try {
-              setBusy(true);
-              const queued = await api.enqueueGenerateSegments({
-                lessonTitle: segmentLessonTitle.trim(),
-                objective: segmentObjective.trim() ? segmentObjective.trim() : null,
-                durationMinutes: parsedDuration
-              });
-              setActiveJobId(queued.jobId);
-              setActiveJob(null);
-              setJobOutput(null);
-              setError(null);
-            } catch (err) {
-              setError(err instanceof ApiError ? err.message : 'Failed to enqueue segment job');
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          Queue segment job
+      <div className="card row spread">
+        <div>
+          <h3>AI: Generate Lesson Segments</h3>
+          <p className="muted">Draft a proposal in a focused workspace before anything is saved.</p>
+        </div>
+        <button className="secondary" type="button" onClick={() => setAiEditor('segments')}>
+          Draft segments
         </button>
       </div>
+      <EditFocusDialog
+        open={aiEditor === 'segments'}
+        title="Draft Lesson Segments"
+        description="This creates an editable proposal only; it does not change your curriculum."
+        onClose={() => setAiEditor(null)}
+        busy={busy}
+      >
+        <div className="stack">
+          <input
+            className="input"
+            value={segmentLessonTitle}
+            onChange={(event) => setSegmentLessonTitle(event.target.value)}
+            placeholder="Lesson title"
+          />
+          <input
+            className="input"
+            value={segmentObjective}
+            onChange={(event) => setSegmentObjective(event.target.value)}
+            placeholder="Objective (optional)"
+          />
+          <input
+            className="input"
+            value={segmentDuration}
+            onChange={(event) => setSegmentDuration(event.target.value)}
+            placeholder="Duration in minutes"
+          />
+          <button
+            type="button"
+            disabled={busy || !segmentLessonTitle.trim()}
+            onClick={async () => {
+              const parsedDuration = Number(segmentDuration);
+              if (!Number.isInteger(parsedDuration) || parsedDuration <= 0) {
+                setError('Duration must be a positive integer');
+                return;
+              }
 
-      <div className="card stack">
-        <h3>AI: Continuity Suggestions</h3>
-        <input
-          className="input"
-          value={continuityLessonTitle}
-          onChange={(event) => setContinuityLessonTitle(event.target.value)}
-          placeholder="Lesson title"
-        />
-        <input
-          className="input"
-          value={continuityLastSegment}
-          onChange={(event) => setContinuityLastSegment(event.target.value)}
-          placeholder="Last segment title (optional)"
-        />
-        <textarea
-          rows={3}
-          value={continuityLastNote}
-          onChange={(event) => setContinuityLastNote(event.target.value)}
-          placeholder="Last class note (optional)"
-        />
-        <textarea
-          rows={3}
-          value={continuitySummary}
-          onChange={(event) => setContinuitySummary(event.target.value)}
-          placeholder="Previous lesson summary (optional)"
-        />
-        <button
-          type="button"
-          disabled={busy || !continuityLessonTitle.trim()}
-          onClick={async () => {
-            try {
-              setBusy(true);
-              const queued = await api.enqueueGenerateContinuity({
-                lessonTitle: continuityLessonTitle.trim(),
-                lastSegmentTitle: continuityLastSegment.trim() || null,
-                lastNote: continuityLastNote.trim() || null,
-                previousLessonSummary: continuitySummary.trim() || null
-              });
-              setActiveJobId(queued.jobId);
-              setActiveJob(null);
-              setJobOutput(null);
-              setError(null);
-            } catch (err) {
-              setError(err instanceof ApiError ? err.message : 'Failed to enqueue continuity job');
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          Queue continuity job
+              try {
+                setBusy(true);
+                const queued = await api.enqueueGenerateSegments({
+                  lessonTitle: segmentLessonTitle.trim(),
+                  objective: segmentObjective.trim() ? segmentObjective.trim() : null,
+                  durationMinutes: parsedDuration
+                });
+                setActiveJobId(queued.jobId);
+                setActiveJob(null);
+                setJobOutput(null);
+                setError(null);
+                setAiEditor(null);
+              } catch (err) {
+                setError(err instanceof ApiError ? err.message : 'Failed to enqueue segment job');
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            Queue segment job
+          </button>
+        </div>
+      </EditFocusDialog>
+
+      <div className="card row spread">
+        <div>
+          <h3>AI: Continuity Suggestions</h3>
+          <p className="muted">Use a focused draft to prepare the next instructional move.</p>
+        </div>
+        <button className="secondary" type="button" onClick={() => setAiEditor('continuity')}>
+          Draft continuity
         </button>
       </div>
+      <EditFocusDialog
+        open={aiEditor === 'continuity'}
+        title="Draft Continuity Suggestions"
+        description="Review the proposal after it is generated; no curriculum changes happen here."
+        onClose={() => setAiEditor(null)}
+        busy={busy}
+      >
+        <div className="stack">
+          <input
+            className="input"
+            value={continuityLessonTitle}
+            onChange={(event) => setContinuityLessonTitle(event.target.value)}
+            placeholder="Lesson title"
+          />
+          <input
+            className="input"
+            value={continuityLastSegment}
+            onChange={(event) => setContinuityLastSegment(event.target.value)}
+            placeholder="Last segment title (optional)"
+          />
+          <textarea
+            rows={3}
+            value={continuityLastNote}
+            onChange={(event) => setContinuityLastNote(event.target.value)}
+            placeholder="Last class note (optional)"
+          />
+          <textarea
+            rows={3}
+            value={continuitySummary}
+            onChange={(event) => setContinuitySummary(event.target.value)}
+            placeholder="Previous lesson summary (optional)"
+          />
+          <button
+            type="button"
+            disabled={busy || !continuityLessonTitle.trim()}
+            onClick={async () => {
+              try {
+                setBusy(true);
+                const queued = await api.enqueueGenerateContinuity({
+                  lessonTitle: continuityLessonTitle.trim(),
+                  lastSegmentTitle: continuityLastSegment.trim() || null,
+                  lastNote: continuityLastNote.trim() || null,
+                  previousLessonSummary: continuitySummary.trim() || null
+                });
+                setActiveJobId(queued.jobId);
+                setActiveJob(null);
+                setJobOutput(null);
+                setError(null);
+                setAiEditor(null);
+              } catch (err) {
+                setError(
+                  err instanceof ApiError ? err.message : 'Failed to enqueue continuity job'
+                );
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            Queue continuity job
+          </button>
+        </div>
+      </EditFocusDialog>
 
       {activeJobId ? (
         <div className="card stack">
@@ -309,7 +368,6 @@ export function SchedulePage() {
           {jobOutput ? <pre>{jobOutput}</pre> : null}
         </div>
       ) : null}
-
     </div>
   );
 }

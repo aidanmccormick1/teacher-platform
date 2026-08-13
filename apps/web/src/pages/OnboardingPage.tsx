@@ -27,9 +27,10 @@ export function OnboardingPage() {
     role: 'teacher' as 'teacher' | 'department_head' | 'admin',
     schoolName: '',
     district: '',
-    state: '',
-    subjects: '',
-    grades: ''
+        state: '',
+        subjects: '',
+    grades: '',
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || null
   });
   const stepIndex = steps.findIndex((item) => item.id === step);
   const canContinue =
@@ -61,7 +62,8 @@ export function OnboardingPage() {
         district: form.district.trim() || null,
         state: form.state.trim() || null,
         subjects: form.subjects.split(',').map((value) => value.trim()).filter(Boolean),
-        grades: form.grades.split(',').map((value) => value.trim()).filter(Boolean)
+        grades: form.grades.split(',').map((value) => value.trim()).filter(Boolean),
+        timezone: form.timezone
       });
       navigate('/schedule?setup=1');
     } catch (err) {

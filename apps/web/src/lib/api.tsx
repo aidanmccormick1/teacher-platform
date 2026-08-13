@@ -4,6 +4,14 @@ import type {
   AiJobControlResponse,
   AiJobEnqueueResponse,
   AiJobStatusResponse,
+  AccountTimezone,
+  AcademicYear,
+  AcademicYearInput,
+  CalendarEventInput,
+  ClassGroupInput,
+  ClassroomProgressInput,
+  ClassroomState,
+  ClassGroupUnitPlanInput,
   AcademicCalendarParseRequest,
   AcademicCalendarParseResponse,
   ClassroomCheckinResolveRequest,
@@ -33,14 +41,21 @@ import type {
   LessonProgressUpsertResponse,
   LessonCreateRequest,
   LessonMaterialCreateRequest,
+  LessonStepProgressInput,
+  LessonTemplateInput,
   LessonReorderRequest,
   LessonUpdateRequest,
   OnboardingRequest,
   OnboardingResponse,
+  PlanAllocationInput,
+  PlanAllocationMoveRequest,
+  PlannedPercentage,
+  ResourceInput,
   ParseScheduleResponse,
   SegmentCreateRequest,
   SegmentUpdateRequest,
   ScheduleImportRequest,
+  ScheduleOverrideInput,
   ScheduleSetupApplyRequest,
   ScheduleSetupApplyResponse,
   ScheduleSetupSource,
@@ -53,7 +68,8 @@ import type {
   TeacherNotesResponse,
   TeacherNoteUpdateRequest,
   UnitCreateRequest,
-  UnitUpdateRequest
+  UnitUpdateRequest,
+  V3CourseDetail
 } from '@teacheros/contracts';
 
 import { useAppAuth } from './auth.js';
@@ -136,6 +152,224 @@ export function useApiClient() {
       onboarding: (body: OnboardingRequest) =>
         request<OnboardingResponse>(
           '/v1/onboarding',
+          { method: 'POST', body: JSON.stringify(body) },
+          auth
+        ),
+      getAccountTimezone: () => request<AccountTimezone>('/v3/account', { method: 'GET' }, auth),
+      initializeTimezone: (timezone: string) =>
+        request<AccountTimezone>(
+          '/v3/account/timezone/initialize',
+          { method: 'POST', body: JSON.stringify({ timezone }) },
+          auth
+        ),
+      updateTimezone: (timezone: string) =>
+        request<AccountTimezone>(
+          '/v3/account/timezone',
+          { method: 'PATCH', body: JSON.stringify({ timezone }) },
+          auth
+        ),
+      listAcademicYears: () =>
+        request<{ years: AcademicYear[] }>('/v3/academic-years', { method: 'GET' }, auth),
+      createAcademicYear: (body: AcademicYearInput) =>
+        request<{ year: AcademicYear }>(
+          '/v3/academic-years',
+          { method: 'POST', body: JSON.stringify(body) },
+          auth
+        ),
+      getAcademicCalendar: (academicYearId: string) =>
+        request<{
+          events: Array<Record<string, unknown>>;
+          overrides: Array<Record<string, unknown>>;
+        }>(`/v3/academic-years/${academicYearId}/calendar`, { method: 'GET' }, auth),
+      createCalendarEvent: (academicYearId: string, body: CalendarEventInput) =>
+        request<{ event: Record<string, unknown> }>(
+          `/v3/academic-years/${academicYearId}/calendar-events`,
+          { method: 'POST', body: JSON.stringify(body) },
+          auth
+        ),
+      createScheduleOverride: (academicYearId: string, body: ScheduleOverrideInput) =>
+        request<{ override: Record<string, unknown> }>(
+          `/v3/academic-years/${academicYearId}/schedule-overrides`,
+          { method: 'POST', body: JSON.stringify(body) },
+          auth
+        ),
+      createClassGroup: (body: ClassGroupInput) =>
+        request<{ classGroup: { id: string } }>(
+          '/v3/class-groups',
+          { method: 'POST', body: JSON.stringify(body) },
+          auth
+        ),
+      listV3ClassGroups: (academicYearId?: string) =>
+        request<{
+          classGroups: Array<{
+            id: string;
+            courseId: string;
+            academicYearId: string;
+            name: string;
+            periodLabel: string | null;
+            room: string | null;
+            courseName: string;
+          }>;
+        }>(
+          `/v3/class-groups${academicYearId ? `?academicYearId=${encodeURIComponent(academicYearId)}` : ''}`,
+          { method: 'GET' },
+          auth
+        ),
+      getV3CourseDetail: (courseId: string) =>
+        request<V3CourseDetail>(`/v3/courses/${courseId}`, { method: 'GET' }, auth),
+      searchLessonBank: (query: string) =>
+        request<{
+          lessons: Array<{
+            id: string;
+            title: string;
+            description: string | null;
+            unitId: string;
+            unitTitle: string;
+            courseId: string;
+            courseName: string;
+          }>;
+        }>(`/v3/lesson-bank?query=${encodeURIComponent(query)}`, { method: 'GET' }, auth),
+      copyLessonBankLesson: (lessonId: string, destinationUnitId: string) =>
+        request<{ lesson: { id: string } }>(
+          `/v3/lesson-bank/${lessonId}/copy`,
+          { method: 'POST', body: JSON.stringify({ destinationUnitId }) },
+          auth
+        ),
+      getV3Resources: (courseId: string) =>
+        request<{
+          resources: Array<{
+            id: string;
+            title: string | null;
+            url: string;
+            provider: string;
+            resourceType: string;
+            courseId: string | null;
+            unitId: string | null;
+            lessonId: string | null;
+            lessonStepId: string | null;
+          }>;
+        }>(`/v3/courses/${courseId}/resources`, { method: 'GET' }, auth),
+      createV3Resource: (body: ResourceInput) =>
+        request<{ resource: Record<string, unknown> }>(
+          '/v3/resources',
+          { method: 'POST', body: JSON.stringify(body) },
+          auth
+        ),
+      listLessonTemplates: () =>
+        request<{
+          templates: Array<{
+            id: string;
+            title: string;
+            description: string | null;
+            steps: Array<{
+              id: string;
+              title: string;
+              description: string | null;
+              estimatedMinutes: number | null;
+              isOptional: boolean;
+            }>;
+          }>;
+        }>('/v3/lesson-templates', { method: 'GET' }, auth),
+      createLessonTemplate: (body: LessonTemplateInput) =>
+        request<{ template: { id: string } }>(
+          '/v3/lesson-templates',
+          { method: 'POST', body: JSON.stringify(body) },
+          auth
+        ),
+      applyLessonTemplate: (lessonId: string, templateId: string) =>
+        request<{ steps: Array<{ id: string }> }>(
+          `/v3/lessons/${lessonId}/apply-template/${templateId}`,
+          { method: 'POST' },
+          auth
+        ),
+      recalculateMeetings: (
+        classGroupId: string,
+        mode: 'preview' | 'meetings_only' | 'shift' = 'preview'
+      ) =>
+        request<{
+          generated: number;
+          updated: number;
+          removedUnused: number;
+          affectedPlanned: number;
+          affectedPlanAllocations: number;
+          historicalPreserved: number;
+          proposedRemappings: Array<{
+            fromMeetingId: string;
+            fromMeetingNumber: number;
+            toLocalDate: string;
+            toStartTime: string;
+          }>;
+          unmappedPlanAllocations: number;
+          conflicts: string[];
+        }>(
+          `/v3/class-groups/${classGroupId}/meetings/recalculate`,
+          { method: 'POST', body: JSON.stringify({ mode }) },
+          auth
+        ),
+      getMeetings: (classGroupId: string) =>
+        request<{ meetings: Array<Record<string, unknown>> }>(
+          `/v3/class-groups/${classGroupId}/meetings`,
+          { method: 'GET' },
+          auth
+        ),
+      getPlannedPercentage: (classGroupId: string) =>
+        request<PlannedPercentage>(
+          `/v3/class-groups/${classGroupId}/planning`,
+          { method: 'GET' },
+          auth
+        ),
+      saveClassGroupUnitPlan: (
+        classGroupId: string,
+        unitId: string,
+        body: Omit<ClassGroupUnitPlanInput, 'unitId'>
+      ) =>
+        request<{ plan: Record<string, unknown> }>(
+          `/v3/class-groups/${classGroupId}/unit-plans/${unitId}`,
+          { method: 'PUT', body: JSON.stringify(body) },
+          auth
+        ),
+      createPlanAllocation: (classGroupId: string, body: PlanAllocationInput) =>
+        request<{ allocation: Record<string, unknown> }>(
+          `/v3/class-groups/${classGroupId}/allocations`,
+          { method: 'POST', body: JSON.stringify(body) },
+          auth
+        ),
+      listPlanAllocations: (classGroupId: string) =>
+        request<{
+          allocations: Array<{
+            id: string;
+            meetingInstanceId: string;
+            lessonId: string;
+            lessonStepId: string | null;
+            orderIndex: number;
+            notes: string | null;
+            lessonTitle: string;
+          }>;
+        }>(`/v3/class-groups/${classGroupId}/allocations`, { method: 'GET' }, auth),
+      movePlanAllocation: (allocationId: string, body: PlanAllocationMoveRequest) =>
+        request<{ allocation: Record<string, unknown>; shiftFollowing: boolean }>(
+          `/v3/allocations/${allocationId}/move`,
+          { method: 'PATCH', body: JSON.stringify(body) },
+          auth
+        ),
+      getV3Classroom: (classGroupId?: string) =>
+        request<ClassroomState>(
+          `/v3/classroom?${new URLSearchParams({
+            ...(classGroupId ? { classGroupId } : {}),
+            instant: new Date().toISOString()
+          }).toString()}`,
+          { method: 'GET' },
+          auth
+        ),
+      saveV3LessonProgress: (classGroupId: string, body: ClassroomProgressInput) =>
+        request<{ progress: Record<string, unknown> }>(
+          `/v3/class-groups/${classGroupId}/progress`,
+          { method: 'POST', body: JSON.stringify(body) },
+          auth
+        ),
+      saveV3StepProgress: (classGroupId: string, body: LessonStepProgressInput) =>
+        request<{ progress: Record<string, unknown> }>(
+          `/v3/class-groups/${classGroupId}/step-progress`,
           { method: 'POST', body: JSON.stringify(body) },
           auth
         ),
@@ -267,6 +501,13 @@ export function useApiClient() {
           { method: 'POST', body: JSON.stringify(body) },
           auth
         ),
+      applyV3ScheduleImport: (body: ScheduleSetupApplyRequest) =>
+        request<{
+          coursesCreated: number;
+          classGroupsCreated: number;
+          meetingRulesSaved: number;
+          meetingsGeneratedFor: number;
+        }>('/v3/schedule/import/apply', { method: 'POST', body: JSON.stringify(body) }, auth),
       enqueueParseSchedule: (body: ScheduleImportRequest) =>
         request<AiJobEnqueueResponse>(
           '/v1/ai/parse-schedule/queue',

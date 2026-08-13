@@ -72,7 +72,7 @@ import {
   coursePacingPlans,
   courses,
   db,
-  lessonSegments,
+  lessonSteps,
   lessonMaterials,
   lessons,
   schoolHolidays,
@@ -183,7 +183,9 @@ function isInSession(meetingTime: string | null, meetingEndTime: string | null):
   if (startMinutes === null) return false;
   const now = new Date();
   const nowMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
-  return nowMinutes >= startMinutes && nowMinutes <= (timeToMinutes(meetingEndTime) ?? startMinutes + 55);
+  return (
+    nowMinutes >= startMinutes && nowMinutes <= (timeToMinutes(meetingEndTime) ?? startMinutes + 55)
+  );
 }
 
 function dateDaysAgo(daysAgo: number): Date {
@@ -206,14 +208,22 @@ function hasMeetingPassed(
   const startMinutes = timeToMinutes(meetingTime);
   if (startMinutes === null) return false;
   const now = new Date();
-  return now.getUTCHours() * 60 + now.getUTCMinutes() > (timeToMinutes(meetingEndTime) ?? startMinutes + 55);
+  return (
+    now.getUTCHours() * 60 + now.getUTCMinutes() >
+    (timeToMinutes(meetingEndTime) ?? startMinutes + 55)
+  );
 }
 
 async function loadActiveScheduleTemplate(userId: string) {
   const [template] = await db
     .select({ id: teacherScheduleTemplates.id })
     .from(teacherScheduleTemplates)
-    .where(and(eq(teacherScheduleTemplates.teacherId, userId), eq(teacherScheduleTemplates.isActive, true)))
+    .where(
+      and(
+        eq(teacherScheduleTemplates.teacherId, userId),
+        eq(teacherScheduleTemplates.isActive, true)
+      )
+    )
     .orderBy(desc(teacherScheduleTemplates.updatedAt))
     .limit(1);
   return template ?? null;
@@ -287,11 +297,11 @@ async function findOwnedCourseIdForSegment(userId: string, segmentId: string) {
     .select({
       courseId: units.courseId
     })
-    .from(lessonSegments)
-    .innerJoin(lessons, eq(lessonSegments.lessonId, lessons.id))
+    .from(lessonSteps)
+    .innerJoin(lessons, eq(lessonSteps.lessonId, lessons.id))
     .innerJoin(units, eq(lessons.unitId, units.id))
     .innerJoin(courses, eq(units.courseId, courses.id))
-    .where(and(eq(lessonSegments.id, segmentId), eq(courses.teacherId, userId)))
+    .where(and(eq(lessonSteps.id, segmentId), eq(courses.teacherId, userId)))
     .limit(1);
 
   return row?.courseId ?? null;
@@ -352,7 +362,8 @@ async function buildCourseDetail(userId: string, courseId: string) {
             title: lessons.title,
             description: lessons.description,
             orderIndex: lessons.orderIndex,
-            estimatedDurationMinutes: lessons.estimatedDurationMinutes
+            estimatedDurationMinutes: lessons.estimatedDurationMinutes,
+            estimatedMeetings: lessons.estimatedMeetings
           })
           .from(lessons)
           .where(inArray(lessons.unitId, unitIds))
@@ -364,16 +375,16 @@ async function buildCourseDetail(userId: string, courseId: string) {
     lessonIds.length > 0
       ? await db
           .select({
-            id: lessonSegments.id,
-            lessonId: lessonSegments.lessonId,
-            title: lessonSegments.title,
-            description: lessonSegments.description,
-            durationMinutes: lessonSegments.durationMinutes,
-            orderIndex: lessonSegments.orderIndex
+            id: lessonSteps.id,
+            lessonId: lessonSteps.lessonId,
+            title: lessonSteps.title,
+            description: lessonSteps.description,
+            durationMinutes: lessonSteps.estimatedMinutes,
+            orderIndex: lessonSteps.orderIndex
           })
-          .from(lessonSegments)
-          .where(inArray(lessonSegments.lessonId, lessonIds))
-          .orderBy(asc(lessonSegments.orderIndex), asc(lessonSegments.createdAt))
+          .from(lessonSteps)
+          .where(inArray(lessonSteps.lessonId, lessonIds))
+          .orderBy(asc(lessonSteps.orderIndex), asc(lessonSteps.createdAt))
       : [];
 
   const materialRows =
@@ -452,6 +463,7 @@ async function buildCourseDetail(userId: string, courseId: string) {
           description: lesson.description,
           orderIndex: lesson.orderIndex,
           estimatedDurationMinutes: lesson.estimatedDurationMinutes,
+          estimatedMeetings: lesson.estimatedMeetings,
           materials: (materialsByLessonId.get(lesson.id) ?? []).map((material) => ({
             id: material.id,
             label: material.label,
@@ -551,56 +563,62 @@ export async function v1Routes(app: FastifyInstance) {
             replaceWeeklySchedule: scheduleDateOverrides.replaceWeeklySchedule
           })
           .from(scheduleDateOverrides)
-          .where(and(eq(scheduleDateOverrides.teacherId, user.id), eq(scheduleDateOverrides.date, isoDate)))
+          .where(
+            and(
+              eq(scheduleDateOverrides.teacherId, user.id),
+              eq(scheduleDateOverrides.date, isoDate)
+            )
+          )
           .limit(1)
           .then((rows) => rows[0] ?? null)
       ]);
 
       const effectiveDay = dateOverride?.rotationDay ?? weekday;
       const useOverrideMeetings = Boolean(dateOverride?.replaceWeeklySchedule);
-      const rows = dateOverride?.kind === 'no_school'
-        ? []
-        : useOverrideMeetings
-          ? await db
-              .select({
-                sectionId: sections.id,
-                sectionName: sections.name,
-                courseName: courses.name,
-                meetingTime: scheduleDateOverrideMeetings.meetingTime,
-                meetingEndTime: scheduleDateOverrideMeetings.meetingEndTime,
-                room: scheduleDateOverrideMeetings.room
-              })
-              .from(scheduleDateOverrideMeetings)
-              .innerJoin(
-                scheduleDateOverrides,
-                eq(scheduleDateOverrideMeetings.scheduleDateOverrideId, scheduleDateOverrides.id)
-              )
-              .innerJoin(sections, eq(scheduleDateOverrideMeetings.sectionId, sections.id))
-              .innerJoin(courses, eq(sections.courseId, courses.id))
-              .where(eq(scheduleDateOverrides.id, dateOverride!.id))
-              .orderBy(asc(scheduleDateOverrideMeetings.meetingTime))
-          : await db
-              .select({
-                sectionId: sections.id,
-                sectionName: sections.name,
-                courseName: courses.name,
-                meetingTime: sectionMeetings.meetingTime,
-                meetingEndTime: sectionMeetings.meetingEndTime,
-                room: sectionMeetings.room
-              })
-              .from(sections)
-              .innerJoin(courses, eq(sections.courseId, courses.id))
-              .innerJoin(sectionMeetings, eq(sectionMeetings.sectionId, sections.id))
-              .where(
-                and(
-                  eq(courses.teacherId, user.id),
-                  eq(sectionMeetings.day, effectiveDay),
-                  activeTemplate
-                    ? eq(sectionMeetings.scheduleTemplateId, activeTemplate.id)
-                    : isNull(sectionMeetings.scheduleTemplateId)
+      const rows =
+        dateOverride?.kind === 'no_school'
+          ? []
+          : useOverrideMeetings
+            ? await db
+                .select({
+                  sectionId: sections.id,
+                  sectionName: sections.name,
+                  courseName: courses.name,
+                  meetingTime: scheduleDateOverrideMeetings.meetingTime,
+                  meetingEndTime: scheduleDateOverrideMeetings.meetingEndTime,
+                  room: scheduleDateOverrideMeetings.room
+                })
+                .from(scheduleDateOverrideMeetings)
+                .innerJoin(
+                  scheduleDateOverrides,
+                  eq(scheduleDateOverrideMeetings.scheduleDateOverrideId, scheduleDateOverrides.id)
                 )
-              )
-              .orderBy(asc(sectionMeetings.meetingTime));
+                .innerJoin(sections, eq(scheduleDateOverrideMeetings.sectionId, sections.id))
+                .innerJoin(courses, eq(sections.courseId, courses.id))
+                .where(eq(scheduleDateOverrides.id, dateOverride!.id))
+                .orderBy(asc(scheduleDateOverrideMeetings.meetingTime))
+            : await db
+                .select({
+                  sectionId: sections.id,
+                  sectionName: sections.name,
+                  courseName: courses.name,
+                  meetingTime: sectionMeetings.meetingTime,
+                  meetingEndTime: sectionMeetings.meetingEndTime,
+                  room: sectionMeetings.room
+                })
+                .from(sections)
+                .innerJoin(courses, eq(sections.courseId, courses.id))
+                .innerJoin(sectionMeetings, eq(sectionMeetings.sectionId, sections.id))
+                .where(
+                  and(
+                    eq(courses.teacherId, user.id),
+                    eq(sectionMeetings.day, effectiveDay),
+                    activeTemplate
+                      ? eq(sectionMeetings.scheduleTemplateId, activeTemplate.id)
+                      : isNull(sectionMeetings.scheduleTemplateId)
+                  )
+                )
+                .orderBy(asc(sectionMeetings.meetingTime));
 
       const [holiday] = await db
         .select({
@@ -633,7 +651,9 @@ export async function v1Routes(app: FastifyInstance) {
       }));
 
       const currentClass = withMinutes.find(
-        (entry) => nowMinutes >= entry.startMinutes && nowMinutes <= (entry.endMinutes ?? entry.startMinutes + 55)
+        (entry) =>
+          nowMinutes >= entry.startMinutes &&
+          nowMinutes <= (entry.endMinutes ?? entry.startMinutes + 55)
       );
       const nextClass = withMinutes.find((entry) => entry.startMinutes > nowMinutes);
 
@@ -659,7 +679,15 @@ export async function v1Routes(app: FastifyInstance) {
             }
           : null,
         todaySchedule: todaySchedule.map(
-          ({ sectionId, courseName, sectionName, meetingTime, meetingEndTime, room, isInSession: inSession }) => ({
+          ({
+            sectionId,
+            courseName,
+            sectionName,
+            meetingTime,
+            meetingEndTime,
+            room,
+            isInSession: inSession
+          }) => ({
             sectionId,
             courseName,
             sectionName,
@@ -669,18 +697,22 @@ export async function v1Routes(app: FastifyInstance) {
             isInSession: inSession
           })
         ),
-        holiday: dateOverride?.kind === 'no_school'
-          ? { id: dateOverride.id, date: isoDate, name: dateOverride.label }
-          : holiday
-          ? {
-              id: holiday.id,
-              date: holiday.date,
-              name: holiday.name
-            }
-          : null,
+        holiday:
+          dateOverride?.kind === 'no_school'
+            ? { id: dateOverride.id, date: isoDate, name: dateOverride.label }
+            : holiday
+              ? {
+                  id: holiday.id,
+                  date: holiday.date,
+                  name: holiday.name
+                }
+              : null,
         specialDay:
           dateOverride && dateOverride.kind !== 'no_school'
-            ? { label: dateOverride.label, kind: dateOverride.kind as z.infer<typeof ScheduleDateOverrideKindSchema> }
+            ? {
+                label: dateOverride.label,
+                kind: dateOverride.kind as z.infer<typeof ScheduleDateOverrideKindSchema>
+              }
             : null,
         // A dashboard cannot be ready until the teacher has an active imported schedule.
         // `rows` only represents the current day, so it is empty on weekends, holidays,
@@ -796,7 +828,9 @@ export async function v1Routes(app: FastifyInstance) {
         );
 
       const holidays = new Set(holidayRows.map((holiday) => String(holiday.date)));
-      const overridesByDate = new Map(overrideRows.map((override) => [String(override.date), override]));
+      const overridesByDate = new Map(
+        overrideRows.map((override) => [String(override.date), override])
+      );
       const resolvedSessions = new Set(
         [...eventRows, ...noteRows, ...progressRows].map(
           (event) => `${event.sectionId}:${String(event.sessionDate)}`
@@ -1028,7 +1062,10 @@ export async function v1Routes(app: FastifyInstance) {
         }
       });
 
-      const meetingsByOverride = new Map<string, Array<z.infer<typeof ScheduleDateOverrideMeetingSchema>>>();
+      const meetingsByOverride = new Map<
+        string,
+        Array<z.infer<typeof ScheduleDateOverrideMeetingSchema>>
+      >();
       for (const meeting of overrideMeetingRows) {
         const values = meetingsByOverride.get(meeting.overrideId) ?? [];
         values.push({
@@ -1435,6 +1472,8 @@ export async function v1Routes(app: FastifyInstance) {
         title: body.title,
         description: body.description,
         estimatedDurationMinutes: body.estimatedDurationMinutes,
+        estimatedMeetings: body.estimatedMeetings,
+        durationKind: body.durationKind,
         orderIndex: body.orderIndex ?? (latestLesson?.orderIndex ?? -1) + 1
       });
 
@@ -1488,14 +1527,12 @@ export async function v1Routes(app: FastifyInstance) {
       }
 
       await db.transaction(async (transaction) => {
-        await Promise.all(
-          body.lessonIds.map((lessonId, orderIndex) =>
-            transaction
-              .update(lessons)
-              .set({ orderIndex, updatedAt: new Date() })
-              .where(and(eq(lessons.id, lessonId), eq(lessons.unitId, params.unitId)))
-          )
-        );
+        for (const [orderIndex, lessonId] of body.lessonIds.entries()) {
+          await transaction
+            .update(lessons)
+            .set({ orderIndex, updatedAt: new Date() })
+            .where(and(eq(lessons.id, lessonId), eq(lessons.unitId, params.unitId)));
+        }
       });
 
       const detail = await buildCourseDetail(user.id, courseId);
@@ -1536,6 +1573,8 @@ export async function v1Routes(app: FastifyInstance) {
       if (body.estimatedDurationMinutes !== undefined) {
         updates.estimatedDurationMinutes = body.estimatedDurationMinutes;
       }
+      if (body.estimatedMeetings !== undefined) updates.estimatedMeetings = body.estimatedMeetings;
+      if (body.durationKind !== undefined) updates.durationKind = body.durationKind;
       if (body.orderIndex !== undefined) updates.orderIndex = body.orderIndex;
 
       await db.update(lessons).set(updates).where(eq(lessons.id, params.lessonId));
@@ -1663,17 +1702,17 @@ export async function v1Routes(app: FastifyInstance) {
       }
 
       const [latestSegment] = await db
-        .select({ orderIndex: lessonSegments.orderIndex })
-        .from(lessonSegments)
-        .where(eq(lessonSegments.lessonId, params.lessonId))
-        .orderBy(desc(lessonSegments.orderIndex))
+        .select({ orderIndex: lessonSteps.orderIndex })
+        .from(lessonSteps)
+        .where(eq(lessonSteps.lessonId, params.lessonId))
+        .orderBy(desc(lessonSteps.orderIndex))
         .limit(1);
 
-      await db.insert(lessonSegments).values({
+      await db.insert(lessonSteps).values({
         lessonId: params.lessonId,
         title: body.title,
         description: body.description,
-        durationMinutes: body.durationMinutes,
+        estimatedMinutes: body.durationMinutes,
         orderIndex: body.orderIndex ?? (latestSegment?.orderIndex ?? -1) + 1
       });
 
@@ -1707,14 +1746,14 @@ export async function v1Routes(app: FastifyInstance) {
         return { error: 'Segment not found', requestId: request.id };
       }
 
-      const updates: Partial<typeof lessonSegments.$inferInsert> = {};
+      const updates: Partial<typeof lessonSteps.$inferInsert> = {};
       if (body.title !== undefined) updates.title = body.title;
       if (body.description !== undefined) updates.description = body.description;
-      if (body.durationMinutes !== undefined) updates.durationMinutes = body.durationMinutes;
+      if (body.durationMinutes !== undefined) updates.estimatedMinutes = body.durationMinutes;
       if (body.orderIndex !== undefined) updates.orderIndex = body.orderIndex;
 
       if (Object.keys(updates).length > 0) {
-        await db.update(lessonSegments).set(updates).where(eq(lessonSegments.id, params.segmentId));
+        await db.update(lessonSteps).set(updates).where(eq(lessonSteps.id, params.segmentId));
       }
 
       const detail = await buildCourseDetail(user.id, ownedCourseId);
@@ -1745,7 +1784,7 @@ export async function v1Routes(app: FastifyInstance) {
         return { error: 'Segment not found', requestId: request.id };
       }
 
-      await db.delete(lessonSegments).where(eq(lessonSegments.id, params.segmentId));
+      await db.delete(lessonSteps).where(eq(lessonSteps.id, params.segmentId));
       return { deleted: true };
     }
   );
@@ -1835,7 +1874,12 @@ export async function v1Routes(app: FastifyInstance) {
         const [currentTemplate] = await tx
           .select({ id: teacherScheduleTemplates.id })
           .from(teacherScheduleTemplates)
-          .where(and(eq(teacherScheduleTemplates.teacherId, user.id), eq(teacherScheduleTemplates.isActive, true)))
+          .where(
+            and(
+              eq(teacherScheduleTemplates.teacherId, user.id),
+              eq(teacherScheduleTemplates.isActive, true)
+            )
+          )
           .limit(1);
         if (currentTemplate) {
           await tx
@@ -1846,7 +1890,12 @@ export async function v1Routes(app: FastifyInstance) {
 
         const [template] = await tx
           .insert(teacherScheduleTemplates)
-          .values({ teacherId: user.id, schoolId, name: 'Imported weekly schedule', isActive: true })
+          .values({
+            teacherId: user.id,
+            schoolId,
+            name: 'Imported weekly schedule',
+            isActive: true
+          })
           .returning({ id: teacherScheduleTemplates.id });
         if (!template) throw new Error('Failed to save weekly schedule');
 
@@ -1930,7 +1979,12 @@ export async function v1Routes(app: FastifyInstance) {
           const [existingOverride] = await tx
             .select({ id: scheduleDateOverrides.id })
             .from(scheduleDateOverrides)
-            .where(and(eq(scheduleDateOverrides.teacherId, user.id), eq(scheduleDateOverrides.date, override.date)))
+            .where(
+              and(
+                eq(scheduleDateOverrides.teacherId, user.id),
+                eq(scheduleDateOverrides.date, override.date)
+              )
+            )
             .limit(1);
           let overrideId = existingOverride?.id;
           if (overrideId) {
@@ -1986,7 +2040,12 @@ export async function v1Routes(app: FastifyInstance) {
           if (override.kind === 'no_school') {
             await tx
               .insert(schoolHolidays)
-              .values({ schoolId, date: override.date, name: override.label, createdByUserId: user.id })
+              .values({
+                schoolId,
+                date: override.date,
+                name: override.label,
+                createdByUserId: user.id
+              })
               .onConflictDoUpdate({
                 target: [schoolHolidays.schoolId, schoolHolidays.date],
                 set: { name: override.label }
@@ -2875,7 +2934,7 @@ export async function v1Routes(app: FastifyInstance) {
           schemaName: 'parse_schedule',
           schema: InternalParseScheduleSchema,
           systemPrompt:
-              'Extract classes and assignments from a teacher schedule. Include start and end time for every class when shown, use HH:MM 24-hour time, return null for a missing end time, and skip non-teaching events. Return JSON only.',
+            'Extract classes and assignments from a teacher schedule. Include start and end time for every class when shown, use HH:MM 24-hour time, return null for a missing end time, and skip non-teaching events. Return JSON only.',
           userPrompt: body.text
             ? `Parse this schedule and assignments:\n${body.text}`
             : 'Parse the supplied schedule image and return classes + assignments.'

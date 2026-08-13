@@ -1,6 +1,8 @@
+import { useEffect } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 
 import { useAppAuth } from '../lib/auth.js';
+import { useApiClient } from '../lib/api.js';
 
 const links = [
   { path: '/', label: 'Dashboard' },
@@ -14,11 +16,25 @@ const links = [
 
 export function AppShell() {
   const auth = useAppAuth();
+  const api = useApiClient();
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const account = await api.getAccountTimezone();
+        if (account.timezone) return;
+        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        if (timezone) await api.initializeTimezone(timezone);
+      } catch {
+        // Timezone setup should never prevent normal navigation; retry next load.
+      }
+    })();
+  }, [api]);
 
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <h2>TeacherOS v2</h2>
+        <h2>TeacherOS</h2>
         <p className="muted">{auth.email ?? auth.userId ?? 'Signed in'}</p>
         <nav>
           {links.map((link) => (

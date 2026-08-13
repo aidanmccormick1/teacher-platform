@@ -559,14 +559,14 @@ export function TeachingDataImporter({ onApplied }: TeachingDataImporterProps) {
 
       {step === 'save-confirm' && weekly ? (
         <div className="setup-confirmation stack">
-          <div><h3>Ready to save?</h3><p className="muted">This will add your reviewed schedule to TeacherOS. You can always return later to update it.</p></div>
+          <div><h3>Ready to save?</h3><p className="muted">This creates editable Class Groups and Meeting Rules in your active Academic Year. Set that year above first; you can return later to update the schedule.</p></div>
           <dl className="setup-summary"><div><dt>Courses</dt><dd>{weekly.courses.length}</dd></div><div><dt>Class sections</dt><dd>{weekly.courses.reduce((total, course) => total + course.sections.length, 0)}</dd></div><div><dt>Calendar dates</dt><dd>{annualCalendar?.overrides.length ?? 0}</dd></div></dl>
           <div className="setup-actions"><button className="secondary" type="button" disabled={busy} onClick={() => setStep('review')}>Go back and check again</button><button type="button" disabled={busy} onClick={async () => {
                 try {
                   setBusy(true);
-                  const result = await api.applyScheduleSetup({ weekly, annualCalendar: annualCalendar ?? undefined });
+                  const result = await api.applyV3ScheduleImport({ weekly, annualCalendar: annualCalendar ?? undefined });
                   await onApplied();
-                  setMessage(`Saved ${result.coursesCreated} courses, ${result.sectionsCreated} sections, ${result.meetingsSaved} class periods, and ${result.overridesSaved} calendar overrides.`);
+                  setMessage(`Saved ${result.coursesCreated} courses, ${result.classGroupsCreated} Class Groups, ${result.meetingRulesSaved} meeting rules, and generated meetings for ${result.meetingsGeneratedFor} Class Groups.`);
                   setError(null);
                   setStep('complete');
                 } catch (err) {

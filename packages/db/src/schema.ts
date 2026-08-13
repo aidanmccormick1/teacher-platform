@@ -51,6 +51,8 @@ export const users = pgTable('users', {
   clerkUserId: text('clerk_user_id').notNull().unique(),
   email: text('email').notNull(),
   fullName: text('full_name'),
+  /** IANA timezone selected once during setup and editable by the teacher. */
+  timezone: text('timezone'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
 });
@@ -82,7 +84,10 @@ export const teacherProfiles = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
   },
-  (table) => [primaryKey({ columns: [table.userId] }), index('idx_teacher_profiles_school').on(table.schoolId)]
+  (table) => [
+    primaryKey({ columns: [table.userId] }),
+    index('idx_teacher_profiles_school').on(table.schoolId)
+  ]
 );
 
 export const courses = pgTable(
@@ -101,7 +106,10 @@ export const courses = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
   },
-  (table) => [index('idx_courses_teacher').on(table.teacherId), index('idx_courses_school').on(table.schoolId)]
+  (table) => [
+    index('idx_courses_teacher').on(table.teacherId),
+    index('idx_courses_school').on(table.schoolId)
+  ]
 );
 
 export const coursePacingPlans = pgTable('course_pacing_plans', {
@@ -258,6 +266,10 @@ export const units = pgTable(
     title: text('title').notNull(),
     description: text('description'),
     orderIndex: integer('order_index').notNull().default(0),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    durationKind: text('duration_kind'),
+    estimatedWeeks: integer('estimated_weeks'),
+    estimatedMeetings: integer('estimated_meetings'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
   },
@@ -275,6 +287,14 @@ export const lessons = pgTable(
     description: text('description'),
     orderIndex: integer('order_index').notNull().default(0),
     estimatedDurationMinutes: integer('estimated_duration_minutes'),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    durationKind: text('duration_kind'),
+    estimatedMeetings: integer('estimated_meetings'),
+    // The database migration owns this self-reference; avoiding an eager Drizzle
+    // callback keeps the schema initializer acyclic under strict TypeScript.
+    sourceLessonId: uuid('source_lesson_id'),
+    sourceCourseId: uuid('source_course_id').references(() => courses.id, { onDelete: 'set null' }),
+    sourceUnitId: uuid('source_unit_id').references(() => units.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
   },
@@ -361,7 +381,9 @@ export const classNotes = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
   },
-  (table) => [unique('uniq_class_note').on(table.sectionId, table.userId, table.date, table.noteType)]
+  (table) => [
+    unique('uniq_class_note').on(table.sectionId, table.userId, table.date, table.noteType)
+  ]
 );
 
 /** Private planning notes, visible only to the teacher who created them. */
@@ -449,6 +471,410 @@ export const auditEvents = pgTable(
   },
   (table) => [index('idx_audit_events_entity').on(table.entityType, table.entityId)]
 );
+
+// TeacherOS v3 calendar-first domain. Legacy v2 schedule tables remain exported
+// for a controlled rollout; new routes only use the models below.
+export const meetingInstanceSourceEnum = pgEnum('meeting_instance_source', [
+  'generated',
+  'override',
+  'manual'
+]);
+export const meetingInstanceStateEnum = pgEnum('meeting_instance_state', [
+  'scheduled',
+  'superseded',
+  'cancelled'
+]);
+export const overrideMeetingActionEnum = pgEnum('override_meeting_action', [
+  'replace',
+  'add',
+  'cancel'
+]);
+export const progressOverrideStatusEnum = pgEnum('progress_override_status', [
+  'not_started',
+  'in_progress',
+  'completed',
+  'skipped'
+]);
+
+export const academicYears = pgTable(
+  'academic_years',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    teacherId: uuid('teacher_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    startDate: date('start_date').notNull(),
+    endDate: date('end_date').notNull(),
+    isActive: boolean('is_active').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [index('idx_academic_years_teacher').on(table.teacherId)]
+);
+
+export const calendarEvents = pgTable(
+  'calendar_events',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    academicYearId: uuid('academic_year_id')
+      .notNull()
+      .references(() => academicYears.id, { onDelete: 'cascade' }),
+    startDate: date('start_date').notNull(),
+    endDate: date('end_date').notNull(),
+    label: text('label').notNull(),
+    type: text('type').notNull().default('other'),
+    instructional: boolean('instructional').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [
+    index('idx_calendar_events_year_dates').on(table.academicYearId, table.startDate, table.endDate)
+  ]
+);
+
+export const classGroups = pgTable(
+  'class_groups',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    courseId: uuid('course_id')
+      .notNull()
+      .references(() => courses.id, { onDelete: 'cascade' }),
+    academicYearId: uuid('academic_year_id')
+      .notNull()
+      .references(() => academicYears.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    periodLabel: text('period_label'),
+    room: text('room'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [
+    unique('uniq_class_group_course_year_name').on(
+      table.courseId,
+      table.academicYearId,
+      table.name
+    ),
+    index('idx_class_groups_course').on(table.courseId),
+    index('idx_class_groups_year').on(table.academicYearId)
+  ]
+);
+
+export const meetingRules = pgTable(
+  'meeting_rules',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    classGroupId: uuid('class_group_id')
+      .notNull()
+      .references(() => classGroups.id, { onDelete: 'cascade' }),
+    startTime: time('start_time').notNull(),
+    endTime: time('end_time').notNull(),
+    effectiveStart: date('effective_start'),
+    effectiveEnd: date('effective_end'),
+    room: text('room'),
+    recurrenceKind: text('recurrence_kind').notNull().default('weekly'),
+    rotationKey: text('rotation_key'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [index('idx_meeting_rules_group').on(table.classGroupId)]
+);
+
+export const meetingRuleDays = pgTable(
+  'meeting_rule_days',
+  {
+    meetingRuleId: uuid('meeting_rule_id')
+      .notNull()
+      .references(() => meetingRules.id, { onDelete: 'cascade' }),
+    weekday: integer('weekday').notNull()
+  },
+  (table) => [primaryKey({ columns: [table.meetingRuleId, table.weekday] })]
+);
+
+export const scheduleOverridesV3 = pgTable(
+  'schedule_overrides_v3',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    academicYearId: uuid('academic_year_id')
+      .notNull()
+      .references(() => academicYears.id, { onDelete: 'cascade' }),
+    date: date('date').notNull(),
+    label: text('label').notNull(),
+    type: text('type').notNull().default('special_schedule'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [index('idx_schedule_overrides_v3_year_date').on(table.academicYearId, table.date)]
+);
+
+export const scheduleOverrideMeetingsV3 = pgTable(
+  'schedule_override_meetings_v3',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    scheduleOverrideId: uuid('schedule_override_id')
+      .notNull()
+      .references(() => scheduleOverridesV3.id, { onDelete: 'cascade' }),
+    classGroupId: uuid('class_group_id')
+      .notNull()
+      .references(() => classGroups.id, { onDelete: 'cascade' }),
+    action: overrideMeetingActionEnum('action').notNull().default('replace'),
+    startTime: time('start_time'),
+    endTime: time('end_time'),
+    room: text('room'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [index('idx_override_meetings_v3_override').on(table.scheduleOverrideId)]
+);
+
+export const meetingInstances = pgTable(
+  'meeting_instances',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    classGroupId: uuid('class_group_id')
+      .notNull()
+      .references(() => classGroups.id, { onDelete: 'cascade' }),
+    academicYearId: uuid('academic_year_id')
+      .notNull()
+      .references(() => academicYears.id, { onDelete: 'cascade' }),
+    localDate: date('local_date').notNull(),
+    startTime: time('start_time').notNull(),
+    endTime: time('end_time').notNull(),
+    meetingNumber: integer('meeting_number').notNull(),
+    source: meetingInstanceSourceEnum('source').notNull().default('generated'),
+    state: meetingInstanceStateEnum('state').notNull().default('scheduled'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [
+    unique('uniq_meeting_instance_group_year_number').on(
+      table.classGroupId,
+      table.academicYearId,
+      table.meetingNumber
+    ),
+    unique('uniq_meeting_instance_group_date_start').on(
+      table.classGroupId,
+      table.localDate,
+      table.startTime
+    ),
+    index('idx_meeting_instances_group_date').on(
+      table.classGroupId,
+      table.localDate,
+      table.startTime
+    )
+  ]
+);
+
+export const lessonSteps = pgTable(
+  'lesson_steps',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    lessonId: uuid('lesson_id')
+      .notNull()
+      .references(() => lessons.id, { onDelete: 'cascade' }),
+    title: text('title').notNull(),
+    description: text('description'),
+    estimatedMinutes: integer('estimated_minutes'),
+    isOptional: boolean('is_optional').notNull().default(false),
+    orderIndex: integer('order_index').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [index('idx_lesson_steps_lesson_order').on(table.lessonId, table.orderIndex)]
+);
+
+export const classGroupUnitPlans = pgTable(
+  'class_group_unit_plans',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    classGroupId: uuid('class_group_id')
+      .notNull()
+      .references(() => classGroups.id, { onDelete: 'cascade' }),
+    unitId: uuid('unit_id')
+      .notNull()
+      .references(() => units.id, { onDelete: 'cascade' }),
+    planKind: text('plan_kind'),
+    estimatedWeeks: integer('estimated_weeks'),
+    estimatedMeetings: integer('estimated_meetings'),
+    startDate: date('start_date'),
+    endDate: date('end_date'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [unique('uniq_class_group_unit_plan').on(table.classGroupId, table.unitId)]
+);
+
+export const planAllocations = pgTable(
+  'plan_allocations',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    classGroupId: uuid('class_group_id')
+      .notNull()
+      .references(() => classGroups.id, { onDelete: 'cascade' }),
+    meetingInstanceId: uuid('meeting_instance_id')
+      .notNull()
+      .references(() => meetingInstances.id, { onDelete: 'restrict' }),
+    lessonId: uuid('lesson_id')
+      .notNull()
+      .references(() => lessons.id, { onDelete: 'cascade' }),
+    lessonStepId: uuid('lesson_step_id').references(() => lessonSteps.id, { onDelete: 'set null' }),
+    orderIndex: integer('order_index').notNull().default(0),
+    notes: text('notes'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [
+    index('idx_plan_allocations_group_meeting').on(
+      table.classGroupId,
+      table.meetingInstanceId,
+      table.orderIndex
+    ),
+    index('idx_plan_allocations_lesson').on(table.lessonId)
+  ]
+);
+
+export const classGroupLessonProgress = pgTable(
+  'class_group_lesson_progress',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    classGroupId: uuid('class_group_id')
+      .notNull()
+      .references(() => classGroups.id, { onDelete: 'cascade' }),
+    lessonId: uuid('lesson_id')
+      .notNull()
+      .references(() => lessons.id, { onDelete: 'cascade' }),
+    status: progressOverrideStatusEnum('status').notNull().default('not_started'),
+    manualOverride: boolean('manual_override').notNull().default(false),
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    skippedAt: timestamp('skipped_at', { withTimezone: true }),
+    actualStartMeetingId: uuid('actual_start_meeting_id').references(() => meetingInstances.id, {
+      onDelete: 'set null'
+    }),
+    actualCompletionMeetingId: uuid('actual_completion_meeting_id').references(
+      () => meetingInstances.id,
+      {
+        onDelete: 'set null'
+      }
+    ),
+    notes: text('notes'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [
+    unique('uniq_class_group_lesson_progress').on(table.classGroupId, table.lessonId),
+    index('idx_class_group_lesson_progress_group_status').on(table.classGroupId, table.status)
+  ]
+);
+
+export const classGroupLessonStepProgress = pgTable(
+  'class_group_lesson_step_progress',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    classGroupId: uuid('class_group_id')
+      .notNull()
+      .references(() => classGroups.id, { onDelete: 'cascade' }),
+    lessonStepId: uuid('lesson_step_id')
+      .notNull()
+      .references(() => lessonSteps.id, { onDelete: 'cascade' }),
+    status: progressOverrideStatusEnum('status').notNull().default('not_started'),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    skippedAt: timestamp('skipped_at', { withTimezone: true }),
+    meetingInstanceId: uuid('meeting_instance_id').references(() => meetingInstances.id, {
+      onDelete: 'set null'
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [
+    unique('uniq_class_group_lesson_step_progress').on(table.classGroupId, table.lessonStepId)
+  ]
+);
+
+export const classGroupUnitProgressOverrides = pgTable(
+  'class_group_unit_progress_overrides',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    classGroupId: uuid('class_group_id')
+      .notNull()
+      .references(() => classGroups.id, { onDelete: 'cascade' }),
+    unitId: uuid('unit_id')
+      .notNull()
+      .references(() => units.id, { onDelete: 'cascade' }),
+    status: progressOverrideStatusEnum('status').notNull(),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    notes: text('notes'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [
+    unique('uniq_class_group_unit_progress_override').on(table.classGroupId, table.unitId)
+  ]
+);
+
+export const meetingHistory = pgTable(
+  'meeting_history',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    meetingInstanceId: uuid('meeting_instance_id')
+      .notNull()
+      .references(() => meetingInstances.id, { onDelete: 'restrict' }),
+    classGroupId: uuid('class_group_id')
+      .notNull()
+      .references(() => classGroups.id, { onDelete: 'cascade' }),
+    activeLessonId: uuid('active_lesson_id').references(() => lessons.id, { onDelete: 'set null' }),
+    note: text('note'),
+    startedAt: timestamp('started_at', { withTimezone: true }),
+    endedAt: timestamp('ended_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [
+    unique('uniq_meeting_history_instance').on(table.meetingInstanceId),
+    index('idx_meeting_history_group').on(table.classGroupId, table.createdAt)
+  ]
+);
+
+export const resourcesV3 = pgTable('resources_v3', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  courseId: uuid('course_id').references(() => courses.id, { onDelete: 'cascade' }),
+  unitId: uuid('unit_id').references(() => units.id, { onDelete: 'cascade' }),
+  lessonId: uuid('lesson_id').references(() => lessons.id, { onDelete: 'cascade' }),
+  lessonStepId: uuid('lesson_step_id').references(() => lessonSteps.id, { onDelete: 'cascade' }),
+  title: text('title'),
+  url: text('url').notNull(),
+  provider: text('provider').notNull().default('web'),
+  resourceType: text('resource_type').notNull().default('link'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+});
+
+export const lessonTemplates = pgTable(
+  'lesson_templates',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    teacherId: uuid('teacher_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    title: text('title').notNull(),
+    description: text('description'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [index('idx_lesson_templates_teacher').on(table.teacherId)]
+);
+
+export const lessonTemplateSteps = pgTable('lesson_template_steps', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  lessonTemplateId: uuid('lesson_template_id')
+    .notNull()
+    .references(() => lessonTemplates.id, { onDelete: 'cascade' }),
+  title: text('title').notNull(),
+  description: text('description'),
+  estimatedMinutes: integer('estimated_minutes'),
+  isOptional: boolean('is_optional').notNull().default(false),
+  orderIndex: integer('order_index').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
+});
 
 export const usersRelations = relations(users, ({ many, one }) => ({
   teacherProfile: one(teacherProfiles),

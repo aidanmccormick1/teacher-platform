@@ -2,6 +2,7 @@ import { useState } from 'react';
 
 import type { GenerateSemesterResponse } from '@teacheros/contracts';
 
+import { EditFocusDialog } from './EditFocusDialog.js';
 import { ApiError, useApiClient } from '../lib/api.js';
 
 type SemesterPlannerProps = {
@@ -32,12 +33,18 @@ export function SemesterPlanner(props: SemesterPlannerProps) {
             curriculum.
           </p>
         </div>
-        <button className="secondary" type="button" onClick={() => setOpen((value) => !value)}>
-          {open ? 'Close planner' : 'Plan a semester'}
+        <button className="secondary" type="button" onClick={() => setOpen(true)}>
+          Plan a semester
         </button>
       </div>
-      {open ? (
-        <>
+      <EditFocusDialog
+        open={open}
+        title="Plan a semester"
+        description="Build and revise the outline here before adding it to your course."
+        onClose={() => setOpen(false)}
+        busy={working}
+      >
+        <div className="stack">
           <div className="three-column">
             <label>
               Weeks
@@ -208,8 +215,8 @@ export function SemesterPlanner(props: SemesterPlannerProps) {
               </button>
             </div>
           ) : null}
-        </>
-      ) : null}
+        </div>
+      </EditFocusDialog>
     </div>
   );
 }

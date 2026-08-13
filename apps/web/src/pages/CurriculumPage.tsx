@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 
 import type { CourseListResponse } from '@teacheros/contracts';
 
+import { EditFocusDialog } from '../components/EditFocusDialog.js';
 import { TeachingDataImporter } from '../components/TeachingDataImporter.js';
 import { ApiError, useApiClient } from '../lib/api.js';
 
@@ -26,6 +27,8 @@ export function CurriculumPage() {
   const [editName, setEditName] = useState('');
   const [editSubject, setEditSubject] = useState('');
   const [editGradeLevel, setEditGradeLevel] = useState('');
+  const [createOpen, setCreateOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
 
   const loadCourses = useCallback(async () => {
     try {
@@ -49,10 +52,42 @@ export function CurriculumPage() {
       <h1>Curriculum</h1>
       {error ? <p style={{ color: '#b02020' }}>{error}</p> : null}
 
-      <TeachingDataImporter onApplied={loadCourses} />
+      <div className="card row spread">
+        <div>
+          <h3>Build your curriculum</h3>
+          <p className="muted">Start a Course manually or bring in the details you already have.</p>
+        </div>
+        <div className="row">
+          <button className="secondary" type="button" onClick={() => setImportOpen(true)}>
+            Import curriculum
+          </button>
+          <button type="button" onClick={() => setCreateOpen(true)}>
+            Add course
+          </button>
+        </div>
+      </div>
 
-      <details className="card stack">
-        <summary>Add one course manually</summary>
+      <EditFocusDialog
+        open={importOpen}
+        title="Import curriculum"
+        description="Review imported details in a dedicated workspace before changing your courses."
+        onClose={() => setImportOpen(false)}
+      >
+        <TeachingDataImporter
+          onApplied={async () => {
+            await loadCourses();
+            setImportOpen(false);
+          }}
+        />
+      </EditFocusDialog>
+
+      <EditFocusDialog
+        open={createOpen}
+        title="Add course"
+        description="Create this Course, then return to the curriculum list when you are done."
+        onClose={() => setCreateOpen(false)}
+        busy={saving}
+      >
         <div className="stack">
           <input
             className="input"
@@ -87,6 +122,7 @@ export function CurriculumPage() {
                 setSubject('');
                 setGradeLevel('');
                 await loadCourses();
+                setCreateOpen(false);
               } catch (err) {
                 setError(err instanceof ApiError ? err.message : 'Failed to create course');
               } finally {
@@ -97,7 +133,7 @@ export function CurriculumPage() {
             {saving ? 'Creating...' : 'Create course'}
           </button>
         </div>
-      </details>
+      </EditFocusDialog>
 
       <div className="card stack">
         <h3>Courses</h3>
@@ -107,8 +143,55 @@ export function CurriculumPage() {
         ) : null}
         {courses.map((course) => (
           <div key={course.id} className="card stack">
-            {editId === course.id ? (
-              <>
+            <div>
+              <strong>{course.name}</strong>
+              <p className="muted">
+                {course.subject ?? 'No subject'} | {course.gradeLevel ?? 'No grade level'}
+              </p>
+            </div>
+            <div className="row">
+              <Link to={`/courses/${course.id}`}>Open</Link>
+              <button
+                className="secondary"
+                type="button"
+                onClick={() => {
+                  setEditId(course.id);
+                  setEditName(course.name);
+                  setEditSubject(course.subject ?? '');
+                  setEditGradeLevel(course.gradeLevel ?? '');
+                }}
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const confirmDelete = window.confirm(
+                    `Delete course "${course.name}" and all nested units/lessons/segments?`
+                  );
+                  if (!confirmDelete) return;
+                  try {
+                    setSaving(true);
+                    await api.deleteCourse(course.id);
+                    await loadCourses();
+                  } catch (err) {
+                    setError(err instanceof ApiError ? err.message : 'Failed to delete course');
+                  } finally {
+                    setSaving(false);
+                  }
+                }}
+              >
+                Delete
+              </button>
+            </div>
+            <EditFocusDialog
+              open={editId === course.id}
+              title={`Edit ${course.name}`}
+              description="Update this Course without losing your place in the curriculum."
+              onClose={() => setEditId(null)}
+              busy={saving}
+            >
+              <div className="stack">
                 <input
                   className="input"
                   value={editName}
@@ -148,64 +231,14 @@ export function CurriculumPage() {
                       }
                     }}
                   >
-                    Save
+                    Save changes
                   </button>
-                  <button
-                    className="secondary"
-                    type="button"
-                    onClick={() => {
-                      setEditId(null);
-                    }}
-                  >
+                  <button className="secondary" type="button" onClick={() => setEditId(null)}>
                     Cancel
                   </button>
                 </div>
-              </>
-            ) : (
-              <>
-                <div>
-                  <strong>{course.name}</strong>
-                  <p className="muted">
-                    {course.subject ?? 'No subject'} | {course.gradeLevel ?? 'No grade level'}
-                  </p>
-                </div>
-                <div className="row">
-                  <Link to={`/courses/${course.id}`}>Open</Link>
-                  <button
-                    className="secondary"
-                    type="button"
-                    onClick={() => {
-                      setEditId(course.id);
-                      setEditName(course.name);
-                      setEditSubject(course.subject ?? '');
-                      setEditGradeLevel(course.gradeLevel ?? '');
-                    }}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      const confirmDelete = window.confirm(
-                        `Delete course "${course.name}" and all nested units/lessons/segments?`
-                      );
-                      if (!confirmDelete) return;
-                      try {
-                        setSaving(true);
-                        await api.deleteCourse(course.id);
-                        await loadCourses();
-                      } catch (err) {
-                        setError(err instanceof ApiError ? err.message : 'Failed to delete course');
-                      } finally {
-                        setSaving(false);
-                      }
-                    }}
-                  >
-                    Delete
-                  </button>
-                </div>
-              </>
-            )}
+              </div>
+            </EditFocusDialog>
           </div>
         ))}
       </div>

@@ -13,7 +13,7 @@ const orderedDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'A-
 
 function minutesSinceMidnight(time: string | null): number {
   if (!time) return Number.MAX_SAFE_INTEGER;
-  const [hour, minute] = time.split(':').map(Number);
+  const [hour = Number.NaN, minute = Number.NaN] = time.split(':').map(Number);
   return Number.isFinite(hour) && Number.isFinite(minute) ? hour * 60 + minute : Number.MAX_SAFE_INTEGER;
 }
 

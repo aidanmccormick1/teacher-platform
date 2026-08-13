@@ -5,12 +5,12 @@ import type { CourseDetailResponse } from '@teacheros/contracts';
 
 import { ActivityStudio } from '../components/ActivityStudio.js';
 import { CoursePacingPlanner } from '../components/CoursePacingPlanner.js';
+import { CoursePlanningPanel } from '../components/CoursePlanningPanel.js';
+import { EditFocusDialog } from '../components/EditFocusDialog.js';
 import { SemesterPlanner } from '../components/SemesterPlanner.js';
 import { ApiError, useApiClient } from '../lib/api.js';
 import type { LessonMaterialKind } from '@teacheros/contracts';
 
-type LessonDraft = { title: string; description: string; duration: string };
-type SegmentDraft = { title: string; description: string; duration: string };
 type MaterialDraft = { label: string; url: string; kind: LessonMaterialKind };
 
 function toNullable(value: string): string | null {
@@ -47,14 +47,34 @@ export function CoursePage() {
   const [courseName, setCourseName] = useState('');
   const [courseSubject, setCourseSubject] = useState('');
   const [courseGradeLevel, setCourseGradeLevel] = useState('');
+  const [courseSettingsOpen, setCourseSettingsOpen] = useState(false);
 
-  const [unitTitle, setUnitTitle] = useState('');
-  const [unitDescription, setUnitDescription] = useState('');
-  const [unitOrder, setUnitOrder] = useState('');
+  const [unitEditor, setUnitEditor] = useState<{
+    id: string | null;
+    title: string;
+    description: string;
+    order: string;
+  } | null>(null);
 
-  const [lessonDrafts, setLessonDrafts] = useState<Record<string, LessonDraft>>({});
-  const [segmentDrafts, setSegmentDrafts] = useState<Record<string, SegmentDraft>>({});
+  const [lessonEditor, setLessonEditor] = useState<{
+    id: string | null;
+    unitId: string;
+    title: string;
+    description: string;
+    duration: string;
+    durationKind: 'minutes' | 'meetings';
+    order: string;
+  } | null>(null);
+  const [segmentEditor, setSegmentEditor] = useState<{
+    id: string | null;
+    lessonId: string;
+    title: string;
+    description: string;
+    duration: string;
+    order: string;
+  } | null>(null);
   const [materialDrafts, setMaterialDrafts] = useState<Record<string, MaterialDraft>>({});
+  const [materialEditorLessonId, setMaterialEditorLessonId] = useState<string | null>(null);
   const [scheduleMeetingsPerWeek, setScheduleMeetingsPerWeek] = useState<number | null>(null);
 
   const loadCourse = useCallback(async () => {
@@ -70,7 +90,8 @@ export function CoursePage() {
       setCourseName(data.course.name);
       setCourseSubject(data.course.subject ?? '');
       setCourseGradeLevel(data.course.gradeLevel ?? '');
-      const courseSections = schedule?.sections.filter((section) => section.courseId === courseId) ?? [];
+      const courseSections =
+        schedule?.sections.filter((section) => section.courseId === courseId) ?? [];
       const meetings = courseSections.map(
         (section) => new Set(section.meetings.map((meeting) => meeting.day)).size
       );
@@ -109,52 +130,25 @@ export function CoursePage() {
       </div>
       <h1>Course Detail</h1>
       {error ? <p style={{ color: '#b02020' }}>{error}</p> : null}
+      {course ? <CoursePlanningPanel courseId={course.id} /> : null}
       {loading && !course ? <p className="muted">Loading course...</p> : null}
 
       {course ? (
         <>
-          <div className="card stack">
-            <h3>Course settings</h3>
-            <input
-              className="input"
-              value={courseName}
-              onChange={(event) => setCourseName(event.target.value)}
-              placeholder="Course name"
-            />
-            <input
-              className="input"
-              value={courseSubject}
-              onChange={(event) => setCourseSubject(event.target.value)}
-              placeholder="Subject"
-            />
-            <input
-              className="input"
-              value={courseGradeLevel}
-              onChange={(event) => setCourseGradeLevel(event.target.value)}
-              placeholder="Grade level"
-            />
+          <div className="card row spread">
+            <div>
+              <h3>Course settings</h3>
+              <p className="muted">
+                {course.subject ?? 'No subject'} · {course.gradeLevel ?? 'No grade level'}
+              </p>
+            </div>
             <div className="row">
               <button
+                className="secondary"
                 type="button"
-                disabled={saving || !courseName.trim()}
-                onClick={async () => {
-                  try {
-                    setSaving(true);
-                    const detail = await api.updateCourse(course.id, {
-                      name: courseName.trim(),
-                      subject: toNullable(courseSubject),
-                      gradeLevel: toNullable(courseGradeLevel)
-                    });
-                    updateFromDetail(detail);
-                    setError(null);
-                  } catch (err) {
-                    setError(err instanceof ApiError ? err.message : 'Failed to update course');
-                  } finally {
-                    setSaving(false);
-                  }
-                }}
+                onClick={() => setCourseSettingsOpen(true)}
               >
-                Save course
+                Edit settings
               </button>
               <button
                 type="button"
@@ -178,6 +172,76 @@ export function CoursePage() {
               </button>
             </div>
           </div>
+          <EditFocusDialog
+            open={courseSettingsOpen}
+            title={`Edit ${course.name}`}
+            description="Update the shared Course details, then exit back to the curriculum view."
+            onClose={() => {
+              setCourseName(course.name);
+              setCourseSubject(course.subject ?? '');
+              setCourseGradeLevel(course.gradeLevel ?? '');
+              setCourseSettingsOpen(false);
+            }}
+            busy={saving}
+          >
+            <div className="stack">
+              <input
+                className="input"
+                value={courseName}
+                onChange={(event) => setCourseName(event.target.value)}
+                placeholder="Course name"
+              />
+              <input
+                className="input"
+                value={courseSubject}
+                onChange={(event) => setCourseSubject(event.target.value)}
+                placeholder="Subject"
+              />
+              <input
+                className="input"
+                value={courseGradeLevel}
+                onChange={(event) => setCourseGradeLevel(event.target.value)}
+                placeholder="Grade level"
+              />
+              <div className="row">
+                <button
+                  type="button"
+                  disabled={saving || !courseName.trim()}
+                  onClick={async () => {
+                    try {
+                      setSaving(true);
+                      const detail = await api.updateCourse(course.id, {
+                        name: courseName.trim(),
+                        subject: toNullable(courseSubject),
+                        gradeLevel: toNullable(courseGradeLevel)
+                      });
+                      updateFromDetail(detail);
+                      setError(null);
+                      setCourseSettingsOpen(false);
+                    } catch (err) {
+                      setError(err instanceof ApiError ? err.message : 'Failed to update course');
+                    } finally {
+                      setSaving(false);
+                    }
+                  }}
+                >
+                  Save course
+                </button>
+                <button
+                  className="secondary"
+                  type="button"
+                  onClick={() => {
+                    setCourseName(course.name);
+                    setCourseSubject(course.subject ?? '');
+                    setCourseGradeLevel(course.gradeLevel ?? '');
+                    setCourseSettingsOpen(false);
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </EditFocusDialog>
 
           <CoursePacingPlanner
             course={course}
@@ -190,7 +254,9 @@ export function CoursePage() {
                 updateFromDetail(detail);
                 setError(null);
               } catch (err) {
-                setError(err instanceof ApiError ? err.message : 'Failed to save your year timeline');
+                setError(
+                  err instanceof ApiError ? err.message : 'Failed to save your year timeline'
+                );
               } finally {
                 setSaving(false);
               }
@@ -223,6 +289,8 @@ export function CoursePage() {
                     title: lesson.title.trim() || 'Untitled lesson',
                     description: toNullable(lesson.description),
                     estimatedDurationMinutes: lesson.estimatedDurationMinutes,
+                    estimatedMeetings: null,
+                    durationKind: lesson.estimatedDurationMinutes ? 'minutes' : null,
                     orderIndex: undefined
                   });
                 }
@@ -231,60 +299,93 @@ export function CoursePage() {
             }}
           />
 
-          <div className="card stack">
-            <h3>Add unit</h3>
-            <input
-              className="input"
-              value={unitTitle}
-              onChange={(event) => setUnitTitle(event.target.value)}
-              placeholder="Unit title"
-            />
-            <input
-              className="input"
-              value={unitDescription}
-              onChange={(event) => setUnitDescription(event.target.value)}
-              placeholder="Unit description (optional)"
-            />
-            <input
-              className="input"
-              value={unitOrder}
-              onChange={(event) => setUnitOrder(event.target.value)}
-              placeholder="Order index (optional)"
-            />
+          <div className="card row spread">
+            <div>
+              <h3>Units</h3>
+              <p className="muted">Build and edit Unit details in a dedicated workspace.</p>
+            </div>
             <button
               type="button"
-              disabled={saving || !unitTitle.trim()}
-              onClick={async () => {
-                try {
-                  setSaving(true);
-                  const detail = await api.createUnit(course.id, {
-                    title: unitTitle.trim(),
-                    description: toNullable(unitDescription),
-                    orderIndex: parseOptionalOrder(unitOrder)
-                  });
-                  updateFromDetail(detail);
-                  setUnitTitle('');
-                  setUnitDescription('');
-                  setUnitOrder('');
-                } catch (err) {
-                  setError(err instanceof ApiError ? err.message : 'Failed to add unit');
-                } finally {
-                  setSaving(false);
-                }
-              }}
+              onClick={() =>
+                setUnitEditor({
+                  id: null,
+                  title: '',
+                  description: '',
+                  order: String(course.units.length)
+                })
+              }
             >
-              Add unit
+              Add Unit
             </button>
           </div>
+          <EditFocusDialog
+            open={unitEditor !== null}
+            title={unitEditor?.id ? 'Edit Unit' : 'Add Unit'}
+            description="Set this Unit’s shared curriculum details, then return to the Course."
+            onClose={() => setUnitEditor(null)}
+            busy={saving}
+          >
+            {unitEditor ? (
+              <div className="stack">
+                <input
+                  className="input"
+                  value={unitEditor.title}
+                  onChange={(event) => setUnitEditor({ ...unitEditor, title: event.target.value })}
+                  placeholder="Unit title"
+                />
+                <input
+                  className="input"
+                  value={unitEditor.description}
+                  onChange={(event) =>
+                    setUnitEditor({ ...unitEditor, description: event.target.value })
+                  }
+                  placeholder="Unit description (optional)"
+                />
+                <input
+                  className="input"
+                  value={unitEditor.order}
+                  onChange={(event) => setUnitEditor({ ...unitEditor, order: event.target.value })}
+                  placeholder="Order index (optional)"
+                />
+                <div className="row">
+                  <button
+                    type="button"
+                    disabled={saving || !unitEditor.title.trim()}
+                    onClick={async () => {
+                      try {
+                        setSaving(true);
+                        const detail = unitEditor.id
+                          ? await api.updateUnit(unitEditor.id, {
+                              title: unitEditor.title.trim(),
+                              description: toNullable(unitEditor.description),
+                              orderIndex: parseOptionalOrder(unitEditor.order)
+                            })
+                          : await api.createUnit(course.id, {
+                              title: unitEditor.title.trim(),
+                              description: toNullable(unitEditor.description),
+                              orderIndex: parseOptionalOrder(unitEditor.order)
+                            });
+                        updateFromDetail(detail);
+                        setUnitEditor(null);
+                      } catch (err) {
+                        setError(err instanceof ApiError ? err.message : 'Failed to save Unit');
+                      } finally {
+                        setSaving(false);
+                      }
+                    }}
+                  >
+                    {unitEditor.id ? 'Save Unit' : 'Create Unit'}
+                  </button>
+                  <button className="secondary" type="button" onClick={() => setUnitEditor(null)}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </EditFocusDialog>
 
           <div className="stack">
             {course.units.map((unit) => {
-              const lessonDraft = lessonDrafts[unit.id] ?? {
-                title: '',
-                description: '',
-                duration: ''
-              };
-
               return (
                 <div key={unit.id} className="card stack">
                   <div className="row">
@@ -294,30 +395,13 @@ export function CoursePage() {
                     <button
                       className="secondary"
                       type="button"
-                      onClick={async () => {
-                        const nextTitle = window.prompt('Unit title', unit.title);
-                        if (nextTitle === null || !nextTitle.trim()) return;
-                        const nextDescription = window.prompt(
-                          'Unit description (optional)',
-                          unit.description ?? ''
-                        );
-                        const nextOrder = window.prompt(
-                          'Unit order index',
-                          String(unit.orderIndex)
-                        );
-                        try {
-                          setSaving(true);
-                          const detail = await api.updateUnit(unit.id, {
-                            title: nextTitle.trim(),
-                            description: toNullable(nextDescription ?? ''),
-                            orderIndex: parseOptionalOrder(nextOrder ?? '')
-                          });
-                          updateFromDetail(detail);
-                        } catch (err) {
-                          setError(err instanceof ApiError ? err.message : 'Failed to update unit');
-                        } finally {
-                          setSaving(false);
-                        }
+                      onClick={() => {
+                        setUnitEditor({
+                          id: unit.id,
+                          title: unit.title,
+                          description: unit.description ?? '',
+                          order: String(unit.orderIndex)
+                        });
                       }}
                     >
                       Edit unit
@@ -345,77 +429,30 @@ export function CoursePage() {
                   </div>
                   {unit.description ? <p className="muted">{unit.description}</p> : null}
 
-                  <div className="card stack">
-                    <h4>Add lesson</h4>
-                    <input
-                      className="input"
-                      value={lessonDraft.title}
-                      onChange={(event) =>
-                        setLessonDrafts((previous) => ({
-                          ...previous,
-                          [unit.id]: { ...lessonDraft, title: event.target.value }
-                        }))
-                      }
-                      placeholder="Lesson title"
-                    />
-                    <input
-                      className="input"
-                      value={lessonDraft.description}
-                      onChange={(event) =>
-                        setLessonDrafts((previous) => ({
-                          ...previous,
-                          [unit.id]: { ...lessonDraft, description: event.target.value }
-                        }))
-                      }
-                      placeholder="Lesson description (optional)"
-                    />
-                    <input
-                      className="input"
-                      value={lessonDraft.duration}
-                      onChange={(event) =>
-                        setLessonDrafts((previous) => ({
-                          ...previous,
-                          [unit.id]: { ...lessonDraft, duration: event.target.value }
-                        }))
-                      }
-                      placeholder="Estimated minutes (optional)"
-                    />
+                  <div className="card row spread">
+                    <div>
+                      <h4>Add lesson</h4>
+                      <p className="muted">Create a Lesson in a focused editor.</p>
+                    </div>
                     <button
                       type="button"
-                      disabled={saving || !lessonDraft.title.trim()}
-                      onClick={async () => {
-                        try {
-                          setSaving(true);
-                          const detail = await api.createLesson(unit.id, {
-                            title: lessonDraft.title.trim(),
-                            description: toNullable(lessonDraft.description),
-                            estimatedDurationMinutes: parseNullablePositiveInt(
-                              lessonDraft.duration
-                            ),
-                            orderIndex: undefined
-                          });
-                          updateFromDetail(detail);
-                          setLessonDrafts((previous) => ({
-                            ...previous,
-                            [unit.id]: { title: '', description: '', duration: '' }
-                          }));
-                        } catch (err) {
-                          setError(err instanceof ApiError ? err.message : 'Failed to add lesson');
-                        } finally {
-                          setSaving(false);
-                        }
-                      }}
+                      onClick={() =>
+                        setLessonEditor({
+                          id: null,
+                          unitId: unit.id,
+                          title: '',
+                          description: '',
+                          duration: '',
+                          durationKind: 'minutes',
+                          order: String(unit.lessons.length)
+                        })
+                      }
                     >
-                      Add lesson
+                      Add Lesson
                     </button>
                   </div>
 
                   {unit.lessons.map((lesson, lessonIndex) => {
-                    const segmentDraft = segmentDrafts[lesson.id] ?? {
-                      title: '',
-                      description: '',
-                      duration: ''
-                    };
                     const materialsForLesson = lesson.materials;
 
                     return (
@@ -443,7 +480,9 @@ export function CoursePage() {
                                 setError(null);
                               } catch (err) {
                                 setError(
-                                  err instanceof ApiError ? err.message : 'Failed to move this lesson'
+                                  err instanceof ApiError
+                                    ? err.message
+                                    : 'Failed to move this lesson'
                                 );
                               } finally {
                                 setSaving(false);
@@ -471,7 +510,9 @@ export function CoursePage() {
                                 setError(null);
                               } catch (err) {
                                 setError(
-                                  err instanceof ApiError ? err.message : 'Failed to move this lesson'
+                                  err instanceof ApiError
+                                    ? err.message
+                                    : 'Failed to move this lesson'
                                 );
                               } finally {
                                 setSaving(false);
@@ -483,40 +524,23 @@ export function CoursePage() {
                           <button
                             className="secondary"
                             type="button"
-                            onClick={async () => {
-                              const nextTitle = window.prompt('Lesson title', lesson.title);
-                              if (nextTitle === null || !nextTitle.trim()) return;
-                              const nextDescription = window.prompt(
-                                'Lesson description (optional)',
-                                lesson.description ?? ''
-                              );
-                              const nextDuration = window.prompt(
-                                'Estimated duration minutes (optional)',
-                                lesson.estimatedDurationMinutes?.toString() ?? ''
-                              );
-                              const nextOrder = window.prompt(
-                                'Lesson order index',
-                                String(lesson.orderIndex)
-                              );
-
-                              try {
-                                setSaving(true);
-                                const detail = await api.updateLesson(lesson.id, {
-                                  title: nextTitle.trim(),
-                                  description: toNullable(nextDescription ?? ''),
-                                  estimatedDurationMinutes: parseNullablePositiveInt(
-                                    nextDuration ?? ''
-                                  ),
-                                  orderIndex: parseOptionalOrder(nextOrder ?? '')
-                                });
-                                updateFromDetail(detail);
-                              } catch (err) {
-                                setError(
-                                  err instanceof ApiError ? err.message : 'Failed to update lesson'
-                                );
-                              } finally {
-                                setSaving(false);
-                              }
+                            onClick={() => {
+                              const durationKind = lesson.estimatedMeetings
+                                ? 'meetings'
+                                : 'minutes';
+                              setLessonEditor({
+                                id: lesson.id,
+                                unitId: unit.id,
+                                title: lesson.title,
+                                description: lesson.description ?? '',
+                                duration: String(
+                                  durationKind === 'meetings'
+                                    ? (lesson.estimatedMeetings ?? '')
+                                    : (lesson.estimatedDurationMinutes ?? '')
+                                ),
+                                durationKind,
+                                order: String(lesson.orderIndex)
+                              });
                             }}
                           >
                             Edit lesson
@@ -525,7 +549,7 @@ export function CoursePage() {
                             type="button"
                             onClick={async () => {
                               const confirmDelete = window.confirm(
-                                `Delete lesson "${lesson.title}" and all segments?`
+                                `Delete lesson "${lesson.title}" and all Lesson Steps?`
                               );
                               if (!confirmDelete) return;
                               try {
@@ -568,97 +592,125 @@ export function CoursePage() {
                         />
 
                         <div className="card stack">
-                          <div>
-                            <h5 style={{ marginBottom: 8 }}>Add Material</h5>
-                            <p className="muted" style={{ marginTop: 0 }}>
-                              Paste a Google Drive link, PDF URL, Canvas resource, or any web
-                              resource for this lesson.
-                            </p>
+                          <div className="row spread">
+                            <div>
+                              <h5 style={{ marginBottom: 8 }}>Materials</h5>
+                              <p className="muted" style={{ marginTop: 0 }}>
+                                Add a Google Drive link, PDF URL, Canvas resource, or web resource.
+                              </p>
+                            </div>
+                            <button
+                              className="secondary"
+                              type="button"
+                              onClick={() => setMaterialEditorLessonId(lesson.id)}
+                            >
+                              Add Material
+                            </button>
                           </div>
-                          <select
-                            value={materialDrafts[lesson.id]?.kind ?? 'google_drive'}
-                            onChange={(event) =>
-                              setMaterialDrafts((previous) => ({
-                                ...previous,
-                                [lesson.id]: {
-                                  label: previous[lesson.id]?.label ?? '',
-                                  url: previous[lesson.id]?.url ?? '',
-                                  kind: event.target.value as LessonMaterialKind
-                                }
-                              }))
-                            }
+                          <EditFocusDialog
+                            open={materialEditorLessonId === lesson.id}
+                            title={`Add material to ${lesson.title}`}
+                            description="Add this lesson resource, then return to the Course when you are done."
+                            onClose={() => setMaterialEditorLessonId(null)}
+                            busy={saving}
                           >
-                            <option value="google_drive">Paste Google Drive link</option>
-                            <option value="pdf">Paste PDF URL</option>
-                            <option value="canvas">Paste Canvas resource</option>
-                            <option value="web">Paste any web resource</option>
-                          </select>
-                          <input
-                            className="input"
-                            value={materialDrafts[lesson.id]?.label ?? ''}
-                            onChange={(event) =>
-                              setMaterialDrafts((previous) => ({
-                                ...previous,
-                                [lesson.id]: {
-                                  label: event.target.value,
-                                  url: previous[lesson.id]?.url ?? '',
-                                  kind: previous[lesson.id]?.kind ?? 'google_drive'
+                            <div className="stack">
+                              <select
+                                value={materialDrafts[lesson.id]?.kind ?? 'google_drive'}
+                                onChange={(event) =>
+                                  setMaterialDrafts((previous) => ({
+                                    ...previous,
+                                    [lesson.id]: {
+                                      label: previous[lesson.id]?.label ?? '',
+                                      url: previous[lesson.id]?.url ?? '',
+                                      kind: event.target.value as LessonMaterialKind
+                                    }
+                                  }))
                                 }
-                              }))
-                            }
-                            placeholder="Material title"
-                          />
-                          <input
-                            className="input"
-                            value={materialDrafts[lesson.id]?.url ?? ''}
-                            onChange={(event) =>
-                              setMaterialDrafts((previous) => ({
-                                ...previous,
-                                [lesson.id]: {
-                                  label: previous[lesson.id]?.label ?? '',
-                                  url: event.target.value,
-                                  kind: previous[lesson.id]?.kind ?? 'google_drive'
+                              >
+                                <option value="google_drive">Paste Google Drive link</option>
+                                <option value="pdf">Paste PDF URL</option>
+                                <option value="canvas">Paste Canvas resource</option>
+                                <option value="web">Paste any web resource</option>
+                              </select>
+                              <input
+                                className="input"
+                                value={materialDrafts[lesson.id]?.label ?? ''}
+                                onChange={(event) =>
+                                  setMaterialDrafts((previous) => ({
+                                    ...previous,
+                                    [lesson.id]: {
+                                      label: event.target.value,
+                                      url: previous[lesson.id]?.url ?? '',
+                                      kind: previous[lesson.id]?.kind ?? 'google_drive'
+                                    }
+                                  }))
                                 }
-                              }))
-                            }
-                            placeholder="https://"
-                          />
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              const draft = materialDrafts[lesson.id] ?? {
-                                label: '',
-                                url: '',
-                                kind: 'google_drive' as LessonMaterialKind
-                              };
+                                placeholder="Material title"
+                              />
+                              <input
+                                className="input"
+                                value={materialDrafts[lesson.id]?.url ?? ''}
+                                onChange={(event) =>
+                                  setMaterialDrafts((previous) => ({
+                                    ...previous,
+                                    [lesson.id]: {
+                                      label: previous[lesson.id]?.label ?? '',
+                                      url: event.target.value,
+                                      kind: previous[lesson.id]?.kind ?? 'google_drive'
+                                    }
+                                  }))
+                                }
+                                placeholder="https://"
+                              />
+                              <div className="row">
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    const draft = materialDrafts[lesson.id] ?? {
+                                      label: '',
+                                      url: '',
+                                      kind: 'google_drive' as LessonMaterialKind
+                                    };
 
-                              try {
-                                const parsedUrl = new URL(draft.url.trim());
-                                setSaving(true);
-                                const detail = await api.createLessonMaterial(lesson.id, {
-                                  label: draft.label.trim() || 'Lesson material',
-                                  url: parsedUrl.toString(),
-                                  kind: draft.kind
-                                });
-                                updateFromDetail(detail);
-                                setMaterialDrafts((previous) => ({
-                                  ...previous,
-                                  [lesson.id]: { label: '', url: '', kind: draft.kind }
-                                }));
-                                setError(null);
-                              } catch (err) {
-                                setError(
-                                  err instanceof ApiError
-                                    ? err.message
-                                    : 'Add a valid material link before saving.'
-                                );
-                              } finally {
-                                setSaving(false);
-                              }
-                            }}
-                          >
-                            Save material
-                          </button>
+                                    try {
+                                      const parsedUrl = new URL(draft.url.trim());
+                                      setSaving(true);
+                                      const detail = await api.createLessonMaterial(lesson.id, {
+                                        label: draft.label.trim() || 'Lesson material',
+                                        url: parsedUrl.toString(),
+                                        kind: draft.kind
+                                      });
+                                      updateFromDetail(detail);
+                                      setMaterialDrafts((previous) => ({
+                                        ...previous,
+                                        [lesson.id]: { label: '', url: '', kind: draft.kind }
+                                      }));
+                                      setError(null);
+                                      setMaterialEditorLessonId(null);
+                                    } catch (err) {
+                                      setError(
+                                        err instanceof ApiError
+                                          ? err.message
+                                          : 'Add a valid material link before saving.'
+                                      );
+                                    } finally {
+                                      setSaving(false);
+                                    }
+                                  }}
+                                >
+                                  Save material
+                                </button>
+                                <button
+                                  className="secondary"
+                                  type="button"
+                                  onClick={() => setMaterialEditorLessonId(null)}
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          </EditFocusDialog>
 
                           {materialsForLesson.length > 0 ? (
                             <div className="stack">
@@ -705,68 +757,27 @@ export function CoursePage() {
                           )}
                         </div>
 
-                        <div className="card stack">
-                          <h5>Add segment</h5>
-                          <input
-                            className="input"
-                            value={segmentDraft.title}
-                            onChange={(event) =>
-                              setSegmentDrafts((previous) => ({
-                                ...previous,
-                                [lesson.id]: { ...segmentDraft, title: event.target.value }
-                              }))
-                            }
-                            placeholder="Segment title"
-                          />
-                          <input
-                            className="input"
-                            value={segmentDraft.description}
-                            onChange={(event) =>
-                              setSegmentDrafts((previous) => ({
-                                ...previous,
-                                [lesson.id]: { ...segmentDraft, description: event.target.value }
-                              }))
-                            }
-                            placeholder="Segment description (optional)"
-                          />
-                          <input
-                            className="input"
-                            value={segmentDraft.duration}
-                            onChange={(event) =>
-                              setSegmentDrafts((previous) => ({
-                                ...previous,
-                                [lesson.id]: { ...segmentDraft, duration: event.target.value }
-                              }))
-                            }
-                            placeholder="Duration minutes (optional)"
-                          />
+                        <div className="card row spread">
+                          <div>
+                            <h5>Add Lesson Step</h5>
+                            <p className="muted">
+                              Create and revise steps without leaving this Course.
+                            </p>
+                          </div>
                           <button
                             type="button"
-                            disabled={saving || !segmentDraft.title.trim()}
-                            onClick={async () => {
-                              try {
-                                setSaving(true);
-                                const detail = await api.createSegment(lesson.id, {
-                                  title: segmentDraft.title.trim(),
-                                  description: toNullable(segmentDraft.description),
-                                  durationMinutes: parseNullablePositiveInt(segmentDraft.duration),
-                                  orderIndex: undefined
-                                });
-                                updateFromDetail(detail);
-                                setSegmentDrafts((previous) => ({
-                                  ...previous,
-                                  [lesson.id]: { title: '', description: '', duration: '' }
-                                }));
-                              } catch (err) {
-                                setError(
-                                  err instanceof ApiError ? err.message : 'Failed to add segment'
-                                );
-                              } finally {
-                                setSaving(false);
-                              }
-                            }}
+                            onClick={() =>
+                              setSegmentEditor({
+                                id: null,
+                                lessonId: lesson.id,
+                                title: '',
+                                description: '',
+                                duration: '',
+                                order: String(lesson.segments.length)
+                              })
+                            }
                           >
-                            Add segment
+                            Add Lesson Step
                           </button>
                         </div>
 
@@ -779,40 +790,15 @@ export function CoursePage() {
                             <button
                               className="secondary"
                               type="button"
-                              onClick={async () => {
-                                const nextTitle = window.prompt('Segment title', segment.title);
-                                if (nextTitle === null || !nextTitle.trim()) return;
-                                const nextDescription = window.prompt(
-                                  'Segment description (optional)',
-                                  segment.description ?? ''
-                                );
-                                const nextDuration = window.prompt(
-                                  'Duration minutes (optional)',
-                                  segment.durationMinutes?.toString() ?? ''
-                                );
-                                const nextOrder = window.prompt(
-                                  'Segment order index',
-                                  String(segment.orderIndex)
-                                );
-
-                                try {
-                                  setSaving(true);
-                                  const detail = await api.updateSegment(segment.id, {
-                                    title: nextTitle.trim(),
-                                    description: toNullable(nextDescription ?? ''),
-                                    durationMinutes: parseNullablePositiveInt(nextDuration ?? ''),
-                                    orderIndex: parseOptionalOrder(nextOrder ?? '')
-                                  });
-                                  updateFromDetail(detail);
-                                } catch (err) {
-                                  setError(
-                                    err instanceof ApiError
-                                      ? err.message
-                                      : 'Failed to update segment'
-                                  );
-                                } finally {
-                                  setSaving(false);
-                                }
+                              onClick={() => {
+                                setSegmentEditor({
+                                  id: segment.id,
+                                  lessonId: lesson.id,
+                                  title: segment.title,
+                                  description: segment.description ?? '',
+                                  duration: segment.durationMinutes?.toString() ?? '',
+                                  order: String(segment.orderIndex)
+                                });
                               }}
                             >
                               Edit
@@ -821,7 +807,7 @@ export function CoursePage() {
                               type="button"
                               onClick={async () => {
                                 const confirmDelete = window.confirm(
-                                  `Delete segment "${segment.title}"?`
+                                  `Delete Lesson Step "${segment.title}"?`
                                 );
                                 if (!confirmDelete) return;
                                 try {
@@ -850,6 +836,195 @@ export function CoursePage() {
               );
             })}
           </div>
+          <EditFocusDialog
+            open={lessonEditor !== null}
+            title={lessonEditor?.id ? 'Edit Lesson' : 'Add Lesson'}
+            description="Keep this Lesson’s title and optional duration together in one focused editor."
+            onClose={() => setLessonEditor(null)}
+            busy={saving}
+          >
+            {lessonEditor ? (
+              <div className="stack">
+                <input
+                  className="input"
+                  value={lessonEditor.title}
+                  onChange={(event) =>
+                    setLessonEditor({ ...lessonEditor, title: event.target.value })
+                  }
+                  placeholder="Lesson title"
+                />
+                <input
+                  className="input"
+                  value={lessonEditor.description}
+                  onChange={(event) =>
+                    setLessonEditor({ ...lessonEditor, description: event.target.value })
+                  }
+                  placeholder="Lesson description (optional)"
+                />
+                <div className="row">
+                  <label>
+                    Duration + Add
+                    <select
+                      className="input"
+                      value={lessonEditor.durationKind}
+                      onChange={(event) =>
+                        setLessonEditor({
+                          ...lessonEditor,
+                          durationKind: event.target.value as 'minutes' | 'meetings'
+                        })
+                      }
+                    >
+                      <option value="minutes">Minutes</option>
+                      <option value="meetings">Meetings</option>
+                    </select>
+                  </label>
+                  <input
+                    className="input"
+                    value={lessonEditor.duration}
+                    onChange={(event) =>
+                      setLessonEditor({ ...lessonEditor, duration: event.target.value })
+                    }
+                    placeholder={
+                      lessonEditor.durationKind === 'minutes' ? '45 (optional)' : '1 (optional)'
+                    }
+                  />
+                </div>
+                <input
+                  className="input"
+                  value={lessonEditor.order}
+                  onChange={(event) =>
+                    setLessonEditor({ ...lessonEditor, order: event.target.value })
+                  }
+                  placeholder="Order index (optional)"
+                />
+                <div className="row">
+                  <button
+                    type="button"
+                    disabled={saving || !lessonEditor.title.trim()}
+                    onClick={async () => {
+                      try {
+                        setSaving(true);
+                        const duration = parseNullablePositiveInt(lessonEditor.duration);
+                        const detail = lessonEditor.id
+                          ? await api.updateLesson(lessonEditor.id, {
+                              title: lessonEditor.title.trim(),
+                              description: toNullable(lessonEditor.description),
+                              estimatedDurationMinutes:
+                                lessonEditor.durationKind === 'minutes' ? duration : null,
+                              estimatedMeetings:
+                                lessonEditor.durationKind === 'meetings' ? duration : null,
+                              durationKind: duration ? lessonEditor.durationKind : null,
+                              orderIndex: parseOptionalOrder(lessonEditor.order)
+                            })
+                          : await api.createLesson(lessonEditor.unitId, {
+                              title: lessonEditor.title.trim(),
+                              description: toNullable(lessonEditor.description),
+                              estimatedDurationMinutes:
+                                lessonEditor.durationKind === 'minutes' ? duration : null,
+                              estimatedMeetings:
+                                lessonEditor.durationKind === 'meetings' ? duration : null,
+                              durationKind: duration ? lessonEditor.durationKind : null,
+                              orderIndex: parseOptionalOrder(lessonEditor.order)
+                            });
+                        updateFromDetail(detail);
+                        setLessonEditor(null);
+                      } catch (err) {
+                        setError(err instanceof ApiError ? err.message : 'Failed to save Lesson');
+                      } finally {
+                        setSaving(false);
+                      }
+                    }}
+                  >
+                    {lessonEditor.id ? 'Save Lesson' : 'Create Lesson'}
+                  </button>
+                  <button className="secondary" type="button" onClick={() => setLessonEditor(null)}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </EditFocusDialog>
+          <EditFocusDialog
+            open={segmentEditor !== null}
+            title={segmentEditor?.id ? 'Edit Lesson Step' : 'Add Lesson Step'}
+            description="Keep individual Lesson Step details in focus, then return to the Lesson."
+            onClose={() => setSegmentEditor(null)}
+            busy={saving}
+          >
+            {segmentEditor ? (
+              <div className="stack">
+                <input
+                  className="input"
+                  value={segmentEditor.title}
+                  onChange={(event) =>
+                    setSegmentEditor({ ...segmentEditor, title: event.target.value })
+                  }
+                  placeholder="Lesson Step title"
+                />
+                <input
+                  className="input"
+                  value={segmentEditor.description}
+                  onChange={(event) =>
+                    setSegmentEditor({ ...segmentEditor, description: event.target.value })
+                  }
+                  placeholder="Lesson Step description (optional)"
+                />
+                <input
+                  className="input"
+                  value={segmentEditor.duration}
+                  onChange={(event) =>
+                    setSegmentEditor({ ...segmentEditor, duration: event.target.value })
+                  }
+                  placeholder="Duration minutes (optional)"
+                />
+                <input
+                  className="input"
+                  value={segmentEditor.order}
+                  onChange={(event) =>
+                    setSegmentEditor({ ...segmentEditor, order: event.target.value })
+                  }
+                  placeholder="Order index (optional)"
+                />
+                <div className="row">
+                  <button
+                    type="button"
+                    disabled={saving || !segmentEditor.title.trim()}
+                    onClick={async () => {
+                      try {
+                        setSaving(true);
+                        const payload = {
+                          title: segmentEditor.title.trim(),
+                          description: toNullable(segmentEditor.description),
+                          durationMinutes: parseNullablePositiveInt(segmentEditor.duration),
+                          orderIndex: parseOptionalOrder(segmentEditor.order)
+                        };
+                        const detail = segmentEditor.id
+                          ? await api.updateSegment(segmentEditor.id, payload)
+                          : await api.createSegment(segmentEditor.lessonId, payload);
+                        updateFromDetail(detail);
+                        setSegmentEditor(null);
+                      } catch (err) {
+                        setError(
+                          err instanceof ApiError ? err.message : 'Failed to save Lesson Step'
+                        );
+                      } finally {
+                        setSaving(false);
+                      }
+                    }}
+                  >
+                    {segmentEditor.id ? 'Save Lesson Step' : 'Create Lesson Step'}
+                  </button>
+                  <button
+                    className="secondary"
+                    type="button"
+                    onClick={() => setSegmentEditor(null)}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </EditFocusDialog>
         </>
       ) : null}
     </div>

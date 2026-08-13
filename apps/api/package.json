@@ -11,7 +11,7 @@
     "start": "tsx src/index.ts",
     "lint": "eslint src --ext .ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/teacheros_test vitest run"
+    "test": "DATABASE_URL=${DATABASE_URL:-postgresql://postgres:postgres@localhost:5432/teacheros_test} vitest run"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.812.0",

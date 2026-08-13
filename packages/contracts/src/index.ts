@@ -4,6 +4,19 @@ export const UuidSchema = z.string().uuid();
 export const IsoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 export const IsoTimeSchema = z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/);
 
+function isSupportedIanaTimezone(value: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: value }).format();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export const IanaTimezoneSchema = z.string().min(1).refine(isSupportedIanaTimezone, {
+  message: 'Provide a valid IANA timezone such as America/Los_Angeles.'
+});
+
 export const MeetingDaySchema = z.enum([
   'Monday',
   'Tuesday',
@@ -123,7 +136,8 @@ export const OnboardingRequestSchema = z.object({
   state: z.string().nullable(),
   role: z.enum(['teacher', 'department_head', 'admin']).default('teacher'),
   subjects: z.array(z.string()).default([]),
-  grades: z.array(z.string()).default([])
+  grades: z.array(z.string()).default([]),
+  timezone: IanaTimezoneSchema.nullable().default(null)
 });
 
 export const OnboardingResponseSchema = z.object({
@@ -554,6 +568,7 @@ export const LessonSchema = z.object({
   description: z.string().nullable(),
   orderIndex: z.number().int(),
   estimatedDurationMinutes: z.number().int().nullable(),
+  estimatedMeetings: z.number().int().nullable(),
   segments: z.array(SegmentSchema),
   materials: z.array(LessonMaterialSchema)
 });
@@ -589,6 +604,8 @@ export const LessonCreateRequestSchema = z.object({
   title: z.string().min(1),
   description: z.string().nullable(),
   estimatedDurationMinutes: z.number().int().positive().nullable(),
+  estimatedMeetings: z.number().int().positive().nullable().default(null),
+  durationKind: z.enum(['minutes', 'meetings']).nullable().default(null),
   orderIndex: z.number().int().nonnegative().optional()
 });
 
@@ -596,6 +613,8 @@ export const LessonUpdateRequestSchema = z.object({
   title: z.string().min(1).optional(),
   description: z.string().nullable().optional(),
   estimatedDurationMinutes: z.number().int().positive().nullable().optional(),
+  estimatedMeetings: z.number().int().positive().nullable().optional(),
+  durationKind: z.enum(['minutes', 'meetings']).nullable().optional(),
   orderIndex: z.number().int().nonnegative().optional()
 });
 
@@ -669,6 +688,304 @@ export const ApiErrorSchema = z.object({
   requestId: z.string().optional()
 });
 
+// Calendar-first v3 API contracts.
+export const AccountTimezoneSchema = z.object({ timezone: IanaTimezoneSchema.nullable() });
+export const InitializeTimezoneRequestSchema = z.object({ timezone: IanaTimezoneSchema });
+export const UpdateTimezoneRequestSchema = z.object({ timezone: IanaTimezoneSchema });
+
+export const AcademicYearSchema = z.object({
+  id: UuidSchema,
+  name: z.string(),
+  startDate: IsoDateSchema,
+  endDate: IsoDateSchema,
+  isActive: z.boolean()
+});
+export const AcademicYearInputSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120),
+    startDate: IsoDateSchema,
+    endDate: IsoDateSchema,
+    isActive: z.boolean().default(true)
+  })
+  .refine((value) => value.endDate >= value.startDate, {
+    message: 'End date must be on or after start date.'
+  });
+
+export const CalendarEventSchema = z.object({
+  id: UuidSchema,
+  academicYearId: UuidSchema,
+  startDate: IsoDateSchema,
+  endDate: IsoDateSchema,
+  label: z.string(),
+  type: z.string(),
+  instructional: z.boolean()
+});
+export const CalendarEventInputSchema = z
+  .object({
+    startDate: IsoDateSchema,
+    endDate: IsoDateSchema,
+    label: z.string().trim().min(1).max(160),
+    type: z.string().trim().min(1).max(60).default('other'),
+    instructional: z.boolean().default(false)
+  })
+  .refine((value) => value.endDate >= value.startDate, {
+    message: 'End date must be on or after start date.'
+  });
+
+export const MeetingRuleInputSchema = z
+  .object({
+    weekdays: z.array(z.number().int().min(0).max(6)).min(1).max(7),
+    startTime: IsoTimeSchema,
+    endTime: IsoTimeSchema,
+    effectiveStart: IsoDateSchema.nullable().default(null),
+    effectiveEnd: IsoDateSchema.nullable().default(null),
+    room: z.string().trim().max(80).nullable().default(null)
+  })
+  .refine((value) => value.endTime > value.startTime, {
+    message: 'End time must be after start time.'
+  })
+  .refine(
+    (value) =>
+      !value.effectiveStart || !value.effectiveEnd || value.effectiveEnd >= value.effectiveStart,
+    { message: 'Effective end must be on or after effective start.' }
+  );
+
+export const MeetingRuleSchema = z.object({
+  id: UuidSchema,
+  weekdays: z.array(z.number().int().min(0).max(6)),
+  startTime: IsoTimeSchema,
+  endTime: IsoTimeSchema,
+  effectiveStart: IsoDateSchema.nullable(),
+  effectiveEnd: IsoDateSchema.nullable(),
+  room: z.string().nullable()
+});
+
+export const ClassGroupSchema = z.object({
+  id: UuidSchema,
+  courseId: UuidSchema,
+  academicYearId: UuidSchema,
+  name: z.string(),
+  periodLabel: z.string().nullable(),
+  room: z.string().nullable(),
+  meetingRules: z.array(MeetingRuleSchema)
+});
+export const ClassGroupInputSchema = z.object({
+  courseId: UuidSchema,
+  academicYearId: UuidSchema,
+  name: z.string().trim().min(1).max(120),
+  periodLabel: z.string().trim().max(80).nullable().default(null),
+  room: z.string().trim().max(80).nullable().default(null),
+  meetingRules: z.array(MeetingRuleInputSchema).default([])
+});
+
+export const ScheduleOverrideMeetingInputSchema = z
+  .object({
+    classGroupId: UuidSchema,
+    action: z.enum(['replace', 'add', 'cancel']).default('replace'),
+    startTime: IsoTimeSchema.nullable().default(null),
+    endTime: IsoTimeSchema.nullable().default(null),
+    room: z.string().trim().max(80).nullable().default(null)
+  })
+  .refine(
+    (value) =>
+      value.action === 'cancel' ||
+      (value.startTime !== null && value.endTime !== null && value.endTime > value.startTime),
+    { message: 'Replacement and added meetings require a valid time range.' }
+  );
+export const ScheduleOverrideInputSchema = z.object({
+  date: IsoDateSchema,
+  label: z.string().trim().min(1).max(160),
+  type: z.string().trim().min(1).max(60).default('special_schedule'),
+  meetings: z.array(ScheduleOverrideMeetingInputSchema).min(1)
+});
+export const ScheduleOverrideSchema = ScheduleOverrideInputSchema.extend({
+  id: UuidSchema,
+  academicYearId: UuidSchema
+});
+
+export const MeetingInstanceSchema = z.object({
+  id: UuidSchema,
+  classGroupId: UuidSchema,
+  academicYearId: UuidSchema,
+  localDate: IsoDateSchema,
+  startTime: IsoTimeSchema,
+  endTime: IsoTimeSchema,
+  meetingNumber: z.number().int().positive(),
+  source: z.enum(['generated', 'override', 'manual']),
+  state: z.enum(['scheduled', 'superseded', 'cancelled'])
+});
+
+export const PlanAllocationInputSchema = z.object({
+  meetingInstanceId: UuidSchema,
+  lessonId: UuidSchema,
+  lessonStepId: UuidSchema.nullable().default(null),
+  orderIndex: z.number().int().nonnegative().optional(),
+  notes: z.string().max(2_000).nullable().default(null)
+});
+export const PlanAllocationSchema = PlanAllocationInputSchema.extend({
+  id: UuidSchema,
+  classGroupId: UuidSchema
+});
+export const PlanAllocationMoveRequestSchema = z.object({
+  targetMeetingInstanceId: UuidSchema,
+  shiftFollowing: z.boolean().default(false)
+});
+
+export const ClassGroupUnitPlanInputSchema = z.object({
+  unitId: UuidSchema,
+  planKind: z.enum(['meetings', 'weeks', 'date_range']).nullable().default(null),
+  estimatedWeeks: z.number().int().positive().nullable().default(null),
+  estimatedMeetings: z.number().int().positive().nullable().default(null),
+  startDate: IsoDateSchema.nullable().default(null),
+  endDate: IsoDateSchema.nullable().default(null)
+});
+
+const ResourceFieldsSchema = z.object({
+  courseId: UuidSchema.nullable().default(null),
+  unitId: UuidSchema.nullable().default(null),
+  lessonId: UuidSchema.nullable().default(null),
+  lessonStepId: UuidSchema.nullable().default(null),
+  title: z.string().trim().max(200).nullable().default(null),
+  url: z.string().url().max(2_000),
+  resourceType: z.string().trim().max(60).default('link')
+});
+export const ResourceInputSchema = ResourceFieldsSchema.superRefine((value, context) => {
+  if (
+    [value.courseId, value.unitId, value.lessonId, value.lessonStepId].filter(Boolean).length !== 1
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'A Resource must be attached to exactly one curriculum item.'
+    });
+  }
+});
+export const ResourceSchema = ResourceFieldsSchema.extend({
+  id: UuidSchema,
+  provider: z.string()
+});
+
+export const LessonTemplateStepInputSchema = z.object({
+  title: z.string().trim().min(1).max(180),
+  description: z.string().trim().max(2_000).nullable().default(null),
+  estimatedMinutes: z.number().int().positive().nullable().default(null),
+  isOptional: z.boolean().default(false)
+});
+export const LessonTemplateInputSchema = z.object({
+  title: z.string().trim().min(1).max(180),
+  description: z.string().trim().max(2_000).nullable().default(null),
+  steps: z.array(LessonTemplateStepInputSchema).min(1).max(40)
+});
+export const LessonTemplateSchema = LessonTemplateInputSchema.extend({ id: UuidSchema });
+
+export const V3LessonStepSchema = z.object({
+  id: UuidSchema,
+  title: z.string(),
+  description: z.string().nullable(),
+  estimatedMinutes: z.number().int().nullable(),
+  isOptional: z.boolean(),
+  orderIndex: z.number().int()
+});
+export const V3LessonSchema = z.object({
+  id: UuidSchema,
+  unitId: UuidSchema,
+  title: z.string(),
+  description: z.string().nullable(),
+  estimatedDurationMinutes: z.number().int().nullable(),
+  estimatedMeetings: z.number().int().nullable(),
+  orderIndex: z.number().int(),
+  steps: z.array(V3LessonStepSchema)
+});
+export const V3UnitSchema = z.object({
+  id: UuidSchema,
+  title: z.string(),
+  description: z.string().nullable(),
+  orderIndex: z.number().int(),
+  estimatedWeeks: z.number().int().nullable(),
+  estimatedMeetings: z.number().int().nullable(),
+  lessons: z.array(V3LessonSchema)
+});
+export const V3CourseDetailSchema = z.object({
+  course: z.object({
+    id: UuidSchema,
+    name: z.string(),
+    subject: z.string().nullable(),
+    gradeLevel: z.string().nullable(),
+    units: z.array(V3UnitSchema),
+    classGroups: z.array(ClassGroupSchema)
+  })
+});
+
+export const CurriculumProgressStatusSchema = z.enum([
+  'not_started',
+  'in_progress',
+  'completed',
+  'skipped'
+]);
+export const ClassroomProgressInputSchema = z.object({
+  lessonId: UuidSchema,
+  status: CurriculumProgressStatusSchema,
+  meetingInstanceId: UuidSchema.nullable().default(null),
+  manualOverride: z.boolean().default(false),
+  notes: z.string().max(2_000).nullable().default(null)
+});
+export const LessonStepProgressInputSchema = z.object({
+  lessonStepId: UuidSchema,
+  status: CurriculumProgressStatusSchema,
+  meetingInstanceId: UuidSchema.nullable().default(null)
+});
+export const ClassroomStateSchema = z.object({
+  now: z.string(),
+  timezone: IanaTimezoneSchema.nullable(),
+  activeClassGroupId: UuidSchema.nullable(),
+  activeMeeting: MeetingInstanceSchema.nullable(),
+  classGroups: z.array(
+    z.object({
+      id: UuidSchema,
+      courseId: UuidSchema,
+      name: z.string(),
+      courseName: z.string(),
+      periodLabel: z.string().nullable()
+    })
+  ),
+  selected: z
+    .object({
+      classGroupId: UuidSchema,
+      meeting: MeetingInstanceSchema.nullable(),
+      currentLesson: V3LessonSchema.nullable(),
+      lessonStatus: CurriculumProgressStatusSchema.nullable(),
+      stepStatuses: z.record(CurriculumProgressStatusSchema),
+      upcomingMeeting: MeetingInstanceSchema.nullable()
+    })
+    .nullable()
+});
+
+export const MeetingGenerationPreviewSchema = z.object({
+  generated: z.number().int().nonnegative(),
+  updated: z.number().int().nonnegative(),
+  removedUnused: z.number().int().nonnegative(),
+  affectedPlanned: z.number().int().nonnegative(),
+  affectedPlanAllocations: z.number().int().nonnegative(),
+  historicalPreserved: z.number().int().nonnegative(),
+  proposedRemappings: z.array(
+    z.object({
+      fromMeetingId: UuidSchema,
+      fromMeetingNumber: z.number().int().positive(),
+      toLocalDate: IsoDateSchema,
+      toStartTime: IsoTimeSchema
+    })
+  ),
+  unmappedPlanAllocations: z.number().int().nonnegative(),
+  conflicts: z.array(z.string())
+});
+export const PlannedPercentageSchema = z.object({
+  availableMeetings: z.number().int().nonnegative(),
+  explicitMeetings: z.number().int().nonnegative(),
+  estimatedMeetings: z.number().int().nonnegative(),
+  percent: z.number().min(0).max(100),
+  isApproximate: z.boolean(),
+  overCapacityMeetings: z.number().int().nonnegative()
+});
+
 export type OnboardingRequest = z.infer<typeof OnboardingRequestSchema>;
 export type OnboardingResponse = z.infer<typeof OnboardingResponseSchema>;
 export type DashboardTodayResponse = z.infer<typeof DashboardTodayResponseSchema>;
@@ -728,3 +1045,30 @@ export type SegmentUpdateRequest = z.infer<typeof SegmentUpdateRequestSchema>;
 export type DeleteEntityResponse = z.infer<typeof DeleteEntityResponseSchema>;
 export type LessonMaterialKind = z.infer<typeof LessonMaterialKindSchema>;
 export type LessonMaterialCreateRequest = z.infer<typeof LessonMaterialCreateRequestSchema>;
+export type AccountTimezone = z.infer<typeof AccountTimezoneSchema>;
+export type InitializeTimezoneRequest = z.infer<typeof InitializeTimezoneRequestSchema>;
+export type UpdateTimezoneRequest = z.infer<typeof UpdateTimezoneRequestSchema>;
+export type AcademicYear = z.infer<typeof AcademicYearSchema>;
+export type AcademicYearInput = z.infer<typeof AcademicYearInputSchema>;
+export type CalendarEvent = z.infer<typeof CalendarEventSchema>;
+export type CalendarEventInput = z.infer<typeof CalendarEventInputSchema>;
+export type ClassGroup = z.infer<typeof ClassGroupSchema>;
+export type ClassGroupInput = z.infer<typeof ClassGroupInputSchema>;
+export type MeetingRuleInput = z.infer<typeof MeetingRuleInputSchema>;
+export type ScheduleOverride = z.infer<typeof ScheduleOverrideSchema>;
+export type ScheduleOverrideInput = z.infer<typeof ScheduleOverrideInputSchema>;
+export type MeetingInstance = z.infer<typeof MeetingInstanceSchema>;
+export type PlanAllocation = z.infer<typeof PlanAllocationSchema>;
+export type PlanAllocationInput = z.infer<typeof PlanAllocationInputSchema>;
+export type PlanAllocationMoveRequest = z.infer<typeof PlanAllocationMoveRequestSchema>;
+export type ResourceInput = z.infer<typeof ResourceInputSchema>;
+export type LessonTemplateInput = z.infer<typeof LessonTemplateInputSchema>;
+export type ClassGroupUnitPlanInput = z.infer<typeof ClassGroupUnitPlanInputSchema>;
+export type V3CourseDetail = z.infer<typeof V3CourseDetailSchema>;
+export type V3Lesson = z.infer<typeof V3LessonSchema>;
+export type V3LessonStep = z.infer<typeof V3LessonStepSchema>;
+export type ClassroomState = z.infer<typeof ClassroomStateSchema>;
+export type ClassroomProgressInput = z.infer<typeof ClassroomProgressInputSchema>;
+export type LessonStepProgressInput = z.infer<typeof LessonStepProgressInputSchema>;
+export type MeetingGenerationPreview = z.infer<typeof MeetingGenerationPreviewSchema>;
+export type PlannedPercentage = z.infer<typeof PlannedPercentageSchema>;

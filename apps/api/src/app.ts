@@ -20,6 +20,7 @@ import { authPlugin } from './plugins/auth.js';
 import { requestContextPlugin } from './plugins/request-context.js';
 import { healthRoutes } from './routes/health.js';
 import { v1Routes } from './routes/v1.js';
+import { v3Routes } from './routes/v3.js';
 
 export async function createApp(config: AppConfig) {
   if (config.SENTRY_DSN) {
@@ -89,6 +90,7 @@ export async function createApp(config: AppConfig) {
   await app.register(authPlugin);
   await app.register(healthRoutes);
   await app.register(v1Routes);
+  await app.register(v3Routes);
 
   app.setErrorHandler((error, request, reply) => {
     app.log.error({ error, requestId: request.id }, 'request failed');

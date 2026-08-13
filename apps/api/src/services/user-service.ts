@@ -12,7 +12,8 @@ export async function getUserByClerkId(clerkUserId: string) {
   const [user] = await db
     .select({
       id: users.id,
-      email: users.email
+      email: users.email,
+      timezone: users.timezone
     })
     .from(users)
     .where(eq(users.clerkUserId, clerkUserId))
@@ -36,7 +37,8 @@ export async function ensureUserFromPrincipal(principal: Principal) {
     })
     .returning({
       id: users.id,
-      email: users.email
+      email: users.email,
+      timezone: users.timezone
     });
 
   if (!user) {
@@ -101,6 +103,7 @@ export async function upsertOnboarding(principal: Principal, payload: Onboarding
       .set({
         fullName: payload.fullName,
         email: payload.workEmail ?? user.email,
+        ...(payload.timezone ? { timezone: payload.timezone } : {}),
         updatedAt: new Date()
       })
       .where(eq(users.id, user.id));

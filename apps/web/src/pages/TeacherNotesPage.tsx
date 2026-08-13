@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import type { TeacherNote } from '@teacheros/contracts';
 
+import { EditFocusDialog } from '../components/EditFocusDialog.js';
 import { ApiError, useApiClient } from '../lib/api.js';
 
 function formatDate(value: string): string {
@@ -16,6 +17,7 @@ export function TeacherNotesPage() {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editorOpen, setEditorOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,77 +43,98 @@ export function TeacherNotesPage() {
     setEditingId(null);
     setTitle('');
     setContent('');
+    setEditorOpen(false);
   };
 
   return (
     <div className="stack teacher-notes-page">
-      <div>
-        <p className="eyebrow">Your workspace</p>
-        <h1>My notes</h1>
-        <p className="muted">
-          Keep personal reminders, parent-call notes, and planning ideas here. These notes belong only
-          to your account.
-        </p>
+      <div className="row spread">
+        <div>
+          <p className="eyebrow">Your workspace</p>
+          <h1>My notes</h1>
+          <p className="muted">
+            Keep personal reminders, parent-call notes, and planning ideas here. These notes belong
+            only to your account.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            setEditingId(null);
+            setTitle('');
+            setContent('');
+            setEditorOpen(true);
+          }}
+        >
+          Write a note
+        </button>
       </div>
 
       {error ? <p className="error-message">{error}</p> : null}
 
-      <section className="card stack">
-        <h3>{editingId ? 'Edit note' : 'Write a new note'}</h3>
-        <label>
-          Note title
-          <input
-            className="input"
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
-            placeholder="e.g. Call home on Friday"
-          />
-        </label>
-        <label>
-          Note text
-          <textarea
-            className="input"
-            rows={7}
-            value={content}
-            onChange={(event) => setContent(event.target.value)}
-            placeholder="Write anything you want to remember..."
-          />
-        </label>
-        <div className="row">
-          <button
-            type="button"
-            disabled={saving || !title.trim()}
-            onClick={async () => {
-              try {
-                setSaving(true);
-                if (editingId) {
-                  const updated = await api.updateTeacherNote(editingId, {
-                    title: title.trim(),
-                    content
-                  });
-                  setNotes((current) => current.map((note) => (note.id === updated.id ? updated : note)));
-                } else {
-                  const created = await api.createTeacherNote({ title: title.trim(), content });
-                  setNotes((current) => [created, ...current]);
+      <EditFocusDialog
+        open={editorOpen}
+        title={editingId ? 'Edit note' : 'Write a new note'}
+        description="Keep this note in focus, then save it or exit without changing your saved notes."
+        onClose={resetEditor}
+        busy={saving}
+      >
+        <section className="stack">
+          <label>
+            Note title
+            <input
+              className="input"
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              placeholder="e.g. Call home on Friday"
+            />
+          </label>
+          <label>
+            Note text
+            <textarea
+              className="input"
+              rows={7}
+              value={content}
+              onChange={(event) => setContent(event.target.value)}
+              placeholder="Write anything you want to remember..."
+            />
+          </label>
+          <div className="row">
+            <button
+              type="button"
+              disabled={saving || !title.trim()}
+              onClick={async () => {
+                try {
+                  setSaving(true);
+                  if (editingId) {
+                    const updated = await api.updateTeacherNote(editingId, {
+                      title: title.trim(),
+                      content
+                    });
+                    setNotes((current) =>
+                      current.map((note) => (note.id === updated.id ? updated : note))
+                    );
+                  } else {
+                    const created = await api.createTeacherNote({ title: title.trim(), content });
+                    setNotes((current) => [created, ...current]);
+                  }
+                  resetEditor();
+                  setError(null);
+                } catch (err) {
+                  setError(err instanceof ApiError ? err.message : 'Unable to save your note.');
+                } finally {
+                  setSaving(false);
                 }
-                resetEditor();
-                setError(null);
-              } catch (err) {
-                setError(err instanceof ApiError ? err.message : 'Unable to save your note.');
-              } finally {
-                setSaving(false);
-              }
-            }}
-          >
-            {editingId ? 'Save changes' : 'Save note'}
-          </button>
-          {editingId ? (
+              }}
+            >
+              {editingId ? 'Save changes' : 'Save note'}
+            </button>
             <button className="secondary" type="button" onClick={resetEditor} disabled={saving}>
               Cancel
             </button>
-          ) : null}
-        </div>
-      </section>
+          </div>
+        </section>
+      </EditFocusDialog>
 
       <section className="stack" aria-label="Saved notes">
         <h2>Saved notes</h2>
@@ -137,6 +160,7 @@ export function TeacherNotesPage() {
                     setEditingId(note.id);
                     setTitle(note.title);
                     setContent(note.content);
+                    setEditorOpen(true);
                   }}
                 >
                   Edit
@@ -151,7 +175,9 @@ export function TeacherNotesPage() {
                       setNotes((current) => current.filter((item) => item.id !== note.id));
                       if (editingId === note.id) resetEditor();
                     } catch (err) {
-                      setError(err instanceof ApiError ? err.message : 'Unable to delete your note.');
+                      setError(
+                        err instanceof ApiError ? err.message : 'Unable to delete your note.'
+                      );
                     } finally {
                       setSaving(false);
                     }
@@ -161,7 +187,11 @@ export function TeacherNotesPage() {
                 </button>
               </div>
             </div>
-            {note.content ? <p className="note-content">{note.content}</p> : <p className="muted">No text yet.</p>}
+            {note.content ? (
+              <p className="note-content">{note.content}</p>
+            ) : (
+              <p className="muted">No text yet.</p>
+            )}
           </article>
         ))}
       </section>
