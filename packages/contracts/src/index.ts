@@ -89,14 +89,23 @@ export const ScheduleDateOverrideMeetingSchema = z.object({
   room: z.string().nullable()
 });
 
-export const ScheduleDateOverrideProposalSchema = z.object({
-  date: IsoDateSchema,
-  label: z.string().min(1),
-  kind: ScheduleDateOverrideKindSchema,
-  rotationDay: z.enum(['A-Day', 'B-Day']).nullable(),
-  replaceWeeklySchedule: z.boolean().default(false),
-  meetings: z.array(ScheduleDateOverrideMeetingSchema).default([])
-});
+export const ScheduleDateOverrideProposalSchema = z
+  .object({
+    date: IsoDateSchema,
+    label: z.string().min(1),
+    kind: ScheduleDateOverrideKindSchema,
+    rotationDay: z.enum(['A-Day', 'B-Day']).nullable(),
+    replaceWeeklySchedule: z.boolean().default(false),
+    meetings: z.array(ScheduleDateOverrideMeetingSchema).default([])
+  })
+  .superRefine((value, context) => {
+    if (value.kind === 'no_school' && (value.replaceWeeklySchedule || value.meetings.length)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'A no-school date cannot replace the weekly schedule or include class meetings.'
+      });
+    }
+  });
 
 export const WeeklyScheduleProposalSchema = z.object({
   courses: z.array(ScheduleCourseProposalSchema),

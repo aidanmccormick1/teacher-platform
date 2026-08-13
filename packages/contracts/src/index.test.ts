@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  AnnualCalendarProposalSchema,
   ScheduleImportResponseSchema,
   findScheduleHierarchyProblems,
   normalizeScheduleImportResponse,
@@ -28,6 +29,117 @@ describe('schedule import contract', () => {
     });
 
     expect(parsed.classes[0]).toMatchObject({ time: '09:05', endTime: '09:55' });
+  });
+});
+
+describe('annual calendar days-off contract', () => {
+  it('preserves a reviewed no-school date separately from an early-release schedule change', () => {
+    const proposal = AnnualCalendarProposalSchema.parse({
+      overrides: [
+        {
+          date: '2026-11-26',
+          label: 'Thanksgiving break',
+          kind: 'no_school',
+          rotationDay: null,
+          replaceWeeklySchedule: false,
+          meetings: []
+        },
+        {
+          date: '2026-12-18',
+          label: 'Winter break begins — minimum day',
+          kind: 'early_release',
+          rotationDay: null,
+          replaceWeeklySchedule: true,
+          meetings: [
+            {
+              courseName: 'Spanish 5',
+              sectionName: 'A',
+              startTime: '08:00',
+              endTime: '08:35',
+              room: '204'
+            }
+          ]
+        }
+      ],
+      warnings: []
+    });
+
+    expect(proposal.overrides[0]).toMatchObject({ kind: 'no_school', meetings: [] });
+    expect(proposal.overrides[1]).toMatchObject({
+      kind: 'early_release',
+      replaceWeeklySchedule: true,
+      meetings: [
+        { courseName: 'Spanish 5', sectionName: 'A', startTime: '08:00', endTime: '08:35' }
+      ]
+    });
+  });
+
+  it('does not permit a malformed calendar date or an invalid replacement meeting time', () => {
+    expect(() =>
+      AnnualCalendarProposalSchema.parse({
+        overrides: [
+          {
+            date: 'November 26',
+            label: 'Thanksgiving break',
+            kind: 'no_school',
+            rotationDay: null,
+            replaceWeeklySchedule: false,
+            meetings: []
+          }
+        ],
+        warnings: []
+      })
+    ).toThrow();
+
+    expect(() =>
+      AnnualCalendarProposalSchema.parse({
+        overrides: [
+          {
+            date: '2026-12-18',
+            label: 'Minimum day',
+            kind: 'early_release',
+            rotationDay: null,
+            replaceWeeklySchedule: true,
+            meetings: [
+              {
+                courseName: 'Spanish 5',
+                sectionName: 'A',
+                startTime: '8:00',
+                endTime: '08:35',
+                room: null
+              }
+            ]
+          }
+        ],
+        warnings: []
+      })
+    ).toThrow();
+  });
+
+  it('does not allow a no-school date to carry a teaching schedule', () => {
+    expect(() =>
+      AnnualCalendarProposalSchema.parse({
+        overrides: [
+          {
+            date: '2026-11-26',
+            label: 'Thanksgiving break',
+            kind: 'no_school',
+            rotationDay: null,
+            replaceWeeklySchedule: true,
+            meetings: [
+              {
+                courseName: 'Spanish 5',
+                sectionName: 'A',
+                startTime: '08:00',
+                endTime: '08:35',
+                room: null
+              }
+            ]
+          }
+        ],
+        warnings: []
+      })
+    ).toThrow('no-school date');
   });
 });
 

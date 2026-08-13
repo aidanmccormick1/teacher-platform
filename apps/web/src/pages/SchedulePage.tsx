@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 
-import type { AiJobStatusResponse, GetScheduleResponse } from '@teacheros/contracts';
+import type { AiJobStatusResponse } from '@teacheros/contracts';
 
 import { EditFocusDialog } from '../components/EditFocusDialog.js';
 import { TeachingDataImporter } from '../components/TeachingDataImporter.js';
 import { AcademicCalendarPanel } from '../components/AcademicCalendarPanel.js';
-import { WeeklyScheduleView } from '../components/WeeklyScheduleView.js';
+import { V3ScheduleOverview } from '../components/V3ScheduleOverview.js';
 import { ApiError, useApiClient } from '../lib/api.js';
 
 function isTerminalStatus(status: AiJobStatusResponse['status']): boolean {
@@ -14,7 +14,7 @@ function isTerminalStatus(status: AiJobStatusResponse['status']): boolean {
 
 export function SchedulePage() {
   const api = useApiClient();
-  const [schedule, setSchedule] = useState<GetScheduleResponse | null>(null);
+  const [scheduleRefreshKey, setScheduleRefreshKey] = useState(0);
   const [segmentLessonTitle, setSegmentLessonTitle] = useState('');
   const [segmentObjective, setSegmentObjective] = useState('');
   const [segmentDuration, setSegmentDuration] = useState('45');
@@ -29,19 +29,6 @@ export function SchedulePage() {
   const [jobOutput, setJobOutput] = useState<string | null>(null);
   const [showImporter, setShowImporter] = useState(false);
   const [aiEditor, setAiEditor] = useState<'segments' | 'continuity' | null>(null);
-
-  const loadSchedule = useCallback(async () => {
-    try {
-      setSchedule(await api.getSchedule());
-      setError(null);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to load schedule');
-    }
-  }, [api]);
-
-  useEffect(() => {
-    void loadSchedule();
-  }, [loadSchedule]);
 
   useEffect(() => {
     if (!activeJobId) return;
@@ -90,39 +77,11 @@ export function SchedulePage() {
       </div>
       {error ? <p style={{ color: '#b02020' }}>{error}</p> : null}
 
+      <V3ScheduleOverview
+        refreshKey={scheduleRefreshKey}
+        onOpenImport={() => setShowImporter(true)}
+      />
       <AcademicCalendarPanel />
-
-      {schedule?.hasScheduleSetup ? (
-        <>
-          <WeeklyScheduleView schedule={schedule} />
-          <div className="card schedule-import-launcher stack">
-            <div>
-              <h3>Need to change your schedule?</h3>
-              <p className="muted">
-                Your saved week has {schedule.sections.length} class sections and{' '}
-                {schedule.blocks.length} non-class blocks. Importing a new file will guide you
-                through a review before it replaces your active week.
-              </p>
-            </div>
-            <button className="secondary" type="button" onClick={() => setShowImporter(true)}>
-              Import or update my schedule
-            </button>
-          </div>
-        </>
-      ) : null}
-
-      {!schedule?.hasScheduleSetup ? (
-        <div className="card schedule-import-launcher stack">
-          <h3>Set up your schedule</h3>
-          <p className="muted">
-            Add or import the weekly schedule in a focused editing workspace. Nothing changes until
-            you save it there.
-          </p>
-          <button type="button" onClick={() => setShowImporter(true)}>
-            Set up my schedule
-          </button>
-        </div>
-      ) : null}
 
       <EditFocusDialog
         open={showImporter}
@@ -132,21 +91,11 @@ export function SchedulePage() {
       >
         <TeachingDataImporter
           onApplied={async () => {
-            await loadSchedule();
+            setScheduleRefreshKey((current) => current + 1);
             setShowImporter(false);
           }}
         />
       </EditFocusDialog>
-
-      {schedule?.hasScheduleSetup ? (
-        <div className="card stack schedule-overview">
-          <h3>Schedule details</h3>
-          <p className="muted">
-            {schedule.overrides.length} special calendar days are saved. You can update your active
-            weekly schedule whenever your bell schedule changes.
-          </p>
-        </div>
-      ) : null}
 
       <div className="card row spread">
         <div>

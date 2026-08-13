@@ -71,18 +71,30 @@ export function CoursePlanningPanel({ courseId }: { courseId: string }) {
       setDetail(next);
       setResources(resourceResponse.resources);
       setTemplates(templateResponse.templates);
-      setClassGroupId((current) => current || next.course.classGroups[0]?.id || '');
+      setClassGroupId((current) =>
+        next.course.classGroups.some((group) => group.id === current)
+          ? current
+          : next.course.classGroups[0]?.id || ''
+      );
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Unable to load class-group planning.');
     }
   }, [api, courseId]);
 
   useEffect(() => {
+    // Course ownership is the boundary for planning. Clear the previous Course's
+    // selection before its replacement detail arrives so it can never be read or
+    // mutated from the newly selected Course.
+    setClassGroupId('');
+    setSelectedMeetingId('');
+    setMeetings([]);
+    setAllocations([]);
+    setMetric(null);
     void refresh();
   }, [refresh]);
 
   useEffect(() => {
-    if (!classGroupId) return;
+    if (!classGroupId || detail?.course.id !== courseId) return;
     void (async () => {
       try {
         const [meetingResponse, allocationResponse, percentage] = await Promise.all([
@@ -101,7 +113,7 @@ export function CoursePlanningPanel({ courseId }: { courseId: string }) {
         setError(err instanceof ApiError ? err.message : 'Unable to load this Class Group plan.');
       }
     })();
-  }, [api, classGroupId]);
+  }, [api, classGroupId, courseId, detail?.course.id]);
 
   const allocationsByMeeting = useMemo(() => {
     const result = new Map<string, typeof allocations>();

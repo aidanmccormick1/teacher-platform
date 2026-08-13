@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 
 import type { V3CourseDetail, V3Lesson } from '@teacheros/contracts';
 
@@ -6,9 +7,13 @@ import { ApiError, useApiClient } from '../lib/api.js';
 
 export function ClassroomPage() {
   const api = useApiClient();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedClassGroupId = searchParams.get('classGroupId') ?? undefined;
   const [state, setState] = useState<Awaited<ReturnType<typeof api.getV3Classroom>> | null>(null);
   const [course, setCourse] = useState<V3CourseDetail | null>(null);
-  const [manualClassGroupId, setManualClassGroupId] = useState<string | undefined>();
+  const [manualClassGroupId, setManualClassGroupId] = useState<string | undefined>(
+    requestedClassGroupId
+  );
   const [lessonId, setLessonId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -29,6 +34,12 @@ export function ClassroomPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (requestedClassGroupId === manualClassGroupId) return;
+    setManualClassGroupId(requestedClassGroupId);
+    setLessonId(null);
+  }, [manualClassGroupId, requestedClassGroupId]);
 
   const selectedGroup = useMemo(
     () => state?.classGroups.find((group) => group.id === state.selected?.classGroupId) ?? null,
@@ -121,6 +132,7 @@ export function ClassroomPage() {
               const value = event.target.value || undefined;
               setManualClassGroupId(value);
               setLessonId(null);
+              setSearchParams(value ? { classGroupId: value } : {});
               void load(value);
             }}
           >

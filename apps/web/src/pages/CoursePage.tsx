@@ -4,7 +4,6 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import type { CourseDetailResponse } from '@teacheros/contracts';
 
 import { ActivityStudio } from '../components/ActivityStudio.js';
-import { CoursePacingPlanner } from '../components/CoursePacingPlanner.js';
 import { CoursePlanningPanel } from '../components/CoursePlanningPanel.js';
 import { CourseClassGroupsPanel } from '../components/CourseClassGroupsPanel.js';
 import { EditFocusDialog } from '../components/EditFocusDialog.js';
@@ -77,27 +76,16 @@ export function CoursePage() {
   } | null>(null);
   const [materialDrafts, setMaterialDrafts] = useState<Record<string, MaterialDraft>>({});
   const [materialEditorLessonId, setMaterialEditorLessonId] = useState<string | null>(null);
-  const [scheduleMeetingsPerWeek, setScheduleMeetingsPerWeek] = useState<number | null>(null);
-
   const loadCourse = useCallback(async () => {
     if (!courseId) return;
 
     try {
       setLoading(true);
-      const [data, schedule] = await Promise.all([
-        api.getCourseDetail(courseId),
-        api.getSchedule().catch(() => null)
-      ]);
+      const data = await api.getCourseDetail(courseId);
       setCourse(data.course);
       setCourseName(data.course.name);
       setCourseSubject(data.course.subject ?? '');
       setCourseGradeLevel(data.course.gradeLevel ?? '');
-      const courseSections =
-        schedule?.sections.filter((section) => section.courseId === courseId) ?? [];
-      const meetings = courseSections.map(
-        (section) => new Set(section.meetings.map((meeting) => meeting.day)).size
-      );
-      setScheduleMeetingsPerWeek(meetings.length > 0 ? Math.max(...meetings) : null);
       setError(null);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to load course');
@@ -186,7 +174,7 @@ export function CoursePage() {
                     type="button"
                     onClick={async () => {
                       const confirmDelete = window.confirm(
-                        'Delete this course and all nested curriculum items?'
+                        'Delete this Course and all nested curriculum items? Courses with Class Groups cannot be deleted because their teaching records are protected.'
                       );
                       if (!confirmDelete) return;
                       try {
@@ -277,25 +265,17 @@ export function CoursePage() {
                 </div>
               </EditFocusDialog>
 
-              <CoursePacingPlanner
-                course={course}
-                scheduleMeetingsPerWeek={scheduleMeetingsPerWeek}
-                saving={saving}
-                onSave={async (body) => {
-                  try {
-                    setSaving(true);
-                    const detail = await api.updateCoursePacingPlan(course.id, body);
-                    updateFromDetail(detail);
-                    setError(null);
-                  } catch (err) {
-                    setError(
-                      err instanceof ApiError ? err.message : 'Failed to save your year timeline'
-                    );
-                  } finally {
-                    setSaving(false);
-                  }
-                }}
-              />
+              <div className="card stack">
+                <p className="eyebrow">Class Group planning</p>
+                <h3>Plan teaching time by Class Group</h3>
+                <p className="muted">
+                  This Course keeps shared Units and Lessons. Dates, available instructional
+                  Meetings, pacing, and actual progress belong to each Class Group.
+                </p>
+                <button className="secondary" type="button" onClick={() => setView('planning')}>
+                  Open Class Group Year Plan
+                </button>
+              </div>
 
               <SemesterPlanner
                 courseName={course.name}

@@ -21,6 +21,31 @@ type ImportSource = {
 
 const emptySource: ImportSource = { text: '', imageBase64s: [], fileName: null };
 
+type AnnualCalendarOverride = AnnualCalendarProposal['overrides'][number];
+
+const calendarKindLabels: Record<AnnualCalendarOverride['kind'], string> = {
+  no_school: 'No school / holiday',
+  early_release: 'Half day / early release',
+  assembly: 'Assembly',
+  testing: 'Testing day',
+  special_schedule: 'Special schedule',
+  other: 'Other calendar change'
+};
+
+function isInstructionalCalendarChange(override: AnnualCalendarOverride): boolean {
+  return override.kind !== 'no_school';
+}
+
+function calendarProposalWithOverride(
+  proposal: AnnualCalendarProposal | null,
+  override: AnnualCalendarOverride
+): AnnualCalendarProposal {
+  return {
+    overrides: [...(proposal?.overrides ?? []), override],
+    warnings: proposal?.warnings ?? []
+  };
+}
+
 async function extractFileText(file: File): Promise<string> {
   if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
     return file.text();
@@ -244,6 +269,193 @@ function updateCourse(
   return { ...proposal, courses };
 }
 
+function CalendarOverrideEditor({
+  override,
+  onChange,
+  onRemove
+}: {
+  override: AnnualCalendarOverride;
+  onChange: (change: Partial<AnnualCalendarOverride>) => void;
+  onRemove: () => void;
+}) {
+  const isHalfDay = override.kind === 'early_release';
+  const canEditMeetings = override.kind !== 'no_school' && override.replaceWeeklySchedule;
+
+  return (
+    <div className="annual-calendar-entry">
+      <div className="schedule-override-row">
+        <label>
+          Date
+          <input
+            className="input"
+            type="date"
+            value={override.date}
+            onChange={(event) => onChange({ date: event.target.value })}
+          />
+        </label>
+        <label>
+          Name
+          <input
+            className="input"
+            value={override.label}
+            onChange={(event) => onChange({ label: event.target.value })}
+          />
+        </label>
+        <label>
+          Treatment
+          <select
+            className="input"
+            value={override.kind}
+            onChange={(event) => {
+              const kind = event.target.value as AnnualCalendarOverride['kind'];
+              onChange({
+                kind,
+                ...(kind === 'no_school' ? { replaceWeeklySchedule: false, meetings: [] } : {})
+              });
+            }}
+          >
+            {Object.entries(calendarKindLabels).map(([kind, label]) => (
+              <option key={kind} value={kind}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button className="secondary" type="button" onClick={onRemove}>
+          Remove
+        </button>
+      </div>
+
+      {isHalfDay ? (
+        <div className="half-day-guidance">
+          <strong>Half day: school remains in session.</strong>
+          <span>
+            It will not be saved as a holiday or skipped by planning. If classes follow shortened
+            times, choose the option below and enter the affected Class Groups.
+          </span>
+        </div>
+      ) : null}
+
+      {override.kind !== 'no_school' ? (
+        <div className="annual-calendar-options">
+          <label>
+            Rotation day
+            <select
+              className="input"
+              value={override.rotationDay ?? ''}
+              onChange={(event) =>
+                onChange({
+                  rotationDay:
+                    event.target.value === 'A-Day' || event.target.value === 'B-Day'
+                      ? event.target.value
+                      : null
+                })
+              }
+            >
+              <option value="">No rotation label</option>
+              <option value="A-Day">A-Day</option>
+              <option value="B-Day">B-Day</option>
+            </select>
+          </label>
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={override.replaceWeeklySchedule}
+              onChange={(event) => onChange({ replaceWeeklySchedule: event.target.checked })}
+            />
+            This day has a special or shortened schedule for my classes
+          </label>
+        </div>
+      ) : null}
+
+      {canEditMeetings ? (
+        <div className="annual-calendar-meetings">
+          <p className="muted">
+            Add only the Class Groups whose meeting time changes. Course and Class Group names must
+            match the schedule above so the change is attached to the right group.
+          </p>
+          {override.meetings.map((meeting, meetingIndex) => (
+            <div
+              className="annual-calendar-meeting-row"
+              key={`${meeting.courseName}-${meetingIndex}`}
+            >
+              <input
+                className="input"
+                value={meeting.courseName}
+                placeholder="Course"
+                aria-label="Special schedule Course"
+                onChange={(event) => {
+                  const meetings = [...override.meetings];
+                  meetings[meetingIndex] = { ...meeting, courseName: event.target.value };
+                  onChange({ meetings });
+                }}
+              />
+              <input
+                className="input"
+                value={meeting.sectionName}
+                placeholder="Class Group"
+                aria-label="Special schedule Class Group"
+                onChange={(event) => {
+                  const meetings = [...override.meetings];
+                  meetings[meetingIndex] = { ...meeting, sectionName: event.target.value };
+                  onChange({ meetings });
+                }}
+              />
+              <input
+                className="input"
+                type="time"
+                value={meeting.startTime ?? ''}
+                aria-label="Special schedule start time"
+                onChange={(event) => {
+                  const meetings = [...override.meetings];
+                  meetings[meetingIndex] = { ...meeting, startTime: event.target.value || null };
+                  onChange({ meetings });
+                }}
+              />
+              <input
+                className="input"
+                type="time"
+                value={meeting.endTime ?? ''}
+                aria-label="Special schedule end time"
+                onChange={(event) => {
+                  const meetings = [...override.meetings];
+                  meetings[meetingIndex] = { ...meeting, endTime: event.target.value || null };
+                  onChange({ meetings });
+                }}
+              />
+              <button
+                className="secondary"
+                type="button"
+                onClick={() =>
+                  onChange({
+                    meetings: override.meetings.filter((_, index) => index !== meetingIndex)
+                  })
+                }
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+          <button
+            className="secondary"
+            type="button"
+            onClick={() =>
+              onChange({
+                meetings: [
+                  ...override.meetings,
+                  { courseName: '', sectionName: '', startTime: null, endTime: null, room: null }
+                ]
+              })
+            }
+          >
+            Add shortened Class Group meeting
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function TeachingDataImporter({ onApplied }: TeachingDataImporterProps) {
   const api = useApiClient();
   const [step, setStep] = useState<
@@ -315,11 +527,10 @@ export function TeachingDataImporter({ onApplied }: TeachingDataImporterProps) {
   return (
     <section className="card stack teaching-importer schedule-setup">
       <div>
-        <p className="eyebrow">Schedule setup</p>
-        <h2>Let’s add your teaching schedule</h2>
+        <p className="eyebrow">Teaching setup</p>
+        <h2>Let’s add your teaching schedule and school-year calendar</h2>
         <p className="muted">
-          We’ll do this one step at a time. Nothing is added to your dashboard until you review and
-          confirm it.
+          We’ll do this one step at a time. Nothing is added until you review and confirm it.
         </p>
       </div>
 
@@ -328,7 +539,7 @@ export function TeachingDataImporter({ onApplied }: TeachingDataImporterProps) {
           1. Upload your week
         </span>
         <span className={step === 'calendar' ? 'active' : annualCalendar ? 'complete' : ''}>
-          2. School dates
+          2. Days off & calendar
         </span>
         <span
           className={
@@ -417,8 +628,8 @@ export function TeachingDataImporter({ onApplied }: TeachingDataImporterProps) {
       {step === 'calendar' ? (
         <>
           <SourceUploader
-            heading="Your annual school calendar"
-            description="This step is optional. Add a calendar PDF, photo, or pasted text if you have one. We use it for holidays, A/B rotations, early release, assemblies, testing, and other unusual days."
+            heading="Your annual calendar: days off, breaks, and shortened days"
+            description="This step is optional. Add a school-year calendar PDF, photo, .ics file, or pasted list. We will find holidays, breaks, non-instructional days, and half days. We keep half days as instructional days unless you confirm a special shortened schedule."
             source={calendarSource}
             busy={busy}
             onChange={setCalendarSource}
@@ -429,12 +640,13 @@ export function TeachingDataImporter({ onApplied }: TeachingDataImporterProps) {
               <div>
                 <h3>Ready for us to read it?</h3>
                 <p className="muted">
-                  We will look for dates that change the normal school schedule. You can edit the
-                  results before saving.
+                  We will identify days off and breaks first, then flag early-release and special
+                  schedule days separately. You can edit every date, category, and shortened meeting
+                  before saving.
                 </p>
               </div>
               <button type="button" disabled={busy} onClick={() => void parseCalendar()}>
-                {busy ? 'Reading your calendar…' : 'Yes, read my calendar'}
+                {busy ? 'Reading your calendar…' : 'Read my days off & calendar'}
               </button>
             </div>
           ) : null}
@@ -444,7 +656,7 @@ export function TeachingDataImporter({ onApplied }: TeachingDataImporterProps) {
             disabled={busy}
             onClick={() => setStep('review')}
           >
-            I don’t have this right now — continue
+            I don’t have a calendar right now — continue
           </button>
         </>
       ) : null}
@@ -452,15 +664,21 @@ export function TeachingDataImporter({ onApplied }: TeachingDataImporterProps) {
       {step === 'calendar-confirm' && annualCalendar ? (
         <div className="setup-confirmation stack">
           <div>
-            <h3>We found school-year dates</h3>
+            <h3>We found days off and school-year calendar changes</h3>
             <p className="muted">
-              These dates are not saved yet. You’ll see the full list and can change anything next.
+              Nothing is saved yet. Holidays and breaks will be treated as non-instructional; half
+              days stay instructional and need a shortened-meeting schedule if they change your
+              classes.
             </p>
           </div>
           <dl className="setup-summary">
             <div>
-              <dt>Dates found</dt>
-              <dd>{annualCalendar.overrides.length}</dd>
+              <dt>Days off / break dates</dt>
+              <dd>{annualCalendar.overrides.filter((item) => item.kind === 'no_school').length}</dd>
+            </div>
+            <div>
+              <dt>Instructional changes</dt>
+              <dd>{annualCalendar.overrides.filter(isInstructionalCalendarChange).length}</dd>
             </div>
             <div>
               <dt>Items to check</dt>
@@ -767,79 +985,134 @@ export function TeachingDataImporter({ onApplied }: TeachingDataImporterProps) {
           </div>
 
           <div className="schedule-calendar-review">
-            <h3>Annual calendar {annualCalendar ? '' : '(not added yet)'}</h3>
+            <div>
+              <p className="eyebrow">Annual calendar</p>
+              <h3>Days off, breaks, and changed school days</h3>
+              <p className="muted">
+                Days marked “No school / holiday” are saved as non-instructional and curriculum
+                planning skips them. A half day is <strong>not</strong> a day off: keep it
+                instructional and add shortened class times only when that day replaces your normal
+                meeting schedule.
+              </p>
+            </div>
             {annualCalendar?.warnings.length ? (
-              <ul className="schedule-warnings">
-                {annualCalendar.warnings.map((warning, index) => (
-                  <li key={`${warning}-${index}`}>{warning}</li>
-                ))}
-              </ul>
-            ) : null}
-            {annualCalendar?.overrides.map((override, index) => (
-              <div className="schedule-override-row" key={`${override.date}-${index}`}>
-                <input
-                  className="input"
-                  type="date"
-                  value={override.date}
-                  onChange={(event) => {
-                    const overrides = [...annualCalendar.overrides];
-                    overrides[index] = { ...override, date: event.target.value };
-                    setAnnualCalendar({ ...annualCalendar, overrides });
-                  }}
-                />
-                <input
-                  className="input"
-                  value={override.label}
-                  onChange={(event) => {
-                    const overrides = [...annualCalendar.overrides];
-                    overrides[index] = { ...override, label: event.target.value };
-                    setAnnualCalendar({ ...annualCalendar, overrides });
-                  }}
-                />
-                <select
-                  className="input"
-                  value={override.kind}
-                  onChange={(event) => {
-                    const overrides = [...annualCalendar.overrides];
-                    overrides[index] = {
-                      ...override,
-                      kind: event.target.value as typeof override.kind
-                    };
-                    setAnnualCalendar({ ...annualCalendar, overrides });
-                  }}
-                >
-                  {[
-                    'no_school',
-                    'early_release',
-                    'assembly',
-                    'testing',
-                    'special_schedule',
-                    'other'
-                  ].map((kind) => (
-                    <option key={kind}>{kind.replace('_', ' ')}</option>
+              <div className="schedule-warnings">
+                <strong>Needs review:</strong>
+                <ul>
+                  {annualCalendar.warnings.map((warning, index) => (
+                    <li key={`${warning}-${index}`}>{warning}</li>
                   ))}
-                </select>
-                <button
-                  className="secondary"
-                  type="button"
-                  onClick={() =>
-                    setAnnualCalendar({
-                      ...annualCalendar,
-                      overrides: annualCalendar.overrides.filter(
-                        (_, itemIndex) => itemIndex !== index
-                      )
-                    })
-                  }
-                >
-                  Remove
-                </button>
+                </ul>
               </div>
-            ))}
-            {!annualCalendar ? (
-              <button className="secondary" type="button" onClick={() => setStep('calendar')}>
-                Add annual calendar
-              </button>
             ) : null}
+            {annualCalendar?.overrides.length ? (
+              <div className="annual-calendar-groups">
+                <div className="annual-calendar-group">
+                  <h4>Days off & breaks</h4>
+                  {annualCalendar.overrides
+                    .map((override, index) => ({ override, index }))
+                    .filter(({ override }) => override.kind === 'no_school')
+                    .map(({ override, index }) => (
+                      <CalendarOverrideEditor
+                        key={`${override.date}-${index}`}
+                        override={override}
+                        onChange={(change) => {
+                          const overrides = [...annualCalendar.overrides];
+                          overrides[index] = { ...override, ...change };
+                          setAnnualCalendar({ ...annualCalendar, overrides });
+                        }}
+                        onRemove={() =>
+                          setAnnualCalendar({
+                            ...annualCalendar,
+                            overrides: annualCalendar.overrides.filter(
+                              (_, itemIndex) => itemIndex !== index
+                            )
+                          })
+                        }
+                      />
+                    ))}
+                  {!annualCalendar.overrides.some((item) => item.kind === 'no_school') ? (
+                    <p className="muted">No days off were found. Add one below if needed.</p>
+                  ) : null}
+                </div>
+                <div className="annual-calendar-group">
+                  <h4>Half days & instructional changes</h4>
+                  {annualCalendar.overrides
+                    .map((override, index) => ({ override, index }))
+                    .filter(({ override }) => override.kind !== 'no_school')
+                    .map(({ override, index }) => (
+                      <CalendarOverrideEditor
+                        key={`${override.date}-${index}`}
+                        override={override}
+                        onChange={(change) => {
+                          const overrides = [...annualCalendar.overrides];
+                          overrides[index] = { ...override, ...change };
+                          setAnnualCalendar({ ...annualCalendar, overrides });
+                        }}
+                        onRemove={() =>
+                          setAnnualCalendar({
+                            ...annualCalendar,
+                            overrides: annualCalendar.overrides.filter(
+                              (_, itemIndex) => itemIndex !== index
+                            )
+                          })
+                        }
+                      />
+                    ))}
+                  {!annualCalendar.overrides.some(isInstructionalCalendarChange) ? (
+                    <p className="muted">
+                      No half days or special schedules were found. Add one only if it changes your
+                      normal meetings.
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            ) : (
+              <p className="muted">No calendar entries have been added yet.</p>
+            )}
+            <div className="row">
+              <button
+                className="secondary"
+                type="button"
+                onClick={() =>
+                  setAnnualCalendar(
+                    calendarProposalWithOverride(annualCalendar, {
+                      date: '',
+                      label: 'School holiday',
+                      kind: 'no_school',
+                      rotationDay: null,
+                      replaceWeeklySchedule: false,
+                      meetings: []
+                    })
+                  )
+                }
+              >
+                Add day off / break
+              </button>
+              <button
+                className="secondary"
+                type="button"
+                onClick={() =>
+                  setAnnualCalendar(
+                    calendarProposalWithOverride(annualCalendar, {
+                      date: '',
+                      label: 'Half day',
+                      kind: 'early_release',
+                      rotationDay: null,
+                      replaceWeeklySchedule: false,
+                      meetings: []
+                    })
+                  )
+                }
+              >
+                Add half day / special schedule
+              </button>
+              {!annualCalendar ? (
+                <button className="secondary" type="button" onClick={() => setStep('calendar')}>
+                  Import annual calendar
+                </button>
+              ) : null}
+            </div>
           </div>
 
           <div className="row">

@@ -229,6 +229,38 @@ label {
   background: linear-gradient(135deg, #f9fcff 0%, #f2f7ff 100%);
 }
 
+.course-class-groups-context {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid #d5e4ef;
+  border-radius: 10px;
+  padding: 9px 11px;
+  background: rgb(255 255 255 / 72%);
+  color: #49617d;
+  font-size: 0.9rem;
+}
+
+.class-group-year-filter {
+  display: grid;
+  gap: 5px;
+  max-width: 260px;
+  color: #49617d;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.course-hierarchy-label,
+.class-group-badge,
+.meeting-rule-label {
+  color: #315d9b;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
 .course-primary-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -257,37 +289,127 @@ label {
 
 .class-group-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
 }
 
 .class-group-card {
-  padding: 16px;
-  border: 1px solid #cfddea;
+  position: relative;
+  padding: 18px;
+  border: 1px solid #bfcfdf;
   border-radius: 14px;
   background: #fff;
+  box-shadow: 0 4px 14px rgb(27 56 88 / 5%);
+}
+
+.class-group-card::before {
+  position: absolute;
+  top: 16px;
+  bottom: 16px;
+  left: 0;
+  width: 4px;
+  border-radius: 0 4px 4px 0;
+  background: #4a78af;
+  content: '';
+}
+
+.class-group-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.class-group-heading {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 10px;
+  align-items: start;
+  min-width: 0;
+}
+
+.class-group-heading h3 {
+  overflow-wrap: anywhere;
+}
+
+.class-group-badge {
+  align-self: start;
+  border: 1px solid #bdd4ea;
+  border-radius: 999px;
+  padding: 5px 7px;
+  background: #edf6ff;
+  white-space: nowrap;
+}
+
+.class-group-meta {
+  grid-column: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 3px;
+}
+
+.class-group-meta span,
+.meeting-times-summary span {
+  border-radius: 999px;
+  padding: 4px 8px;
+  background: #edf4fa;
+  color: #4d6785;
+  font-size: 0.78rem;
+  font-weight: 650;
 }
 
 .meeting-times-box {
-  padding: 12px;
-  border: 1px solid #dbe7f2;
+  padding: 14px;
+  border: 1px solid #cfdfed;
   border-radius: 12px;
-  background: #f8fbff;
+  background: #f5faff;
+}
+
+.meeting-times-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.meeting-times-heading .eyebrow {
+  margin-bottom: 2px;
+}
+
+.meeting-times-summary {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
 }
 
 .meeting-rule-summary {
   display: grid;
-  grid-template-columns: auto 1fr;
-  align-items: center;
-  gap: 8px 12px;
-  padding: 10px;
-  border: 1px solid #e1eaf3;
+  grid-template-columns: minmax(180px, 1.2fr) minmax(140px, 0.8fr);
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid #dce8f3;
   border-radius: 10px;
   background: #fff;
 }
 
-.meeting-rule-summary .field-note {
+.meeting-rule-days,
+.meeting-rule-details {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+}
+
+.meeting-rule-details strong {
+  color: #1d426d;
+  font-size: 1rem;
+}
+
+.meeting-rule-effective {
   grid-column: 1 / -1;
+  border-top: 1px solid #e5edf5;
+  padding-top: 8px;
 }
 
 .weekday-chip-list,
@@ -698,6 +820,70 @@ button.danger {
   grid-template-columns: 150px minmax(180px, 1fr) 150px auto;
 }
 
+.annual-calendar-groups,
+.annual-calendar-group,
+.annual-calendar-entry,
+.annual-calendar-meetings {
+  display: grid;
+  gap: 10px;
+}
+
+.annual-calendar-groups {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.annual-calendar-group {
+  align-content: start;
+  padding: 12px;
+  border: 1px solid #dce5f0;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.annual-calendar-group h4,
+.annual-calendar-entry p {
+  margin: 0;
+}
+
+.annual-calendar-entry {
+  padding-top: 10px;
+  border-top: 1px solid #e5ebf2;
+}
+
+.annual-calendar-entry:first-of-type {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.half-day-guidance {
+  display: grid;
+  gap: 2px;
+  padding: 9px 11px;
+  border-left: 4px solid #4a78c2;
+  border-radius: 7px;
+  background: #eff6ff;
+  color: #23426f;
+}
+
+.annual-calendar-options,
+.annual-calendar-meeting-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.8fr) minmax(240px, 1.4fr);
+  gap: 8px;
+  align-items: end;
+}
+
+.annual-calendar-meeting-row {
+  grid-template-columns: minmax(130px, 1fr) minmax(120px, 0.9fr) 110px 110px auto;
+}
+
+.checkbox-label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-height: 38px;
+}
+
 .pacing-planner h3,
 .pacing-planner h4,
 .teacher-notes-page h1,
@@ -849,6 +1035,96 @@ button.danger {
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 12px;
   overflow-x: auto;
+}
+
+.v3-schedule-overview h2,
+.v3-schedule-overview h3 {
+  margin: 0;
+}
+
+.v3-schedule-overview-header {
+  align-items: flex-start;
+}
+
+.v3-schedule-overview-actions {
+  align-items: end;
+  justify-content: flex-end;
+}
+
+.v3-schedule-overview-actions label {
+  display: grid;
+  min-width: 176px;
+  gap: 5px;
+  color: #49617d;
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.v3-week-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(180px, 1fr));
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.v3-week-day {
+  display: grid;
+  min-width: 180px;
+  align-content: start;
+  gap: 8px;
+  border: 1px solid #d7e4ee;
+  border-radius: 12px;
+  padding: 12px;
+  background: #f9fcff;
+}
+
+.v3-week-day h3 {
+  color: #264e77;
+  font-size: 0.92rem;
+}
+
+.v3-week-day-empty {
+  padding: 10px 0;
+  color: #7b8ba0;
+  font-size: 0.85rem;
+}
+
+.v3-schedule-slot {
+  display: grid;
+  gap: 4px;
+  border: 1px solid #bdd8c9;
+  border-left: 4px solid #3b7d5a;
+  border-radius: 10px;
+  padding: 10px;
+  background: #eff8f1;
+  color: #284c3b;
+  text-decoration: none;
+  transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+
+.v3-schedule-slot:hover,
+.v3-schedule-slot:focus-visible {
+  border-color: #285d45;
+  box-shadow: 0 5px 14px rgb(40 93 69 / 14%);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.v3-schedule-slot-time {
+  color: #276545;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.v3-schedule-slot strong {
+  color: #1e4f38;
+}
+
+.v3-schedule-slot span:not(.v3-schedule-slot-time),
+.v3-schedule-slot small {
+  color: #587364;
+  font-size: 0.82rem;
 }
 
 .weekly-day {
@@ -1015,7 +1291,11 @@ button.secondary {
   .import-course-heading,
   .schedule-meeting-row,
   .schedule-override-row,
-  .weekly-schedule-grid {
+  .annual-calendar-groups,
+  .annual-calendar-options,
+  .annual-calendar-meeting-row,
+  .weekly-schedule-grid,
+  .v3-week-grid {
     grid-template-columns: 1fr;
   }
 
@@ -1114,5 +1394,78 @@ body.edit-focus-open {
 
   .edit-focus-exit {
     font-size: 0.84rem;
+  }
+
+  .course-class-groups {
+    gap: 14px;
+    border-radius: 12px;
+    padding: 14px;
+  }
+
+  .course-class-groups > .row.spread,
+  .class-group-card-header,
+  .meeting-times-heading,
+  .v3-schedule-overview-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .course-class-groups > .row.spread > button,
+  .class-group-card-header > button {
+    width: 100%;
+  }
+
+  .class-group-card {
+    padding: 15px;
+  }
+
+  .class-group-card::before {
+    top: 13px;
+    bottom: 13px;
+  }
+
+  .class-group-heading {
+    grid-template-columns: 1fr;
+    gap: 7px;
+  }
+
+  .class-group-badge,
+  .class-group-meta {
+    grid-column: 1;
+  }
+
+  .class-group-badge {
+    justify-self: start;
+  }
+
+  .meeting-times-summary {
+    justify-content: flex-start;
+  }
+
+  .v3-schedule-overview-actions {
+    align-items: stretch;
+    justify-content: stretch;
+  }
+
+  .v3-schedule-overview-actions > * {
+    width: 100%;
+  }
+
+  .v3-schedule-overview-actions label {
+    max-width: none;
+  }
+
+  .meeting-rule-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .meeting-rule-effective {
+    grid-column: 1;
+  }
+
+  .weekday-chip,
+  .weekday-toggle-grid button {
+    min-width: 40px;
+    padding: 6px 8px;
   }
 }

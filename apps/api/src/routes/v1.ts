@@ -72,6 +72,7 @@ import {
 import {
   aiJobs,
   aiOutputs,
+  classGroups,
   classNotes,
   coursePacingPlans,
   courses,
@@ -1325,6 +1326,23 @@ export async function v1Routes(app: FastifyInstance) {
       const user = await ensureUserFromPrincipal(principal);
       const params = CourseParamsSchema.parse(request.params);
 
+      // Class Groups carry dated meetings, plans, independent progress, and
+      // teaching history. A Course deletion must never cascade through that
+      // teaching record; require a deliberate future archive/migration flow.
+      const protectedGroups = await db
+        .select({ id: classGroups.id })
+        .from(classGroups)
+        .where(eq(classGroups.courseId, params.courseId))
+        .limit(1);
+      if (protectedGroups.length) {
+        (reply as any).code(409);
+        return {
+          error:
+            'This Course has Class Groups and cannot be deleted. Keep or archive it to preserve schedules, plans, and teaching history.',
+          requestId: request.id
+        };
+      }
+
       const [deleted] = await db
         .delete(courses)
         .where(and(eq(courses.id, params.courseId), eq(courses.teacherId, user.id)))
@@ -1858,8 +1876,9 @@ export async function v1Routes(app: FastifyInstance) {
         model: app.config.OPENAI_MODEL_PARSE_SCHEDULE,
         schemaName: 'annual_calendar_proposal',
         schema: ParseAnnualCalendarSchema,
+        reasoningEffort: 'high',
         systemPrompt:
-          'Extract a teacher-reviewed annual school calendar. Capture no-school dates, early releases, assemblies, testing, special schedules, and A-Day/B-Day labels when explicit. Expand stated date ranges into individual dates. Set replaceWeeklySchedule only when an explicit special bell schedule replaces normal classes. Include special-class meeting times only when the document clearly names the course/section and time. Use warnings instead of guesses. Return JSON only.',
+          'Read this as an Academic-Year Calendar, not a daily teaching schedule. First distinguish dates when students have no instruction (holidays, breaks, closures, teacher workdays) from dates that remain instructional but have a shortened or special schedule (half days, early release, testing, assemblies). Capture every explicit no-school date and expand explicit date ranges. A no-school date must be returned as no_school so it prevents meetings, curriculum planning, and classroom scheduling. A half day is still instructional: return early_release or special_schedule only when the document provides an explicit altered bell schedule or class times; otherwise add a warning that the teacher must review its shortened schedule. Never mark a half day as no_school. Preserve A-Day/B-Day labels only when explicit. Set replaceWeeklySchedule only when an explicit special bell schedule replaces normal classes. Include special-class meeting times only when the document clearly names the Course/Class Group and time. Use warnings instead of guesses. Return JSON only.',
         userPrompt: body.text
           ? `Create an annual calendar proposal from this document:\n${body.text}`
           : 'Create an annual calendar proposal from the supplied image. Return JSON only.',

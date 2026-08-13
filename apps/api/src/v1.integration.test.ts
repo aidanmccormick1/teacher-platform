@@ -646,6 +646,61 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
       expect(edited.json()).toEqual({ timezone: 'America/New_York' });
     });
 
+    it('persists a days-off range and immediately removes it from every Class Group schedule', async () => {
+      const { year, firstGroup, secondGroup } = await createV3Fixture();
+
+      const created = await app.inject({
+        method: 'POST',
+        url: `/v3/academic-years/${year.id}/calendar-events`,
+        headers: teacherHeaders,
+        payload: {
+          startDate: '2026-10-14',
+          endDate: '2026-10-19',
+          label: 'Fall break',
+          type: 'break',
+          instructional: false
+        }
+      });
+      expect(created.statusCode).toBe(200);
+      const eventId = created.json<{ event: { id: string } }>().event.id;
+
+      for (const group of [firstGroup.group, secondGroup.group]) {
+        const meetings = await app.inject({
+          method: 'GET',
+          url: `/v3/class-groups/${group.id}/meetings`,
+          headers: teacherHeaders
+        });
+        expect(meetings.statusCode).toBe(200);
+        expect(meetings.json<{ meetings: V3Meeting[] }>().meetings.map((meeting) => meeting.localDate)).toEqual([
+          '2026-10-12',
+          '2026-10-21',
+          '2026-10-23'
+        ]);
+      }
+
+      const deleted = await app.inject({
+        method: 'DELETE',
+        url: `/v3/calendar-events/${eventId}`,
+        headers: teacherHeaders
+      });
+      expect(deleted.statusCode).toBe(200);
+
+      const restored = await app.inject({
+        method: 'GET',
+        url: `/v3/class-groups/${firstGroup.group.id}/meetings`,
+        headers: teacherHeaders
+      });
+      expect(restored.statusCode).toBe(200);
+      expect(restored.json<{ meetings: V3Meeting[] }>().meetings.map((meeting) => meeting.localDate)).toEqual([
+        '2026-10-12',
+        '2026-10-14',
+        '2026-10-16',
+        '2026-10-19',
+        '2026-10-21',
+        '2026-10-23'
+      ]);
+    });
+
     it('preserves history, remaps planned curriculum, applies exclusions before overrides, and keeps Class Group state isolated', async () => {
       const { course, lesson, year, firstGroup, secondGroup } = await createV3Fixture();
       const historicalMeeting = firstGroup.meetings.find(
@@ -828,6 +883,28 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
       const before = firstGroup.meetings;
       expect(before.filter((meeting) => meeting.localDate === '2026-10-16')).toHaveLength(1);
 
+      const detailBeforePreview = await app.inject({
+        method: 'GET',
+        url: `/v3/courses/${course.id}`,
+        headers: teacherHeaders
+      });
+      expect(detailBeforePreview.statusCode).toBe(200);
+      const originalGroup = detailBeforePreview
+        .json<{
+          course: {
+            classGroups: Array<{
+              id: string;
+              name: string;
+              meetingRules: Array<{ weekdays: number[]; startTime: string; endTime: string }>;
+            }>;
+          };
+        }>()
+        .course.classGroups.find((group) => group.id === firstGroup.group.id);
+      expect(originalGroup).toMatchObject({
+        name: 'Period 3',
+        meetingRules: [{ weekdays: [1, 3, 5], startTime: '10:00', endTime: '10:50' }]
+      });
+
       const preview = await app.inject({
         method: 'POST',
         url: `/v3/class-groups/${firstGroup.group.id}/meeting-impact-preview`,
@@ -858,12 +935,52 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
       });
       expect(unchanged.json<{ meetings: V3Meeting[] }>().meetings).toHaveLength(before.length);
 
+      const detailAfterPreview = await app.inject({
+        method: 'GET',
+        url: `/v3/courses/${course.id}`,
+        headers: teacherHeaders
+      });
+      const previewedGroup = detailAfterPreview
+        .json<{
+          course: {
+            classGroups: Array<{
+              id: string;
+              name: string;
+              meetingRules: Array<{ weekdays: number[]; startTime: string; endTime: string }>;
+            }>;
+          };
+        }>()
+        .course.classGroups.find((group) => group.id === firstGroup.group.id);
+      // A preview uses synthetic rule IDs in the service and must not persist either
+      // the weekday selection or a partial edit to the group itself.
+      expect(previewedGroup).toEqual(originalGroup);
+
+      const unauthorizedPreview = await app.inject({
+        method: 'POST',
+        url: `/v3/class-groups/${firstGroup.group.id}/meeting-impact-preview`,
+        headers: otherTeacherHeaders,
+        payload: {
+          meetingRules: [
+            {
+              weekdays: [2, 4],
+              startTime: '09:00',
+              endTime: '09:50',
+              effectiveStart: null,
+              effectiveEnd: null,
+              room: null
+            }
+          ]
+        }
+      });
+      expect(unauthorizedPreview.statusCode).toBe(404);
+      expect(unauthorizedPreview.json()).toMatchObject({ error: 'Class Group not found.' });
+
       const update = await app.inject({
         method: 'PATCH',
         url: `/v3/class-groups/${firstGroup.group.id}`,
         headers: teacherHeaders,
         payload: {
-          name: 'Period 3',
+          name: 'Period 3 · Honors',
           periodLabel: 'Period 3',
           room: 'B-12',
           meetingRules: [
@@ -899,6 +1016,32 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
           .meetings.some((meeting) => meeting.localDate === '2026-10-16')
       ).toBe(false);
 
+      const detailAfterApply = await app.inject({
+        method: 'GET',
+        url: `/v3/courses/${course.id}`,
+        headers: teacherHeaders
+      });
+      const persistedGroup = detailAfterApply
+        .json<{
+          course: {
+            classGroups: Array<{
+              id: string;
+              name: string;
+              meetingRules: Array<{
+                weekdays: number[];
+                startTime: string;
+                endTime: string;
+                room: string | null;
+              }>;
+            }>;
+          };
+        }>()
+        .course.classGroups.find((group) => group.id === firstGroup.group.id);
+      expect(persistedGroup).toMatchObject({
+        name: 'Period 3 · Honors',
+        meetingRules: [{ weekdays: [1, 3], startTime: '10:00', endTime: '10:50', room: 'B-12' }]
+      });
+
       const forbidden = await app.inject({
         method: 'PATCH',
         url: `/v3/class-groups/${firstGroup.group.id}`,
@@ -907,6 +1050,31 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
       });
       expect(forbidden.statusCode).toBe(404);
       expect(course.id).toBeTruthy();
+    });
+
+    it('blocks Course deletion once Class Groups exist so teaching records cannot cascade away', async () => {
+      const { course, firstGroup } = await createV3Fixture();
+
+      const deleted = await app.inject({
+        method: 'DELETE',
+        url: `/v1/courses/${course.id}`,
+        headers: teacherHeaders
+      });
+
+      expect(deleted.statusCode).toBe(409);
+      expect(deleted.json()).toMatchObject({ error: expect.stringContaining('Class Groups') });
+
+      const stillPresent = await app.inject({
+        method: 'GET',
+        url: `/v3/courses/${course.id}`,
+        headers: teacherHeaders
+      });
+      expect(stillPresent.statusCode).toBe(200);
+      expect(
+        stillPresent
+          .json<{ course: { classGroups: Array<{ id: string }> } }>()
+          .course.classGroups.map((group) => group.id)
+      ).toContain(firstGroup.group.id);
     });
 
     it('reindexes sibling Lesson order inside a persisted transaction', async () => {

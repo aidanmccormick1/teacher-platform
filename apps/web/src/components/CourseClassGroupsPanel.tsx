@@ -96,6 +96,7 @@ export function CourseClassGroupsPanel({ courseId }: CourseClassGroupsPanelProps
   const api = useApiClient();
   const [detail, setDetail] = useState<V3CourseDetail | null>(null);
   const [years, setYears] = useState<AcademicYear[]>([]);
+  const [academicYearId, setAcademicYearId] = useState('');
   const [metrics, setMetrics] = useState<Record<string, number>>({});
   const [draft, setDraft] = useState<GroupDraft | null>(null);
   const [impact, setImpact] = useState<{
@@ -119,6 +120,11 @@ export function CourseClassGroupsPanel({ courseId }: CourseClassGroupsPanelProps
       ]);
       setDetail(next);
       setYears(yearResponse.years);
+      setAcademicYearId((current) =>
+        yearResponse.years.some((year) => year.id === current)
+          ? current
+          : (yearResponse.years.find((year) => year.isActive)?.id ?? yearResponse.years[0]?.id ?? '')
+      );
       const percentageRows = await Promise.all(
         next.course.classGroups.map(async (group) => {
           const percentage = await api.getPlannedPercentage(group.id).catch(() => null);
@@ -138,6 +144,11 @@ export function CourseClassGroupsPanel({ courseId }: CourseClassGroupsPanelProps
     void refresh();
   }, [refresh]);
 
+  const visibleGroups = useMemo(
+    () => detail?.course.classGroups.filter((group) => group.academicYearId === academicYearId) ?? [],
+    [academicYearId, detail]
+  );
+
   function openNewGroup() {
     if (!activeYear) {
       setError('Create an Academic Year before adding a Class Group.');
@@ -145,7 +156,7 @@ export function CourseClassGroupsPanel({ courseId }: CourseClassGroupsPanelProps
     }
     setDraft({
       id: null,
-      academicYearId: activeYear.id,
+      academicYearId: academicYearId || activeYear.id,
       name: '',
       periodLabel: '',
       room: '',
@@ -243,27 +254,60 @@ export function CourseClassGroupsPanel({ courseId }: CourseClassGroupsPanelProps
           Add Class Group
         </button>
       </div>
+      <div className="course-class-groups-context" aria-label="Course hierarchy">
+        <span className="course-hierarchy-label">Shared Course</span>
+        <strong>{detail.course.name}</strong>
+        <span aria-hidden="true">→</span>
+        <span>Class Groups</span>
+      </div>
+      {years.length ? (
+        <label className="class-group-year-filter">
+          Academic Year
+          <select
+            className="input"
+            value={academicYearId}
+            onChange={(event) => setAcademicYearId(event.target.value)}
+          >
+            {years.map((year) => (
+              <option key={year.id} value={year.id}>
+                {year.name}{year.isActive ? ' · Active' : ''}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
       {error ? <p className="error-message">{error}</p> : null}
-      {!detail.course.classGroups.length ? (
+      {!visibleGroups.length ? (
         <div className="card empty-state">
           <strong>No Class Groups yet.</strong>
           <span className="muted">
-            Add a period or group to give this shared Course an actual schedule.
+            Add a period or group to give this shared Course an actual schedule for the selected
+            Academic Year.
           </span>
         </div>
       ) : (
-        <div className="class-group-grid">
-          {detail.course.classGroups.map((group) => (
-            <article className="class-group-card stack" key={group.id}>
-              <div className="row spread">
-                <div>
-                  <p className="eyebrow">{group.periodLabel || 'Class Group'}</p>
-                  <h3>{group.name}</h3>
-                  <p className="muted">
-                    {years.find((year) => year.id === group.academicYearId)?.name ??
-                      'Academic Year'}{' '}
-                    · {Math.round(metrics[group.id] ?? 0)}% planned
-                  </p>
+        <div className="class-group-grid" role="list">
+          {visibleGroups.map((group) => (
+            <article
+              aria-labelledby={`class-group-${group.id}`}
+              className="class-group-card stack"
+              key={group.id}
+              role="listitem"
+            >
+              <div className="class-group-card-header">
+                <div className="class-group-heading">
+                  <span className="class-group-badge">Class Group</span>
+                  <div>
+                    <p className="eyebrow">{group.periodLabel || 'No period label'}</p>
+                    <h3 id={`class-group-${group.id}`}>{group.name}</h3>
+                  </div>
+                  <div className="class-group-meta" aria-label="Class Group details">
+                    <span>
+                      {years.find((year) => year.id === group.academicYearId)?.name ??
+                        'Academic Year'}
+                    </span>
+                    <span>{Math.round(metrics[group.id] ?? 0)}% planned</span>
+                  </div>
                 </div>
                 <button
                   className="secondary"
@@ -274,30 +318,43 @@ export function CourseClassGroupsPanel({ courseId }: CourseClassGroupsPanelProps
                 </button>
               </div>
               <div className="meeting-times-box stack">
-                <div className="row spread">
-                  <strong>Meeting times</strong>
-                  {group.room ? (
-                    <span className="field-note">Default room: {group.room}</span>
-                  ) : null}
+                <div className="meeting-times-heading">
+                  <div>
+                    <p className="eyebrow">Schedule inside this Class Group</p>
+                    <strong>Meeting times</strong>
+                  </div>
+                  <div className="meeting-times-summary">
+                    <span>
+                      {group.meetingRules.length} pattern
+                      {group.meetingRules.length === 1 ? '' : 's'}
+                    </span>
+                    {group.room ? <span>Default room: {group.room}</span> : null}
+                  </div>
                 </div>
                 {group.meetingRules.length ? (
                   group.meetingRules.map((rule) => (
                     <div className="meeting-rule-summary" key={rule.id}>
-                      <div className="weekday-chip-list" aria-label="Meeting days">
-                        {weekdays
-                          .filter((day) => rule.weekdays.includes(day.value))
-                          .map((day) => (
-                            <span className="weekday-chip" key={day.value}>
-                              {day.label}
-                            </span>
-                          ))}
+                      <div className="meeting-rule-days">
+                        <span className="meeting-rule-label">Days</span>
+                        <div className="weekday-chip-list" aria-label="Meeting days">
+                          {weekdays
+                            .filter((day) => rule.weekdays.includes(day.value))
+                            .map((day) => (
+                              <span className="weekday-chip" key={day.value}>
+                                {day.label}
+                              </span>
+                            ))}
+                        </div>
                       </div>
-                      <strong>
-                        {rule.startTime}–{rule.endTime}
-                      </strong>
-                      <span className="muted">{rule.room ?? group.room ?? 'Room not set'}</span>
+                      <div className="meeting-rule-details">
+                        <span className="meeting-rule-label">Time & place</span>
+                        <strong>
+                          {rule.startTime}–{rule.endTime}
+                        </strong>
+                        <span className="muted">{rule.room ?? group.room ?? 'Room not set'}</span>
+                      </div>
                       {rule.effectiveStart || rule.effectiveEnd ? (
-                        <span className="field-note">
+                        <span className="field-note meeting-rule-effective">
                           Effective {rule.effectiveStart ?? 'start of year'}–
                           {rule.effectiveEnd ?? 'end of year'}
                         </span>
@@ -309,7 +366,10 @@ export function CourseClassGroupsPanel({ courseId }: CourseClassGroupsPanelProps
                 )}
               </div>
               <div className="row">
-                <Link className="button-link secondary" to="/classroom">
+                <Link
+                  className="button-link secondary"
+                  to={`/classroom?classGroupId=${encodeURIComponent(group.id)}`}
+                >
                   Open Classroom
                 </Link>
               </div>

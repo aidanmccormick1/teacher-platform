@@ -43,6 +43,37 @@ describe('TeacherOS v3 calendar engine', () => {
     expect(meetings.map((meeting) => meeting.localDate)).toEqual(['2026-10-12', '2026-10-16']);
   });
 
+  it('skips every instructional meeting inside a multi-day break', () => {
+    const meetings = buildMeetingCandidates({
+      ...base,
+      events: [{ startDate: '2026-10-12', endDate: '2026-10-14', instructional: false }],
+      overrides: []
+    });
+    expect(meetings.map((meeting) => meeting.localDate)).toEqual(['2026-10-16']);
+  });
+
+  it('skips every scheduled meeting in a multi-day holiday or break range', () => {
+    const meetings = buildMeetingCandidates({
+      ...base,
+      startDate: '2026-10-12',
+      endDate: '2026-10-23',
+      events: [
+        {
+          startDate: '2026-10-14',
+          endDate: '2026-10-19',
+          instructional: false
+        }
+      ],
+      overrides: []
+    });
+
+    expect(meetings.map((meeting) => meeting.localDate)).toEqual([
+      '2026-10-12',
+      '2026-10-21',
+      '2026-10-23'
+    ]);
+  });
+
   it('applies a minimum-day override to an instructional meeting', () => {
     const meetings = buildMeetingCandidates({
       ...base,
@@ -58,6 +89,25 @@ describe('TeacherOS v3 calendar engine', () => {
       startTime: '09:20',
       endTime: '09:55',
       source: 'override'
+    });
+  });
+
+  it('keeps the ordinary meeting when an early-release record has no explicit class times', () => {
+    const meetings = buildMeetingCandidates({
+      ...base,
+      events: [],
+      overrides: [
+        {
+          date: '2026-10-14',
+          meetings: [{ action: 'replace', startTime: null, endTime: null, room: null }]
+        }
+      ]
+    });
+
+    expect(meetings.find((meeting) => meeting.localDate === '2026-10-14')).toMatchObject({
+      startTime: '10:00',
+      endTime: '10:50',
+      source: 'generated'
     });
   });
 

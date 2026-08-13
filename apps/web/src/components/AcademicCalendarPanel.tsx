@@ -134,8 +134,12 @@ export function AcademicCalendarPanel({ compact = false }: AcademicCalendarPanel
     if (!yearId) {
       setCalendar(null);
       setGroups([]);
+      setSelectedGroupId('');
       return;
     }
+    // A Class Group belongs to one Academic Year. Do not let a selection from the
+    // previous year become the target of a new year's calendar recalculation.
+    setSelectedGroupId('');
     void (async () => {
       try {
         const [calendarResponse, groupResponse] = await Promise.all([
@@ -144,7 +148,11 @@ export function AcademicCalendarPanel({ compact = false }: AcademicCalendarPanel
         ]);
         setCalendar(calendarResponse as typeof calendar);
         setGroups(groupResponse.classGroups);
-        setSelectedGroupId((current) => current || groupResponse.classGroups[0]?.id || '');
+        setSelectedGroupId((current) =>
+          groupResponse.classGroups.some((group) => group.id === current)
+            ? current
+            : groupResponse.classGroups[0]?.id || ''
+        );
       } catch (err) {
         setError(err instanceof ApiError ? err.message : 'Unable to load this academic year.');
       }
@@ -160,6 +168,11 @@ export function AcademicCalendarPanel({ compact = false }: AcademicCalendarPanel
       ]);
       setCalendar(calendarResponse as typeof calendar);
       setGroups(groupResponse.classGroups);
+      setSelectedGroupId((current) =>
+        groupResponse.classGroups.some((group) => group.id === current)
+          ? current
+          : groupResponse.classGroups[0]?.id || ''
+      );
     }
   }
 
@@ -389,7 +402,7 @@ export function AcademicCalendarPanel({ compact = false }: AcademicCalendarPanel
                     });
                     setEditingEventId(null);
                     setMessage(
-                      'Calendar Event saved. Its schedule effect is pending a reviewed recalculation.'
+                      'Calendar Event saved. Every affected Class Group schedule was recalculated; review any planned-curriculum conflicts before shifting lessons.'
                     );
                     await refreshYear();
                     setEditor(null);
@@ -984,7 +997,7 @@ export function AcademicCalendarPanel({ compact = false }: AcademicCalendarPanel
                                 setBusy(true);
                                 await api.deleteCalendarEvent(event.id);
                                 setMessage(
-                                  'Calendar Event deleted. Review recalculation before changing meetings.'
+                                  'Calendar Event deleted. Every affected Class Group schedule was recalculated.'
                                 );
                                 await refreshYear();
                               } catch (err) {

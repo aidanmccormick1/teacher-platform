@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, ilike, inArray } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, ilike, inArray, lte } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
@@ -100,6 +100,60 @@ async function ownedAcademicYear(userId: string, academicYearId: string) {
     .where(and(eq(academicYears.id, academicYearId), eq(academicYears.teacherId, userId)))
     .limit(1);
   return year ?? null;
+}
+
+/**
+ * Calendar Events are part of the source of truth for instructional time. Rebuild
+ * every affected Class Group as soon as an event changes so an off day cannot
+ * remain available in planning or on the main schedule until someone happens to
+ * manually recalculate it. `meetings_only` intentionally leaves an existing
+ * planned allocation as a visible recalculation conflict instead of silently
+ * moving a teacher's curriculum sequence.
+ */
+async function recalculateAcademicYearMeetings(userId: string, academicYearId: string) {
+  const groups = await db
+    .select({ id: classGroups.id })
+    .from(classGroups)
+    .innerJoin(courses, eq(classGroups.courseId, courses.id))
+    .where(and(eq(courses.teacherId, userId), eq(classGroups.academicYearId, academicYearId)));
+  for (const group of groups) {
+    await recalculateMeetingInstances(userId, group.id, 'meetings_only');
+  }
+}
+
+/**
+ * The parser expands a school break into individual off-days. Treat an already
+ * saved non-instructional date (including one inside an existing manual range)
+ * as the same calendar fact, rather than duplicating it every time a teacher
+ * reimports the calendar.
+ */
+async function saveImportedNoSchoolDate(params: {
+  academicYearId: string;
+  date: string;
+  label: string;
+}) {
+  const [existing] = await db
+    .select({ id: calendarEvents.id })
+    .from(calendarEvents)
+    .where(
+      and(
+        eq(calendarEvents.academicYearId, params.academicYearId),
+        eq(calendarEvents.instructional, false),
+        lte(calendarEvents.startDate, params.date),
+        gte(calendarEvents.endDate, params.date)
+      )
+    )
+    .limit(1);
+  if (existing) return false;
+  await db.insert(calendarEvents).values({
+    academicYearId: params.academicYearId,
+    startDate: params.date,
+    endDate: params.date,
+    label: params.label,
+    type: 'holiday',
+    instructional: false
+  });
+  return true;
 }
 
 async function ownedCourse(userId: string, courseId: string) {
@@ -384,6 +438,7 @@ export async function v3Routes(app: FastifyInstance) {
     let coursesCreated = 0;
     let classGroupsCreated = 0;
     let meetingRulesSaved = 0;
+    const importedNoSchoolDates = new Set<string>();
     const groupByLabel = new Map<string, string>();
     for (const proposedCourse of body.weekly.courses) {
       let [course] = await db
@@ -460,17 +515,22 @@ export async function v3Routes(app: FastifyInstance) {
     }
     for (const calendarOverride of body.annualCalendar?.overrides ?? []) {
       if (calendarOverride.kind === 'no_school') {
-        await db.insert(calendarEvents).values({
-          academicYearId: activeYear.id,
-          startDate: calendarOverride.date,
-          endDate: calendarOverride.date,
-          label: calendarOverride.label,
-          type: 'holiday',
-          instructional: false
-        });
+        // Repeated source rows (and repeat imports) must not create duplicate
+        // holidays or make the review calendar noisy.
+        if (!importedNoSchoolDates.has(calendarOverride.date)) {
+          await saveImportedNoSchoolDate({
+            academicYearId: activeYear.id,
+            date: calendarOverride.date,
+            label: calendarOverride.label
+          });
+          importedNoSchoolDates.add(calendarOverride.date);
+        }
         continue;
       }
-      if (!calendarOverride.meetings.length) continue;
+      // Keep an early-release or special-schedule marker on the annual calendar
+      // even when the source did not establish shortened times. It remains
+      // instructional, so the normal meeting stays in place until the teacher
+      // supplies a reviewed replacement schedule.
       const [override] = await db
         .insert(scheduleOverridesV3)
         .values({
@@ -499,8 +559,9 @@ export async function v3Routes(app: FastifyInstance) {
       if (rows.length) await db.insert(scheduleOverrideMeetingsV3).values(rows);
     }
     const classGroupIds = [...groupByLabel.values()];
-    for (const classGroupId of classGroupIds)
-      await recalculateMeetingInstances(user.id, classGroupId, 'meetings_only');
+    // Imported no-school dates apply to every Class Group in the Academic Year,
+    // including groups the teacher already had before this import.
+    await recalculateAcademicYearMeetings(user.id, activeYear.id);
     return {
       coursesCreated,
       classGroupsCreated,
@@ -560,6 +621,7 @@ export async function v3Routes(app: FastifyInstance) {
       .insert(calendarEvents)
       .values({ academicYearId: id, ...body })
       .returning();
+    await recalculateAcademicYearMeetings(user.id, id);
     return { event };
   });
 
@@ -572,6 +634,7 @@ export async function v3Routes(app: FastifyInstance) {
     const [current] = await db
       .select({
         id: calendarEvents.id,
+        academicYearId: calendarEvents.academicYearId,
         startDate: calendarEvents.startDate,
         endDate: calendarEvents.endDate
       })
@@ -592,6 +655,7 @@ export async function v3Routes(app: FastifyInstance) {
       .set({ ...body, updatedAt: new Date() })
       .where(eq(calendarEvents.id, eventId))
       .returning();
+    await recalculateAcademicYearMeetings(user.id, current.academicYearId);
     return { event };
   });
 
@@ -601,7 +665,7 @@ export async function v3Routes(app: FastifyInstance) {
     const { eventId } = EventParams.parse(request.params);
     const user = await ensureUserFromPrincipal(principal);
     const [owned] = await db
-      .select({ id: calendarEvents.id })
+      .select({ id: calendarEvents.id, academicYearId: calendarEvents.academicYearId })
       .from(calendarEvents)
       .innerJoin(academicYears, eq(calendarEvents.academicYearId, academicYears.id))
       .where(and(eq(calendarEvents.id, eventId), eq(academicYears.teacherId, user.id)))
@@ -611,6 +675,7 @@ export async function v3Routes(app: FastifyInstance) {
       return { error: 'Calendar Event not found.' };
     }
     await db.delete(calendarEvents).where(eq(calendarEvents.id, eventId));
+    await recalculateAcademicYearMeetings(user.id, owned.academicYearId);
     return { deleted: true };
   });
 
@@ -657,6 +722,9 @@ export async function v3Routes(app: FastifyInstance) {
         .values(body.meetings.map((meeting) => ({ scheduleOverrideId: created.id, ...meeting })));
       return [created];
     });
+    // A shortened/special instructional day must replace the ordinary meeting
+    // immediately, otherwise planning could still target the old time.
+    await recalculateAcademicYearMeetings(user.id, id);
     return { override };
   });
 
@@ -721,6 +789,7 @@ export async function v3Routes(app: FastifyInstance) {
       }
       return [updated];
     });
+    await recalculateAcademicYearMeetings(user.id, current.academicYearId);
     return { override };
   });
 
@@ -730,7 +799,7 @@ export async function v3Routes(app: FastifyInstance) {
     const { overrideId } = OverrideParams.parse(request.params);
     const user = await ensureUserFromPrincipal(principal);
     const [owned] = await db
-      .select({ id: scheduleOverridesV3.id })
+      .select({ id: scheduleOverridesV3.id, academicYearId: scheduleOverridesV3.academicYearId })
       .from(scheduleOverridesV3)
       .innerJoin(academicYears, eq(scheduleOverridesV3.academicYearId, academicYears.id))
       .where(and(eq(scheduleOverridesV3.id, overrideId), eq(academicYears.teacherId, user.id)))
@@ -740,6 +809,7 @@ export async function v3Routes(app: FastifyInstance) {
       return { error: 'Schedule Override not found.' };
     }
     await db.delete(scheduleOverridesV3).where(eq(scheduleOverridesV3.id, overrideId));
+    await recalculateAcademicYearMeetings(user.id, owned.academicYearId);
     return { deleted: true };
   });
 
@@ -877,6 +947,13 @@ export async function v3Routes(app: FastifyInstance) {
       return { error: 'Meeting rules are required to preview a schedule change.' };
     }
     const user = await ensureUserFromPrincipal(principal);
+    // Keep the preview endpoint subject to the same ownership boundary as a persisted
+    // schedule edit. The service also verifies ownership, but doing it here makes an
+    // unauthorized preview indistinguishable from any other missing Class Group.
+    if (!(await ownedClassGroupCourse(user.id, classGroupId))) {
+      reply.code(404);
+      return { error: 'Class Group not found.' };
+    }
     return recalculateMeetingInstances(user.id, classGroupId, 'preview', {
       meetingRules: body.meetingRules
     });
