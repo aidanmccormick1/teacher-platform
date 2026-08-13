@@ -1336,6 +1336,11 @@ body.edit-focus-open {
   animation: edit-focus-enter 180ms ease-out;
 }
 
+.edit-focus-panel-full {
+  width: 100%;
+  box-shadow: none;
+}
+
 .edit-focus-header {
   display: flex;
   align-items: flex-start;
@@ -1370,6 +1375,67 @@ body.edit-focus-open {
   box-shadow: none;
 }
 
+.course-edit-workspace {
+  width: min(1360px, 100%);
+  margin: 0 auto;
+}
+
+.course-edit-intro,
+.course-edit-section {
+  border: 1px solid #d7e4f4;
+  border-radius: 16px;
+  padding: 22px;
+  background: #fff;
+}
+
+.course-edit-intro {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  border-color: #c7ddeb;
+  background: linear-gradient(135deg, #f6fbff, #fff);
+}
+
+.course-edit-intro h3,
+.course-edit-intro p,
+.course-edit-section h3,
+.course-edit-section p {
+  margin-top: 0;
+}
+
+.course-edit-status,
+.save-success {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  border-radius: 999px;
+  padding: 5px 11px;
+  background: #e8f4ec;
+  color: #1f6544;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.course-edit-section-heading {
+  margin-bottom: 18px;
+}
+
+.course-edit-groups {
+  padding: 0;
+  overflow: hidden;
+}
+
+.course-edit-groups > .course-edit-section-heading {
+  padding: 22px 22px 0;
+}
+
+.course-edit-groups > .course-class-groups {
+  border-width: 1px 0 0;
+  border-radius: 0;
+  padding: 22px;
+}
+
 @keyframes edit-focus-enter {
   from {
     opacity: 0;
@@ -1394,6 +1460,20 @@ body.edit-focus-open {
 
   .edit-focus-exit {
     font-size: 0.84rem;
+  }
+
+  .course-edit-intro {
+    flex-direction: column;
+  }
+
+  .course-edit-intro,
+  .course-edit-section {
+    padding: 16px;
+  }
+
+  .course-edit-groups > .course-edit-section-heading,
+  .course-edit-groups > .course-class-groups {
+    padding: 16px;
   }
 
   .course-class-groups {

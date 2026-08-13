@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import type { CourseDetailResponse } from '@teacheros/contracts';
 
 import { ActivityStudio } from '../components/ActivityStudio.js';
+import { CourseEditWorkspace } from '../components/CourseEditWorkspace.js';
 import { CoursePlanningPanel } from '../components/CoursePlanningPanel.js';
 import { CourseClassGroupsPanel } from '../components/CourseClassGroupsPanel.js';
 import { EditFocusDialog } from '../components/EditFocusDialog.js';
@@ -44,10 +45,7 @@ export function CoursePage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [courseName, setCourseName] = useState('');
-  const [courseSubject, setCourseSubject] = useState('');
-  const [courseGradeLevel, setCourseGradeLevel] = useState('');
-  const [courseSettingsOpen, setCourseSettingsOpen] = useState(false);
+  const [courseEditorOpen, setCourseEditorOpen] = useState(false);
   const [view, setView] = useState<'classes' | 'curriculum' | 'planning'>('classes');
 
   const [unitEditor, setUnitEditor] = useState<{
@@ -83,9 +81,6 @@ export function CoursePage() {
       setLoading(true);
       const data = await api.getCourseDetail(courseId);
       setCourse(data.course);
-      setCourseName(data.course.name);
-      setCourseSubject(data.course.subject ?? '');
-      setCourseGradeLevel(data.course.gradeLevel ?? '');
       setError(null);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to load course');
@@ -100,9 +95,6 @@ export function CoursePage() {
 
   const updateFromDetail = (detail: CourseDetailResponse) => {
     setCourse(detail.course);
-    setCourseName(detail.course.name);
-    setCourseSubject(detail.course.subject ?? '');
-    setCourseGradeLevel(detail.course.gradeLevel ?? '');
   };
 
   if (!courseId) {
@@ -118,13 +110,20 @@ export function CoursePage() {
       <div className="row">
         <Link to="/curriculum">Back to curriculum</Link>
       </div>
-      <div>
-        <p className="eyebrow">Shared curriculum</p>
-        <h1>{course?.name ?? 'Course Detail'}</h1>
+      <div className="row spread">
+        <div>
+          <p className="eyebrow">Shared curriculum</p>
+          <h1>{course?.name ?? 'Course Detail'}</h1>
+          {course ? (
+            <p className="muted">
+              {course.subject ?? 'Subject not set'} · {course.gradeLevel ?? 'Grade level not set'}
+            </p>
+          ) : null}
+        </div>
         {course ? (
-          <p className="muted">
-            {course.subject ?? 'Subject not set'} · {course.gradeLevel ?? 'Grade level not set'}
-          </p>
+          <button className="secondary" type="button" onClick={() => setCourseEditorOpen(true)}>
+            Edit course
+          </button>
         ) : null}
       </div>
       {error ? <p style={{ color: '#b02020' }}>{error}</p> : null}
@@ -166,9 +165,9 @@ export function CoursePage() {
                   <button
                     className="secondary"
                     type="button"
-                    onClick={() => setCourseSettingsOpen(true)}
+                    onClick={() => setCourseEditorOpen(true)}
                   >
-                    Edit settings
+                    Edit course
                   </button>
                   <button
                     type="button"
@@ -192,79 +191,6 @@ export function CoursePage() {
                   </button>
                 </div>
               </div>
-              <EditFocusDialog
-                open={courseSettingsOpen}
-                title={`Edit ${course.name}`}
-                description="Update the shared Course details, then exit back to the curriculum view."
-                onClose={() => {
-                  setCourseName(course.name);
-                  setCourseSubject(course.subject ?? '');
-                  setCourseGradeLevel(course.gradeLevel ?? '');
-                  setCourseSettingsOpen(false);
-                }}
-                busy={saving}
-              >
-                <div className="stack">
-                  <input
-                    className="input"
-                    value={courseName}
-                    onChange={(event) => setCourseName(event.target.value)}
-                    placeholder="Course name"
-                  />
-                  <input
-                    className="input"
-                    value={courseSubject}
-                    onChange={(event) => setCourseSubject(event.target.value)}
-                    placeholder="Subject"
-                  />
-                  <input
-                    className="input"
-                    value={courseGradeLevel}
-                    onChange={(event) => setCourseGradeLevel(event.target.value)}
-                    placeholder="Grade level"
-                  />
-                  <div className="row">
-                    <button
-                      type="button"
-                      disabled={saving || !courseName.trim()}
-                      onClick={async () => {
-                        try {
-                          setSaving(true);
-                          const detail = await api.updateCourse(course.id, {
-                            name: courseName.trim(),
-                            subject: toNullable(courseSubject),
-                            gradeLevel: toNullable(courseGradeLevel)
-                          });
-                          updateFromDetail(detail);
-                          setError(null);
-                          setCourseSettingsOpen(false);
-                        } catch (err) {
-                          setError(
-                            err instanceof ApiError ? err.message : 'Failed to update course'
-                          );
-                        } finally {
-                          setSaving(false);
-                        }
-                      }}
-                    >
-                      Save course
-                    </button>
-                    <button
-                      className="secondary"
-                      type="button"
-                      onClick={() => {
-                        setCourseName(course.name);
-                        setCourseSubject(course.subject ?? '');
-                        setCourseGradeLevel(course.gradeLevel ?? '');
-                        setCourseSettingsOpen(false);
-                      }}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              </EditFocusDialog>
-
               <div className="card stack">
                 <p className="eyebrow">Class Group planning</p>
                 <h3>Plan teaching time by Class Group</h3>
@@ -1069,6 +995,12 @@ export function CoursePage() {
           ) : null}
         </>
       ) : null}
+      <CourseEditWorkspace
+        course={course}
+        open={courseEditorOpen}
+        onClose={() => setCourseEditorOpen(false)}
+        onSaved={loadCourse}
+      />
     </div>
   );
 }

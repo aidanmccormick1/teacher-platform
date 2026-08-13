@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 
 import type { CourseListResponse } from '@teacheros/contracts';
 
+import { CourseEditWorkspace } from '../components/CourseEditWorkspace.js';
 import { EditFocusDialog } from '../components/EditFocusDialog.js';
 import { TeachingDataImporter } from '../components/TeachingDataImporter.js';
 import { ApiError, useApiClient } from '../lib/api.js';
@@ -23,10 +24,7 @@ export function CurriculumPage() {
   const [name, setName] = useState('');
   const [subject, setSubject] = useState('');
   const [gradeLevel, setGradeLevel] = useState('');
-  const [editId, setEditId] = useState<string | null>(null);
-  const [editName, setEditName] = useState('');
-  const [editSubject, setEditSubject] = useState('');
-  const [editGradeLevel, setEditGradeLevel] = useState('');
+  const [courseToEdit, setCourseToEdit] = useState<CourseRow | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
 
@@ -150,18 +148,15 @@ export function CurriculumPage() {
               </p>
             </div>
             <div className="row">
-              <Link to={`/courses/${course.id}`}>Open</Link>
+              <Link className="button-link secondary" to={`/courses/${course.id}`}>
+                Open course
+              </Link>
               <button
                 className="secondary"
                 type="button"
-                onClick={() => {
-                  setEditId(course.id);
-                  setEditName(course.name);
-                  setEditSubject(course.subject ?? '');
-                  setEditGradeLevel(course.gradeLevel ?? '');
-                }}
+                onClick={() => setCourseToEdit(course)}
               >
-                Edit
+                Edit course
               </button>
               <button
                 type="button"
@@ -184,64 +179,15 @@ export function CurriculumPage() {
                 Delete
               </button>
             </div>
-            <EditFocusDialog
-              open={editId === course.id}
-              title={`Edit ${course.name}`}
-              description="Update this Course without losing your place in the curriculum."
-              onClose={() => setEditId(null)}
-              busy={saving}
-            >
-              <div className="stack">
-                <input
-                  className="input"
-                  value={editName}
-                  onChange={(event) => setEditName(event.target.value)}
-                  placeholder="Course name"
-                />
-                <input
-                  className="input"
-                  value={editSubject}
-                  onChange={(event) => setEditSubject(event.target.value)}
-                  placeholder="Subject"
-                />
-                <input
-                  className="input"
-                  value={editGradeLevel}
-                  onChange={(event) => setEditGradeLevel(event.target.value)}
-                  placeholder="Grade level"
-                />
-                <div className="row">
-                  <button
-                    type="button"
-                    disabled={saving || !editName.trim()}
-                    onClick={async () => {
-                      try {
-                        setSaving(true);
-                        await api.updateCourse(course.id, {
-                          name: editName.trim(),
-                          subject: toNullable(editSubject),
-                          gradeLevel: toNullable(editGradeLevel)
-                        });
-                        setEditId(null);
-                        await loadCourses();
-                      } catch (err) {
-                        setError(err instanceof ApiError ? err.message : 'Failed to update course');
-                      } finally {
-                        setSaving(false);
-                      }
-                    }}
-                  >
-                    Save changes
-                  </button>
-                  <button className="secondary" type="button" onClick={() => setEditId(null)}>
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            </EditFocusDialog>
           </div>
         ))}
       </div>
+      <CourseEditWorkspace
+        course={courseToEdit}
+        open={courseToEdit !== null}
+        onClose={() => setCourseToEdit(null)}
+        onSaved={loadCourses}
+      />
     </div>
   );
 }
