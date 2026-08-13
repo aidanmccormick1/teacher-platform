@@ -50,6 +50,10 @@ import {
   ScheduleSetupApplyRequestSchema,
   ScheduleSetupApplyResponseSchema,
   ScheduleSetupSourceSchema,
+  SCHEDULE_HIERARCHY_SYSTEM_PROMPT,
+  findScheduleHierarchyProblems,
+  normalizeScheduleImportResponse,
+  normalizeWeeklyScheduleProposal,
   WeeklyScheduleProposalSchema,
   TeachingDataImportApplyRequestSchema,
   TeachingDataImportApplyResponseSchema,
@@ -100,7 +104,9 @@ const InternalParseScheduleSchema = z.object({
     z.object({
       name: z.string(),
       period: z.string(),
-      days: z.array(z.string()),
+      days: z.array(
+        z.enum(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'A-Day', 'B-Day'])
+      ),
       time: z.string().nullable(),
       endTime: z.string().nullable(),
       room: z.string().nullable(),
@@ -115,7 +121,8 @@ const InternalParseScheduleSchema = z.object({
       dueDate: z.string().nullable(),
       description: z.string().nullable()
     })
-  )
+  ),
+  warnings: z.array(z.string()).default([])
 });
 
 const ParseWeeklyScheduleSchema = WeeklyScheduleProposalSchema;
@@ -168,14 +175,14 @@ function normalizeImportedTime(value: string | null): string | null {
 }
 
 function normalizeImportedScheduleTimes(response: z.infer<typeof InternalParseScheduleSchema>) {
-  return {
+  return normalizeScheduleImportResponse({
     ...response,
     classes: response.classes.map((item) => ({
       ...item,
       time: normalizeImportedTime(item.time),
       endTime: normalizeImportedTime(item.endTime)
     }))
-  };
+  });
 }
 
 function isInSession(meetingTime: string | null, meetingEndTime: string | null): boolean {
@@ -944,7 +951,11 @@ export async function v1Routes(app: FastifyInstance) {
       const principal = requirePrincipal(request, reply);
       if (!principal) return;
       const user = await ensureUserFromPrincipal(principal);
-      const schoolId = await loadTeacherSchoolId(user.id);
+      const [profile] = await db
+        .select({ schoolId: teacherProfiles.schoolId })
+        .from(teacherProfiles)
+        .where(eq(teacherProfiles.userId, user.id))
+        .limit(1);
       const activeTemplate = await loadActiveScheduleTemplate(user.id);
 
       const rows = await db
@@ -970,15 +981,17 @@ export async function v1Routes(app: FastifyInstance) {
           )
         );
 
-      const holidayRows = await db
-        .select({
-          id: schoolHolidays.id,
-          date: schoolHolidays.date,
-          name: schoolHolidays.name
-        })
-        .from(schoolHolidays)
-        .where(eq(schoolHolidays.schoolId, schoolId))
-        .orderBy(asc(schoolHolidays.date));
+      const holidayRows = profile
+        ? await db
+            .select({
+              id: schoolHolidays.id,
+              date: schoolHolidays.date,
+              name: schoolHolidays.name
+            })
+            .from(schoolHolidays)
+            .where(eq(schoolHolidays.schoolId, profile.schoolId))
+            .orderBy(asc(schoolHolidays.date))
+        : [];
 
       const [blockRows, overrideRows, overrideMeetingRows] = await Promise.all([
         activeTemplate
@@ -1806,19 +1819,20 @@ export async function v1Routes(app: FastifyInstance) {
       }
 
       const body = ScheduleSetupSourceSchema.parse(request.body);
-      return runStructuredPrompt<z.infer<typeof ParseWeeklyScheduleSchema>>({
+      const proposal = await runStructuredPrompt<z.infer<typeof ParseWeeklyScheduleSchema>>({
         apiKey: app.config.OPENAI_API_KEY,
         model: app.config.OPENAI_MODEL_PARSE_SCHEDULE,
         schemaName: 'weekly_schedule_proposal',
         schema: ParseWeeklyScheduleSchema,
-        systemPrompt:
-          "Extract a teacher's weekly or block schedule into a proposal the teacher will review. Group the teacher's classes into the most likely courses and sections. Preserve each distinct weekday or A-Day/B-Day meeting with its own start and end time. Times must be valid zero-padded 24-hour HH:MM values, for example 08:10 or 13:25; never combine a period number with a time. Put homeroom, lunch, nutrition breaks, prep, planning, duty, meetings, Mass, dismissal, and unassigned blocks in blocks, never courses. Use warnings for handwritten notes, missing times, ambiguous labels, conflicts, or anything that requires teacher confirmation. Do not invent classes or times. Return JSON only.",
+        reasoningEffort: 'high',
+        systemPrompt: `${SCHEDULE_HIERARCHY_SYSTEM_PROMPT}\n\nExtract a teacher's weekly or block schedule into a proposal the teacher will review. Preserve each distinct weekday or A-Day/B-Day meeting with its own start and end time. Times must be valid zero-padded 24-hour HH:MM values, for example 08:10 or 13:25; never combine a period number with a time. Put homeroom, lunch, nutrition breaks, prep, planning, duty, meetings, Mass, dismissal, and unassigned blocks in blocks, never courses. Use warnings for handwritten notes, missing times, ambiguous labels, conflicts, or anything that requires teacher confirmation.`,
         userPrompt: body.text
           ? `Create a reviewed weekly schedule proposal from this document:\n${body.text}`
           : 'Create a reviewed weekly schedule proposal from the supplied image. Return JSON only.',
         userImageDataUrls: body.imageBase64s,
         userImageDataUrl: body.imageBase64
       });
+      return normalizeWeeklyScheduleProposal(proposal);
     }
   );
 
@@ -1868,7 +1882,14 @@ export async function v1Routes(app: FastifyInstance) {
       if (!principal) return;
       const user = await ensureUserFromPrincipal(principal);
       const schoolId = await loadTeacherSchoolId(user.id);
-      const body = ScheduleSetupApplyRequestSchema.parse(request.body);
+      const parsedBody = ScheduleSetupApplyRequestSchema.parse(request.body);
+      const weekly = normalizeWeeklyScheduleProposal(parsedBody.weekly);
+      const hierarchyProblems = findScheduleHierarchyProblems(weekly);
+      if (hierarchyProblems.length) {
+        (reply as any).code(400);
+        return { error: hierarchyProblems.join(' '), requestId: request.id };
+      }
+      const body = { ...parsedBody, weekly };
 
       const result = await db.transaction(async (tx) => {
         const [currentTemplate] = await tx
@@ -2097,8 +2118,8 @@ export async function v1Routes(app: FastifyInstance) {
         model: app.config.OPENAI_MODEL_PARSE_SCHEDULE,
         schemaName: 'schedule_import',
         schema: InternalParseScheduleSchema,
-        systemPrompt:
-          "Extract a teacher's complete teaching schedule. Identify every unique course and section, including all meeting days, start times, end times, rooms, subject, and grade. For a repeating block schedule, use A-Day and B-Day when those labels are shown; otherwise use the named weekdays. Combine repeated occurrences of the same course and period into one class with all applicable days. Use valid zero-padded 24-hour HH:MM times. If an end time is not shown, return null rather than guessing. Ignore lunch, planning, duty, meetings, breaks, and non-teaching blocks. Return JSON only.",
+        reasoningEffort: 'high',
+        systemPrompt: `${SCHEDULE_HIERARCHY_SYSTEM_PROMPT}\n\nFor this legacy flat response, put the full Course name in name and exactly one Class Group label in period. Identify every unique Course and Class Group, including all meeting days, start times, end times, rooms, subject, and grade. For a repeating block schedule, use A-Day and B-Day when those labels are shown; otherwise use named weekdays. Combine repeated occurrences of the same Course and Class Group into one class with all applicable days. Use valid zero-padded 24-hour HH:MM times. If an end time is not shown, return null rather than guessing. Ignore lunch, planning, duty, meetings, breaks, and non-teaching blocks.`,
         userPrompt: body.text
           ? `Parse this teacher schedule and assignments:\n${body.text}`
           : 'Parse the provided schedule image and return classes + assignments. Output JSON only.',
@@ -2155,11 +2176,20 @@ export async function v1Routes(app: FastifyInstance) {
       const user = await ensureUserFromPrincipal(principal);
       const schoolId = await loadTeacherSchoolId(user.id);
       const body = TeachingDataImportApplyRequestSchema.parse(request.body);
+      const hierarchyCheck = normalizeScheduleImportResponse({
+        classes: body.classes,
+        assignments: [],
+        warnings: []
+      });
+      if (hierarchyCheck.warnings.length) {
+        (reply as any).code(400);
+        return { error: hierarchyCheck.warnings.join(' '), requestId: request.id };
+      }
       let coursesCreated = 0;
       let sectionsCreated = 0;
       let meetingsCreated = 0;
 
-      for (const importedClass of body.classes) {
+      for (const importedClass of hierarchyCheck.classes) {
         const [existingCourse] = await db
           .select({ id: courses.id })
           .from(courses)
@@ -2933,24 +2963,25 @@ export async function v1Routes(app: FastifyInstance) {
           model: app.config.OPENAI_MODEL_PARSE_SCHEDULE,
           schemaName: 'parse_schedule',
           schema: InternalParseScheduleSchema,
-          systemPrompt:
-            'Extract classes and assignments from a teacher schedule. Include start and end time for every class when shown, use HH:MM 24-hour time, return null for a missing end time, and skip non-teaching events. Return JSON only.',
+          reasoningEffort: 'high',
+          systemPrompt: `${SCHEDULE_HIERARCHY_SYSTEM_PROMPT}\n\nFor this legacy flat response, put the full Course name in name and exactly one Class Group label in period. Extract classes and assignments from a teacher schedule. Include start and end time for every class when shown, use HH:MM 24-hour time, return null for a missing end time, and skip non-teaching events.`,
           userPrompt: body.text
             ? `Parse this schedule and assignments:\n${body.text}`
             : 'Parse the supplied schedule image and return classes + assignments.'
         });
 
+        const normalizedOutput = normalizeImportedScheduleTimes(output);
         await db.insert(aiOutputs).values({
           jobId: job.id,
           outputType: 'parse_schedule',
-          payload: output
+          payload: normalizedOutput
         });
         await db
           .update(aiJobs)
-          .set({ status: 'succeeded', output, updatedAt: new Date() })
+          .set({ status: 'succeeded', output: normalizedOutput, updatedAt: new Date() })
           .where(eq(aiJobs.id, job.id));
 
-        return ParseScheduleResponseSchema.parse(normalizeImportedScheduleTimes(output));
+        return ParseScheduleResponseSchema.parse(normalizedOutput);
       } catch (error) {
         await db
           .update(aiJobs)

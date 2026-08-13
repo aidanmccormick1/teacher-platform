@@ -100,6 +100,7 @@ export function AppAuthProvider({ children }: PropsWithChildren) {
   // domain is not yet verified, so use the app's verified development
   // instance until production DNS is completed.
   const configuredPublishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
+  const forceDevelopmentAuth = import.meta.env.VITE_AUTH_MODE === 'dev';
   const developmentPublishableKey = 'pk_test_ZnVuLXdlZXZpbC0xMS5jbGVyay5hY2NvdW50cy5kZXYk';
   // The current Pages domain is not a verified Clerk proxy. A publishable key
   // configured for that proxy makes the app wait forever while Clerk tries to
@@ -107,11 +108,13 @@ export function AppAuthProvider({ children }: PropsWithChildren) {
   // instance until a production Clerk domain is explicitly enabled.
   const useConfiguredKey = import.meta.env.VITE_USE_CONFIGURED_CLERK_KEY === 'true';
   const publishableKey =
-    useConfiguredKey && (configuredPublishableKey?.startsWith('pk_test_') || configuredPublishableKey?.startsWith('pk_live_'))
-    ? configuredPublishableKey
-    : developmentPublishableKey;
+    useConfiguredKey &&
+    (configuredPublishableKey?.startsWith('pk_test_') ||
+      configuredPublishableKey?.startsWith('pk_live_'))
+      ? configuredPublishableKey
+      : developmentPublishableKey;
 
-  if (!publishableKey) {
+  if (forceDevelopmentAuth || !publishableKey) {
     return <DevAuthProvider>{children}</DevAuthProvider>;
   }
 

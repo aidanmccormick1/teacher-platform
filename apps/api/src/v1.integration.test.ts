@@ -271,6 +271,23 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
     await app?.close();
   });
 
+  it('returns an empty schedule setup state before a teacher completes onboarding', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/v1/schedule',
+      headers: teacherHeaders
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      sections: [],
+      holidays: [],
+      blocks: [],
+      overrides: [],
+      hasScheduleSetup: false
+    });
+  });
+
   describe('v1 curriculum CRUD', () => {
     it('supports full nested curriculum CRUD for an onboarded teacher', async () => {
       const onboarding = await app.inject({
@@ -803,6 +820,92 @@ describeIf('v1 integration (requires RUN_INTEGRATION_DB_TESTS=1 and local Postgr
         }
       });
       expect(forbiddenAllocation.statusCode).toBe(404);
+      expect(course.id).toBeTruthy();
+    });
+
+    it('previews weekday-box changes without writing them, then persists the reviewed Class Group schedule', async () => {
+      const { course, firstGroup } = await createV3Fixture();
+      const before = firstGroup.meetings;
+      expect(before.filter((meeting) => meeting.localDate === '2026-10-16')).toHaveLength(1);
+
+      const preview = await app.inject({
+        method: 'POST',
+        url: `/v3/class-groups/${firstGroup.group.id}/meeting-impact-preview`,
+        headers: teacherHeaders,
+        payload: {
+          name: 'Period 3',
+          periodLabel: 'Period 3',
+          room: 'B-12',
+          meetingRules: [
+            {
+              weekdays: [1, 3],
+              startTime: '10:00',
+              endTime: '10:50',
+              effectiveStart: null,
+              effectiveEnd: null,
+              room: 'B-12'
+            }
+          ]
+        }
+      });
+      expect(preview.statusCode).toBe(200);
+      expect(preview.json<{ removedUnused: number }>().removedUnused).toBe(2);
+
+      const unchanged = await app.inject({
+        method: 'GET',
+        url: `/v3/class-groups/${firstGroup.group.id}/meetings`,
+        headers: teacherHeaders
+      });
+      expect(unchanged.json<{ meetings: V3Meeting[] }>().meetings).toHaveLength(before.length);
+
+      const update = await app.inject({
+        method: 'PATCH',
+        url: `/v3/class-groups/${firstGroup.group.id}`,
+        headers: teacherHeaders,
+        payload: {
+          name: 'Period 3',
+          periodLabel: 'Period 3',
+          room: 'B-12',
+          meetingRules: [
+            {
+              weekdays: [1, 3],
+              startTime: '10:00',
+              endTime: '10:50',
+              effectiveStart: null,
+              effectiveEnd: null,
+              room: 'B-12'
+            }
+          ]
+        }
+      });
+      expect(update.statusCode).toBe(200);
+      expect(update.json<{ requiresRecalculation: boolean }>().requiresRecalculation).toBe(true);
+
+      const applied = await app.inject({
+        method: 'POST',
+        url: `/v3/class-groups/${firstGroup.group.id}/meetings/recalculate`,
+        headers: teacherHeaders,
+        payload: { mode: 'meetings_only' }
+      });
+      expect(applied.statusCode).toBe(200);
+      const after = await app.inject({
+        method: 'GET',
+        url: `/v3/class-groups/${firstGroup.group.id}/meetings`,
+        headers: teacherHeaders
+      });
+      expect(
+        after
+          .json<{ meetings: V3Meeting[] }>()
+          .meetings.some((meeting) => meeting.localDate === '2026-10-16')
+      ).toBe(false);
+
+      const forbidden = await app.inject({
+        method: 'PATCH',
+        url: `/v3/class-groups/${firstGroup.group.id}`,
+        headers: otherTeacherHeaders,
+        payload: { name: 'Not this teacher’s class' }
+      });
+      expect(forbidden.statusCode).toBe(404);
       expect(course.id).toBeTruthy();
     });
 

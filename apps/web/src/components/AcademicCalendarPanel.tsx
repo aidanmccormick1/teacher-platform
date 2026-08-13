@@ -9,6 +9,49 @@ const weekdayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 type AcademicCalendarPanelProps = { compact?: boolean };
 
+type CalendarEventRecord = {
+  id: string;
+  label: string;
+  startDate: string;
+  endDate: string;
+  type: string;
+  instructional: boolean;
+};
+
+type OverrideMeetingDraft = {
+  classGroupId: string;
+  action: 'replace' | 'add' | 'cancel';
+  startTime: string;
+  endTime: string;
+  room: string;
+};
+
+type ScheduleOverrideRecord = {
+  id: string;
+  date: string;
+  label: string;
+  type: string;
+  meetings: Array<{
+    classGroupId: string;
+    action: 'replace' | 'add' | 'cancel';
+    startTime: string | null;
+    endTime: string | null;
+    room: string | null;
+  }>;
+};
+
+const defaultOverrideMeeting = (): OverrideMeetingDraft => ({
+  classGroupId: '',
+  action: 'replace',
+  startTime: '09:00',
+  endTime: '09:40',
+  room: ''
+});
+
+function normalizeTime(value: string | null | undefined): string {
+  return value?.slice(0, 5) ?? '';
+}
+
 export function AcademicCalendarPanel({ compact = false }: AcademicCalendarPanelProps) {
   const api = useApiClient();
   const [years, setYears] = useState<AcademicYear[]>([]);
@@ -20,8 +63,8 @@ export function AcademicCalendarPanel({ compact = false }: AcademicCalendarPanel
     []
   );
   const [calendar, setCalendar] = useState<{
-    events: Array<Record<string, unknown>>;
-    overrides: Array<Record<string, unknown>>;
+    events: CalendarEventRecord[];
+    overrides: ScheduleOverrideRecord[];
   } | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -44,18 +87,19 @@ export function AcademicCalendarPanel({ compact = false }: AcademicCalendarPanel
     endTime: '09:50'
   });
   const [overrideForm, setOverrideForm] = useState({
-    classGroupId: '',
     date: '',
     label: 'Minimum day',
     type: 'minimum_day',
-    startTime: '09:00',
-    endTime: '09:40'
+    meetings: [defaultOverrideMeeting()]
   });
   const [selectedGroupId, setSelectedGroupId] = useState('');
   const [preview, setPreview] = useState<Awaited<
     ReturnType<typeof api.recalculateMeetings>
   > | null>(null);
   const [editor, setEditor] = useState<'year' | 'event' | 'override' | 'group' | null>(null);
+  const [editingYearId, setEditingYearId] = useState<string | null>(null);
+  const [editingEventId, setEditingEventId] = useState<string | null>(null);
+  const [editingOverrideId, setEditingOverrideId] = useState<string | null>(null);
 
   const activeYear = useMemo(
     () => years.find((year) => year.id === yearId) ?? null,
@@ -98,7 +142,7 @@ export function AcademicCalendarPanel({ compact = false }: AcademicCalendarPanel
           api.getAcademicCalendar(yearId),
           api.listV3ClassGroups(yearId)
         ]);
-        setCalendar(calendarResponse);
+        setCalendar(calendarResponse as typeof calendar);
         setGroups(groupResponse.classGroups);
         setSelectedGroupId((current) => current || groupResponse.classGroups[0]?.id || '');
       } catch (err) {
@@ -114,9 +158,67 @@ export function AcademicCalendarPanel({ compact = false }: AcademicCalendarPanel
         api.getAcademicCalendar(yearId),
         api.listV3ClassGroups(yearId)
       ]);
-      setCalendar(calendarResponse);
+      setCalendar(calendarResponse as typeof calendar);
       setGroups(groupResponse.classGroups);
     }
+  }
+
+  function openEventEditor(event?: CalendarEventRecord) {
+    setEditingEventId(event?.id ?? null);
+    setEventForm(
+      event
+        ? {
+            label: event.label,
+            startDate: event.startDate,
+            endDate: event.endDate,
+            type: event.type,
+            instructional: event.instructional
+          }
+        : { label: '', startDate: '', endDate: '', type: 'holiday', instructional: false }
+    );
+    setEditor('event');
+  }
+
+  function openYearEditor(year?: AcademicYear) {
+    setEditingYearId(year?.id ?? null);
+    setYearForm(
+      year
+        ? { name: year.name, startDate: year.startDate, endDate: year.endDate }
+        : { name: '2026–2027', startDate: '', endDate: '' }
+    );
+    setEditor('year');
+  }
+
+  function openOverrideEditor(override?: ScheduleOverrideRecord) {
+    setEditingOverrideId(override?.id ?? null);
+    setOverrideForm(
+      override
+        ? {
+            date: override.date,
+            label: override.label,
+            type: override.type,
+            meetings: override.meetings.map((meeting) => ({
+              classGroupId: meeting.classGroupId,
+              action: meeting.action,
+              startTime: normalizeTime(meeting.startTime) || '09:00',
+              endTime: normalizeTime(meeting.endTime) || '09:40',
+              room: meeting.room ?? ''
+            }))
+          }
+        : {
+            date: '',
+            label: 'Minimum day',
+            type: 'minimum_day',
+            meetings: [defaultOverrideMeeting()]
+          }
+    );
+    setEditor('override');
+  }
+
+  function updateOverrideMeeting(index: number, update: Partial<OverrideMeetingDraft>) {
+    const meetings = [...overrideForm.meetings];
+    meetings[index] = { ...meetings[index]!, ...update };
+    setOverrideForm({ ...overrideForm, meetings });
   }
 
   return (
@@ -156,7 +258,7 @@ export function AcademicCalendarPanel({ compact = false }: AcademicCalendarPanel
           <p className="muted">
             Create the year in a focused workspace before editing its calendar.
           </p>
-          <button type="button" onClick={() => setEditor('year')}>
+          <button type="button" onClick={() => openYearEditor()}>
             Create academic year
           </button>
         </div>
@@ -169,10 +271,13 @@ export function AcademicCalendarPanel({ compact = false }: AcademicCalendarPanel
             <p className="muted">Open one focused editor at a time, then exit when you are done.</p>
           </div>
           <div className="row">
-            <button className="secondary" type="button" onClick={() => setEditor('event')}>
+            <button className="secondary" type="button" onClick={() => openYearEditor(activeYear)}>
+              Edit academic year
+            </button>
+            <button className="secondary" type="button" onClick={() => openEventEditor()}>
               Add Calendar Event
             </button>
-            <button className="secondary" type="button" onClick={() => setEditor('override')}>
+            <button className="secondary" type="button" onClick={() => openOverrideEditor()}>
               Add Schedule Override
             </button>
             {!compact ? (
@@ -186,7 +291,7 @@ export function AcademicCalendarPanel({ compact = false }: AcademicCalendarPanel
 
       <EditFocusDialog
         open={editor === 'year'}
-        title="Create academic year"
+        title={editingYearId ? 'Edit academic year' : 'Create academic year'}
         description="Set the local dates that define this instructional year."
         onClose={() => setEditor(null)}
         busy={busy}
@@ -226,9 +331,17 @@ export function AcademicCalendarPanel({ compact = false }: AcademicCalendarPanel
             onClick={async () => {
               try {
                 setBusy(true);
-                const created = await api.createAcademicYear({ ...yearForm, isActive: true });
-                setYearId(created.year.id);
-                setMessage('Academic year created. Add dates and Class Groups below.');
+                if (editingYearId) {
+                  await api.updateAcademicYear(editingYearId, yearForm);
+                  setMessage(
+                    'Academic year saved. Review affected Class Groups before recalculating meetings.'
+                  );
+                } else {
+                  const created = await api.createAcademicYear({ ...yearForm, isActive: true });
+                  setYearId(created.year.id);
+                  setMessage('Academic year created. Add dates and Class Groups below.');
+                }
+                setEditingYearId(null);
                 await load();
                 setEditor(null);
               } catch (err) {
@@ -240,7 +353,7 @@ export function AcademicCalendarPanel({ compact = false }: AcademicCalendarPanel
               }
             }}
           >
-            Create academic year
+            {editingYearId ? 'Save academic year' : 'Create academic year'}
           </button>
         </div>
       </EditFocusDialog>
@@ -249,7 +362,7 @@ export function AcademicCalendarPanel({ compact = false }: AcademicCalendarPanel
         <>
           <EditFocusDialog
             open={editor === 'event'}
-            title="Add Calendar Event"
+            title={editingEventId ? 'Edit Calendar Event' : 'Add Calendar Event'}
             description="A non-instructional event prevents normal and ordinary overridden meetings."
             onClose={() => setEditor(null)}
             busy={busy}
@@ -261,10 +374,12 @@ export function AcademicCalendarPanel({ compact = false }: AcademicCalendarPanel
                 void (async () => {
                   try {
                     setBusy(true);
-                    await api.createCalendarEvent(yearId, {
+                    const body = {
                       ...eventForm,
                       endDate: eventForm.endDate || eventForm.startDate
-                    });
+                    };
+                    if (editingEventId) await api.updateCalendarEvent(editingEventId, body);
+                    else await api.createCalendarEvent(yearId, body);
                     setEventForm({
                       label: '',
                       startDate: '',
@@ -272,8 +387,9 @@ export function AcademicCalendarPanel({ compact = false }: AcademicCalendarPanel
                       type: 'holiday',
                       instructional: false
                     });
+                    setEditingEventId(null);
                     setMessage(
-                      'Calendar Event saved. Recalculate affected Class Groups to review the impact.'
+                      'Calendar Event saved. Its schedule effect is pending a reviewed recalculation.'
                     );
                     await refreshYear();
                     setEditor(null);
@@ -287,7 +403,7 @@ export function AcademicCalendarPanel({ compact = false }: AcademicCalendarPanel
                 })();
               }}
             >
-              <h3>Add Calendar Event</h3>
+              <h3>{editingEventId ? 'Edit Calendar Event' : 'Add Calendar Event'}</h3>
               <p className="field-note">
                 Use for off days or ranges. A non-instructional event prevents normal and overridden
                 meetings.
@@ -350,14 +466,14 @@ export function AcademicCalendarPanel({ compact = false }: AcademicCalendarPanel
                 type="submit"
                 disabled={busy || !eventForm.label.trim() || !eventForm.startDate}
               >
-                Add Calendar Event
+                {editingEventId ? 'Save Calendar Event' : 'Add Calendar Event'}
               </button>
             </form>
           </EditFocusDialog>
 
           <EditFocusDialog
             open={editor === 'override'}
-            title="Add Schedule Override"
+            title={editingOverrideId ? 'Edit Schedule Override' : 'Add Schedule Override'}
             description="Use this for an instructional-day minimum day, testing, assembly, or special bell schedule."
             onClose={() => setEditor(null)}
             busy={busy}
@@ -369,22 +485,24 @@ export function AcademicCalendarPanel({ compact = false }: AcademicCalendarPanel
                 void (async () => {
                   try {
                     setBusy(true);
-                    await api.createScheduleOverride(yearId, {
+                    const body = {
                       date: overrideForm.date,
                       label: overrideForm.label,
                       type: overrideForm.type,
-                      meetings: [
-                        {
-                          classGroupId: overrideForm.classGroupId,
-                          action: 'replace',
-                          startTime: overrideForm.startTime,
-                          endTime: overrideForm.endTime,
-                          room: null
-                        }
-                      ]
-                    });
+                      meetings: overrideForm.meetings.map((meeting) => ({
+                        classGroupId: meeting.classGroupId,
+                        action: meeting.action,
+                        startTime: meeting.action === 'cancel' ? null : meeting.startTime,
+                        endTime: meeting.action === 'cancel' ? null : meeting.endTime,
+                        room: meeting.room.trim() || null
+                      }))
+                    };
+                    if (editingOverrideId)
+                      await api.updateScheduleOverride(editingOverrideId, body);
+                    else await api.createScheduleOverride(yearId, body);
+                    setEditingOverrideId(null);
                     setMessage(
-                      'Schedule Override saved. It applies only if the date is instructional.'
+                      'Schedule Override saved. It applies only if the date is instructional; review recalculation before changing meetings.'
                     );
                     await refreshYear();
                     setEditor(null);
@@ -398,27 +516,10 @@ export function AcademicCalendarPanel({ compact = false }: AcademicCalendarPanel
                 })();
               }}
             >
-              <h3>Add Schedule Override</h3>
+              <h3>{editingOverrideId ? 'Edit Schedule Override' : 'Add Schedule Override'}</h3>
               <p className="field-note">
                 Use for minimum days, testing, assemblies, and special bell schedules—not holidays.
               </p>
-              <label>
-                Class Group
-                <select
-                  className="input"
-                  value={overrideForm.classGroupId}
-                  onChange={(event) =>
-                    setOverrideForm({ ...overrideForm, classGroupId: event.target.value })
-                  }
-                >
-                  <option value="">Select a Class Group</option>
-                  {groups.map((group) => (
-                    <option value={group.id} key={group.id}>
-                      {group.courseName} · {group.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
               <label>
                 Date
                 <input
@@ -440,40 +541,157 @@ export function AcademicCalendarPanel({ compact = false }: AcademicCalendarPanel
                   }
                 />
               </label>
-              <div className="two-column">
-                <label>
-                  Starts
-                  <input
-                    className="input"
-                    type="time"
-                    value={overrideForm.startTime}
-                    onChange={(event) =>
-                      setOverrideForm({ ...overrideForm, startTime: event.target.value })
+              <label>
+                Schedule type
+                <select
+                  className="input"
+                  value={overrideForm.type}
+                  onChange={(event) =>
+                    setOverrideForm({ ...overrideForm, type: event.target.value })
+                  }
+                >
+                  <option value="minimum_day">Minimum day</option>
+                  <option value="testing">Testing schedule</option>
+                  <option value="assembly">Assembly schedule</option>
+                  <option value="finals">Finals schedule</option>
+                  <option value="special">Special bell schedule</option>
+                </select>
+              </label>
+              <div className="stack" aria-label="Schedule Override meeting changes">
+                <div className="row spread">
+                  <div>
+                    <h4>Affected Class Groups</h4>
+                    <p className="field-note">
+                      Add one row for each Class Group whose schedule changes.
+                    </p>
+                  </div>
+                  <button
+                    className="secondary"
+                    type="button"
+                    onClick={() =>
+                      setOverrideForm({
+                        ...overrideForm,
+                        meetings: [...overrideForm.meetings, defaultOverrideMeeting()]
+                      })
                     }
-                  />
-                </label>
-                <label>
-                  Ends
-                  <input
-                    className="input"
-                    type="time"
-                    value={overrideForm.endTime}
-                    onChange={(event) =>
-                      setOverrideForm({ ...overrideForm, endTime: event.target.value })
-                    }
-                  />
-                </label>
+                  >
+                    Add Class Group
+                  </button>
+                </div>
+                {overrideForm.meetings.map((meeting, index) => (
+                  <div className="meeting-rule-editor stack" key={index}>
+                    <div className="row spread">
+                      <strong>Change {index + 1}</strong>
+                      {overrideForm.meetings.length > 1 ? (
+                        <button
+                          className="secondary"
+                          type="button"
+                          onClick={() =>
+                            setOverrideForm({
+                              ...overrideForm,
+                              meetings: overrideForm.meetings.filter(
+                                (_, meetingIndex) => meetingIndex !== index
+                              )
+                            })
+                          }
+                        >
+                          Remove
+                        </button>
+                      ) : null}
+                    </div>
+                    <div className="three-column">
+                      <label>
+                        Class Group
+                        <select
+                          className="input"
+                          value={meeting.classGroupId}
+                          onChange={(event) =>
+                            updateOverrideMeeting(index, { classGroupId: event.target.value })
+                          }
+                        >
+                          <option value="">Select a Class Group</option>
+                          {groups.map((group) => (
+                            <option value={group.id} key={group.id}>
+                              {group.courseName} · {group.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        Change
+                        <select
+                          className="input"
+                          value={meeting.action}
+                          onChange={(event) =>
+                            updateOverrideMeeting(index, {
+                              action: event.target.value as OverrideMeetingDraft['action']
+                            })
+                          }
+                        >
+                          <option value="replace">Replace normal time</option>
+                          <option value="add">Add a meeting</option>
+                          <option value="cancel">Cancel this group’s meeting</option>
+                        </select>
+                      </label>
+                      <label>
+                        Room
+                        <input
+                          className="input"
+                          value={meeting.room}
+                          onChange={(event) =>
+                            updateOverrideMeeting(index, { room: event.target.value })
+                          }
+                          placeholder="Optional"
+                        />
+                      </label>
+                    </div>
+                    {meeting.action === 'cancel' ? (
+                      <p className="field-note">
+                        This removes the group’s normal meeting on this instructional date.
+                      </p>
+                    ) : (
+                      <div className="two-column">
+                        <label>
+                          Starts
+                          <input
+                            className="input"
+                            type="time"
+                            value={meeting.startTime}
+                            onChange={(event) =>
+                              updateOverrideMeeting(index, { startTime: event.target.value })
+                            }
+                          />
+                        </label>
+                        <label>
+                          Ends
+                          <input
+                            className="input"
+                            type="time"
+                            value={meeting.endTime}
+                            onChange={(event) =>
+                              updateOverrideMeeting(index, { endTime: event.target.value })
+                            }
+                          />
+                        </label>
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
               <button
                 type="submit"
                 disabled={
                   busy ||
-                  !overrideForm.classGroupId ||
                   !overrideForm.date ||
-                  !overrideForm.label.trim()
+                  !overrideForm.label.trim() ||
+                  overrideForm.meetings.some(
+                    (meeting) =>
+                      !meeting.classGroupId ||
+                      (meeting.action !== 'cancel' && (!meeting.startTime || !meeting.endTime))
+                  )
                 }
               >
-                Add Schedule Override
+                {editingOverrideId ? 'Save Schedule Override' : 'Add Schedule Override'}
               </button>
             </form>
           </EditFocusDialog>
@@ -739,13 +957,51 @@ export function AcademicCalendarPanel({ compact = false }: AcademicCalendarPanel
             <div>
               <h3>Calendar Events</h3>
               {calendar?.events.length ? (
-                <ul>
+                <ul className="calendar-record-list">
                   {calendar.events.map((event) => (
                     <li key={String(event.id)}>
-                      {String(event.startDate)}
-                      {event.startDate !== event.endDate ? `–${String(event.endDate)}` : ''}:{' '}
-                      {String(event.label)}
-                      {event.instructional ? ' (instructional)' : ''}
+                      <span>
+                        {event.startDate}
+                        {event.startDate !== event.endDate ? `–${event.endDate}` : ''}:{' '}
+                        {event.label}
+                        {event.instructional ? ' (instructional)' : ''}
+                      </span>
+                      <span className="row">
+                        <button
+                          className="secondary"
+                          type="button"
+                          onClick={() => openEventEditor(event)}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          className="danger secondary"
+                          type="button"
+                          onClick={() => {
+                            if (!window.confirm(`Delete “${event.label}”?`)) return;
+                            void (async () => {
+                              try {
+                                setBusy(true);
+                                await api.deleteCalendarEvent(event.id);
+                                setMessage(
+                                  'Calendar Event deleted. Review recalculation before changing meetings.'
+                                );
+                                await refreshYear();
+                              } catch (err) {
+                                setError(
+                                  err instanceof ApiError
+                                    ? err.message
+                                    : 'Unable to delete Calendar Event.'
+                                );
+                              } finally {
+                                setBusy(false);
+                              }
+                            })();
+                          }}
+                        >
+                          Delete
+                        </button>
+                      </span>
                     </li>
                   ))}
                 </ul>
@@ -756,10 +1012,48 @@ export function AcademicCalendarPanel({ compact = false }: AcademicCalendarPanel
             <div>
               <h3>Schedule Overrides</h3>
               {calendar?.overrides.length ? (
-                <ul>
+                <ul className="calendar-record-list">
                   {calendar.overrides.map((override) => (
                     <li key={String(override.id)}>
-                      {String(override.date)}: {String(override.label)}
+                      <span>
+                        {override.date}: {override.label}
+                      </span>
+                      <span className="row">
+                        <button
+                          className="secondary"
+                          type="button"
+                          onClick={() => openOverrideEditor(override)}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          className="danger secondary"
+                          type="button"
+                          onClick={() => {
+                            if (!window.confirm(`Delete “${override.label}”?`)) return;
+                            void (async () => {
+                              try {
+                                setBusy(true);
+                                await api.deleteScheduleOverride(override.id);
+                                setMessage(
+                                  'Schedule Override deleted. Review recalculation before changing meetings.'
+                                );
+                                await refreshYear();
+                              } catch (err) {
+                                setError(
+                                  err instanceof ApiError
+                                    ? err.message
+                                    : 'Unable to delete Schedule Override.'
+                                );
+                              } finally {
+                                setBusy(false);
+                              }
+                            })();
+                          }}
+                        >
+                          Delete
+                        </button>
+                      </span>
                     </li>
                   ))}
                 </ul>

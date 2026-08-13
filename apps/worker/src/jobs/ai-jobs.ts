@@ -4,7 +4,9 @@ import { eq } from 'drizzle-orm';
 import {
   GenerateContinuityResponseSchema,
   GenerateSegmentsResponseSchema,
-  ParseScheduleResponseSchema
+  ParseScheduleResponseSchema,
+  SCHEDULE_HIERARCHY_SYSTEM_PROMPT,
+  normalizeScheduleImportResponse
 } from '@teacheros/contracts';
 
 import { aiJobs, aiOutputs, db } from '@teacheros/db';
@@ -108,17 +110,20 @@ export function createAiJobsWorker(config: WorkerConfig): Worker<AiQueuePayload>
         let output: Record<string, unknown>;
         if (aiJob.type === 'parse_schedule') {
           const input = aiJob.input as { text?: string; imageBase64?: string };
-          output = await runStructuredPrompt({
-            apiKey: openAiApiKey,
-            model: modelParseSchedule,
-            schemaName: 'parse_schedule',
-            schema: ParseScheduleResponseSchema,
-            systemPrompt:
-              'Extract classes and assignments from a teacher schedule. Include start and end time for every class when shown, use HH:MM 24-hour time, return null for a missing end time, and skip non-teaching events. Return JSON only.',
-            userPrompt: input.text
-              ? `Parse this schedule and assignments:\n${input.text}`
-              : 'Parse the supplied schedule image and return classes + assignments.'
-          });
+          output = normalizeScheduleImportResponse(
+            await runStructuredPrompt({
+              apiKey: openAiApiKey,
+              model: modelParseSchedule,
+              schemaName: 'parse_schedule',
+              schema: ParseScheduleResponseSchema,
+              reasoningEffort: 'high',
+              systemPrompt: `${SCHEDULE_HIERARCHY_SYSTEM_PROMPT}\n\nFor this legacy flat response, put the full Course name in name and exactly one Class Group label in period. Extract classes and assignments from a teacher schedule. Include start and end time for every class when shown, use HH:MM 24-hour time, return null for a missing end time, and skip non-teaching events.`,
+              userPrompt: input.text
+                ? `Parse this schedule and assignments:\n${input.text}`
+                : 'Parse the supplied schedule image and return classes + assignments.',
+              userImageDataUrl: input.imageBase64
+            })
+          );
         } else if (aiJob.type === 'generate_segments') {
           const input = aiJob.input as {
             lessonTitle: string;

@@ -1,10 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
-import {
-  AnnualCalendarProposalSchema,
-  WeeklyScheduleProposalSchema
-} from '@teacheros/contracts';
+import { AnnualCalendarProposalSchema, WeeklyScheduleProposalSchema } from '@teacheros/contracts';
 
 import { runStructuredPrompt } from './openai.js';
 
@@ -42,7 +39,13 @@ describe('OpenAI structured schedule prompts', () => {
         }
       ],
       blocks: [
-        { day: 'Monday', startTime: '09:48', endTime: '10:05', label: 'Nutrition break', kind: 'break' },
+        {
+          day: 'Monday',
+          startTime: '09:48',
+          endTime: '10:05',
+          label: 'Nutrition break',
+          kind: 'break'
+        },
         { day: 'Friday', startTime: '12:45', endTime: '13:15', label: 'Lunch', kind: 'lunch' }
       ],
       warnings: ['Confirm handwritten Friday dismissal note.']
@@ -61,6 +64,7 @@ describe('OpenAI structured schedule prompts', () => {
         schema: WeeklyScheduleProposalSchema,
         systemPrompt: 'Extract a reviewed schedule.',
         userPrompt: 'A schedule image is attached.',
+        reasoningEffort: 'high',
         userImageDataUrl: 'data:image/png;base64,test'
       })
     ).resolves.toEqual(proposal);
@@ -72,11 +76,11 @@ describe('OpenAI structured schedule prompts', () => {
     if (typeof requestBody !== 'string') throw new Error('Expected a JSON request body');
     const body = JSON.parse(requestBody) as Record<string, any>;
     expect(body.model).toBe('gpt-5.6-luna');
-    expect(body.reasoning).toEqual({ effort: 'low' });
+    expect(body.reasoning).toEqual({ effort: 'high' });
     expect(body.text.format.type).toBe('json_schema');
-    expect(body.text.format.schema.definitions.weekly_schedule_proposal.properties.courses.items.required).toContain(
-      'gradeLevel'
-    );
+    expect(
+      body.text.format.schema.definitions.weekly_schedule_proposal.properties.courses.items.required
+    ).toContain('gradeLevel');
     expect(body.input[1].content).toContainEqual({
       type: 'input_image',
       image_url: 'data:image/png;base64,test'
@@ -108,7 +112,10 @@ describe('OpenAI structured schedule prompts', () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce({ ok: false, status: 429 })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ output_text: JSON.stringify(calendar) }) });
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ output_text: JSON.stringify(calendar) })
+      });
     globalThis.fetch = fetchMock as typeof fetch;
 
     await expect(

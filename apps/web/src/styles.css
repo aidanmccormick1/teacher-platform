@@ -222,11 +222,156 @@ label {
   color: #fff;
 }
 
+.course-class-groups {
+  border: 1px solid #cbdced;
+  border-radius: 16px;
+  padding: 20px;
+  background: linear-gradient(135deg, #f9fcff 0%, #f2f7ff 100%);
+}
+
+.course-primary-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px;
+  border: 1px solid #d8e3ee;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.course-primary-tabs button {
+  flex: 1 1 140px;
+}
+
+.course-primary-tab-active {
+  border: 1px solid #285d45;
+  background: #e8f2eb;
+  color: #1e4f38;
+}
+
+.course-class-groups h2,
+.course-class-groups h3,
+.course-class-groups p {
+  margin-top: 0;
+}
+
+.class-group-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 14px;
+}
+
+.class-group-card {
+  padding: 16px;
+  border: 1px solid #cfddea;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.meeting-times-box {
+  padding: 12px;
+  border: 1px solid #dbe7f2;
+  border-radius: 12px;
+  background: #f8fbff;
+}
+
+.meeting-rule-summary {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px;
+  border: 1px solid #e1eaf3;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.meeting-rule-summary .field-note {
+  grid-column: 1 / -1;
+}
+
+.weekday-chip-list,
+.weekday-toggle-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.weekday-chip,
+.weekday-toggle-grid button {
+  min-width: 44px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.weekday-chip {
+  border: 1px solid #bcd7c7;
+  background: #eaf5ed;
+  color: #276445;
+  text-align: center;
+}
+
+.weekday-toggle-selected {
+  border: 1px solid #285d45;
+  background: #285d45;
+  color: #fff;
+}
+
+.import-weekday-toggle-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(44px, 1fr));
+  width: 100%;
+}
+
+.import-weekday-toggle-grid button {
+  min-width: 0;
+}
+
+.meeting-rule-editor {
+  padding: 14px;
+  border: 1px solid #d8e5f0;
+  border-radius: 12px;
+  background: #fbfdff;
+}
+
+.recalculation-impact {
+  padding: 12px;
+  border: 1px solid #e6c98a;
+  border-radius: 12px;
+  background: #fffaf0;
+}
+
 .calendar-summary ul,
 .meeting-list {
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+.calendar-record-list {
+  display: grid;
+  gap: 8px;
+}
+
+.calendar-record-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px solid #e3ebf2;
+}
+
+.calendar-record-list li:last-child {
+  border-bottom: 0;
+}
+
+button.danger {
+  border-color: #dbb5b0;
+  color: #a33a30;
+  background: #fffafa;
 }
 
 .meeting-list {

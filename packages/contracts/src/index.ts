@@ -101,8 +101,196 @@ export const ScheduleDateOverrideProposalSchema = z.object({
 export const WeeklyScheduleProposalSchema = z.object({
   courses: z.array(ScheduleCourseProposalSchema),
   blocks: z.array(ScheduleBlockProposalSchema),
-  warnings: z.array(z.string())
+  // Warnings are intentionally part of the reviewed proposal rather than server-side
+  // logging: the teacher needs to see ambiguity before anything is saved.
+  warnings: z.array(z.string()).default([])
 });
+
+/**
+ * Shared by the API and queue worker so that every schedule-reader entry point
+ * receives the same semantic instructions. The JSON schema enforces shape; this
+ * prompt explains the meaning of the Course → Class Group relationship.
+ */
+export const SCHEDULE_HIERARCHY_SYSTEM_PROMPT = `You are reading a teacher schedule into TeacherOS's strict hierarchy:
+Course → Class Group → Meeting Times.
+
+A Course is shared curriculum. A Class Group is one actual group of students taking that Course. Reason about that hierarchy from the layout, repeated labels, and nearby headings BEFORE returning structured output.
+
+Follow this process:
+1. Identify subject/discipline names.
+2. Decide whether an adjacent number is a grade level, curriculum/course level, period number, or a group/section identifier.
+3. If a number changes the curriculum level, include it in the Course name. Spanish 5, Spanish 6, Math 6, English 7, and French 2 are normally distinct Course names, not groups under Spanish, Math, English, or French.
+4. Identify repeated actual groups for each Course. Letter labels A/B/C normally identify Class Groups under the nearest appropriate numbered Course.
+5. Labels such as Period, Per., Section, Group, Block, and Class are strong evidence that the following value is a Class Group, not part of the Course name. US History + Period 5 means Course US History / Class Group Period 5. Spanish 5 + Period 2 means Course Spanish 5 / Class Group Period 2.
+6. Give every Class Group its own meeting days, start time, end time, and room when shown. A Class Group belongs to exactly one Course. Group names are only unique within a Course: Spanish 5 / A and Spanish 6 / A are distinct valid groups.
+7. Check for suspicious collapsed structures before returning. Never collapse Spanish 5, Spanish 6, Spanish 7, and Spanish 8 into one Spanish Course. If the source is genuinely ambiguous, preserve the most supported interpretation and add a precise warning for teacher review instead of inventing a hierarchy.
+
+Examples:
+Input: Spanish 5A; Mon Wed Fri; 8:00-8:50; Spanish 5B; Tue Thu; 9:00-10:15.
+Output hierarchy: Course Spanish 5 → Class Group A (Mon/Wed/Fri 08:00-08:50), Class Group B (Tue/Thu 09:00-10:15).
+
+Input: Spanish 5; A; B; C; Spanish 6; A; B; C.
+Output hierarchy: Course Spanish 5 → A, B, C; Course Spanish 6 → A, B, C.
+
+Input: 7th Grade Math A; 7th Grade Math B.
+Output hierarchy: Course 7th Grade Math → A, B. Never create Course Math with groups 7th Grade, A, and B.
+
+Input: French 1 A; French 1 B; French 2 A; French 2 B.
+Output hierarchy: Course French 1 → A, B; Course French 2 → A, B.
+
+Return only the requested structured JSON. Do not invent classes, groups, days, or times.`;
+
+type WeeklyScheduleProposalValue = z.infer<typeof WeeklyScheduleProposalSchema>;
+
+const LEVEL_WORDS: Record<string, string> = {
+  one: '1',
+  two: '2',
+  three: '3',
+  four: '4',
+  five: '5',
+  six: '6',
+  seven: '7',
+  eight: '8',
+  nine: '9',
+  ten: '10',
+  eleven: '11',
+  twelve: '12'
+};
+
+function normalizeScheduleLabel(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+function normalizeCourseName(value: string): string {
+  const normalized = normalizeScheduleLabel(value);
+  const wordLevel = normalized.match(
+    /^(.*\S)\s+(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)$/i
+  );
+  return wordLevel ? `${wordLevel[1]!} ${LEVEL_WORDS[wordLevel[2]!.toLowerCase()]!}` : normalized;
+}
+
+function canonicalCourseLabel(value: string): string {
+  return normalizeCourseName(value).toLocaleLowerCase();
+}
+
+function deduplicateWarnings(warnings: string[]): string[] {
+  return [...new Set(warnings.map(normalizeScheduleLabel).filter(Boolean))];
+}
+
+function isBareNumericGroup(value: string): boolean {
+  return /^\d{1,2}$/.test(normalizeScheduleLabel(value));
+}
+
+function isLetterGroup(value: string): boolean {
+  return /^[A-Za-z]$/.test(normalizeScheduleLabel(value));
+}
+
+function hasMeaningfulCourseLevel(courseName: string): boolean {
+  return /(?:\bgrade\s*\d+|\b\d+(?:st|nd|rd|th)\s+grade|\b\d{1,2})\s*$/i.test(
+    normalizeScheduleLabel(courseName)
+  );
+}
+
+/**
+ * Detects the common unsafe shape: a base course with grade/level numbers and
+ * letters all promoted to sibling Class Groups. We deliberately do not guess
+ * which letter group belongs to which numbered level in that case.
+ */
+export function findScheduleHierarchyProblems(proposal: {
+  courses: Array<{ name: string; sections: Array<{ name: string }> }>;
+}): string[] {
+  const problems: string[] = [];
+  for (const course of proposal.courses) {
+    const groups = course.sections.map((section) => normalizeScheduleLabel(section.name));
+    const numericGroups = groups.filter(isBareNumericGroup);
+    if (!hasMeaningfulCourseLevel(course.name) && numericGroups.length >= 2) {
+      const letterGroups = groups.filter(isLetterGroup);
+      problems.push(
+        `Needs hierarchy review: “${normalizeScheduleLabel(course.name)}” has level-like groups ${numericGroups.join(', ')}${letterGroups.length ? ` and letter groups ${letterGroups.join(', ')}` : ''}. Create separate Courses for the curriculum levels before saving.`
+      );
+    }
+  }
+  return problems;
+}
+
+function normalizeMeetings<
+  T extends { day: string; startTime: string | null; endTime: string | null; room: string | null }
+>(meetings: T[]): T[] {
+  const seen = new Set<string>();
+  return meetings.filter((meeting) => {
+    const key = `${meeting.day}|${meeting.startTime ?? ''}|${meeting.endTime ?? ''}|${meeting.room ?? ''}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/**
+ * Normalizes harmless formatting and safely repairs an AI result such as
+ * Course “Spanish” / Group “5A” into Course “Spanish 5” / Group “A”. It never
+ * guesses an assignment for standalone A/B/C groups beneath multiple levels;
+ * those results remain visibly flagged for review.
+ */
+export function normalizeWeeklyScheduleProposal(
+  proposal: WeeklyScheduleProposalValue
+): WeeklyScheduleProposalValue {
+  const coursesByName = new Map<string, WeeklyScheduleProposalValue['courses'][number]>();
+
+  for (const rawCourse of proposal.courses) {
+    const rawCourseName = normalizeScheduleLabel(rawCourse.name);
+    const courseHasLevel = hasMeaningfulCourseLevel(rawCourseName);
+
+    for (const rawSection of rawCourse.sections) {
+      const rawSectionName = normalizeScheduleLabel(rawSection.name);
+      const attachedLevelAndGroup = !courseHasLevel
+        ? rawSectionName.match(/^(\d{1,2})\s*([A-Za-z])$/)
+        : null;
+      const courseName = normalizeCourseName(
+        attachedLevelAndGroup ? `${rawCourseName} ${attachedLevelAndGroup[1]}` : rawCourseName
+      );
+      const sectionName = attachedLevelAndGroup
+        ? attachedLevelAndGroup[2]!.toUpperCase()
+        : rawSectionName;
+      const canonicalName = canonicalCourseLabel(courseName);
+      const existing = coursesByName.get(canonicalName);
+      const normalizedSection = {
+        name: sectionName,
+        meetings: normalizeMeetings(rawSection.meetings)
+      };
+
+      if (!existing) {
+        coursesByName.set(canonicalName, {
+          name: courseName,
+          subject: rawCourse.subject ? normalizeScheduleLabel(rawCourse.subject) : null,
+          gradeLevel: rawCourse.gradeLevel ? normalizeScheduleLabel(rawCourse.gradeLevel) : null,
+          sections: [normalizedSection]
+        });
+        continue;
+      }
+
+      const existingSection = existing.sections.find(
+        (section) =>
+          normalizeScheduleLabel(section.name).toLocaleLowerCase() ===
+          sectionName.toLocaleLowerCase()
+      );
+      if (existingSection) {
+        existingSection.meetings = normalizeMeetings([
+          ...existingSection.meetings,
+          ...normalizedSection.meetings
+        ]);
+      } else {
+        existing.sections.push(normalizedSection);
+      }
+    }
+  }
+
+  const courses = [...coursesByName.values()];
+  const warnings = deduplicateWarnings([
+    ...proposal.warnings,
+    ...findScheduleHierarchyProblems({ courses })
+  ]);
+  return { ...proposal, courses, warnings };
+}
 
 export const AnnualCalendarProposalSchema = z.object({
   overrides: z.array(ScheduleDateOverrideProposalSchema),
@@ -285,8 +473,39 @@ export const ScheduleImportRequestSchema = z.object({
 
 export const ScheduleImportResponseSchema = z.object({
   classes: z.array(ScheduleClassSchema),
-  assignments: z.array(AssignmentItemSchema)
+  assignments: z.array(AssignmentItemSchema),
+  warnings: z.array(z.string()).default([])
 });
+
+/** Applies the same safe Course/Group split to the legacy flat import response. */
+export function normalizeScheduleImportResponse(
+  response: z.infer<typeof ScheduleImportResponseSchema>
+): z.infer<typeof ScheduleImportResponseSchema> {
+  const classes = response.classes.map((item) => {
+    const name = normalizeCourseName(item.name);
+    const period = normalizeScheduleLabel(item.period);
+    const attachedLevelAndGroup = !hasMeaningfulCourseLevel(name)
+      ? period.match(/^(\d{1,2})\s*([A-Za-z])$/)
+      : null;
+    return {
+      ...item,
+      name: attachedLevelAndGroup ? `${name} ${attachedLevelAndGroup[1]}` : name,
+      period: attachedLevelAndGroup ? attachedLevelAndGroup[2]!.toUpperCase() : period
+    };
+  });
+  const byCourse = new Map<string, { name: string; sections: { name: string }[] }>();
+  for (const item of classes) {
+    const key = canonicalCourseLabel(item.name);
+    const entry = byCourse.get(key) ?? { name: item.name, sections: [] };
+    entry.sections.push({ name: item.period });
+    byCourse.set(key, entry);
+  }
+  const warnings = deduplicateWarnings([
+    ...response.warnings,
+    ...findScheduleHierarchyProblems({ courses: [...byCourse.values()] })
+  ]);
+  return { ...response, classes, warnings };
+}
 
 export const AcademicCalendarParseRequestSchema = z
   .object({
@@ -711,6 +930,20 @@ export const AcademicYearInputSchema = z
     message: 'End date must be on or after start date.'
   });
 
+export const AcademicYearUpdateInputSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120).optional(),
+    startDate: IsoDateSchema.optional(),
+    endDate: IsoDateSchema.optional(),
+    isActive: z.boolean().optional()
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: 'Provide at least one Academic Year field to update.'
+  })
+  .refine((value) => !value.startDate || !value.endDate || value.endDate >= value.startDate, {
+    message: 'End date must be on or after start date.'
+  });
+
 export const CalendarEventSchema = z.object({
   id: UuidSchema,
   academicYearId: UuidSchema,
@@ -729,6 +962,21 @@ export const CalendarEventInputSchema = z
     instructional: z.boolean().default(false)
   })
   .refine((value) => value.endDate >= value.startDate, {
+    message: 'End date must be on or after start date.'
+  });
+
+export const CalendarEventUpdateInputSchema = z
+  .object({
+    startDate: IsoDateSchema.optional(),
+    endDate: IsoDateSchema.optional(),
+    label: z.string().trim().min(1).max(160).optional(),
+    type: z.string().trim().min(1).max(60).optional(),
+    instructional: z.boolean().optional()
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: 'Provide at least one Calendar Event field to update.'
+  })
+  .refine((value) => !value.startDate || !value.endDate || value.endDate >= value.startDate, {
     message: 'End date must be on or after start date.'
   });
 
@@ -777,6 +1025,16 @@ export const ClassGroupInputSchema = z.object({
   room: z.string().trim().max(80).nullable().default(null),
   meetingRules: z.array(MeetingRuleInputSchema).default([])
 });
+export const ClassGroupUpdateInputSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120).optional(),
+    periodLabel: z.string().trim().max(80).nullable().optional(),
+    room: z.string().trim().max(80).nullable().optional(),
+    meetingRules: z.array(MeetingRuleInputSchema).min(1).optional()
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: 'Provide at least one Class Group field to update.'
+  });
 
 export const ScheduleOverrideMeetingInputSchema = z
   .object({
@@ -798,6 +1056,16 @@ export const ScheduleOverrideInputSchema = z.object({
   type: z.string().trim().min(1).max(60).default('special_schedule'),
   meetings: z.array(ScheduleOverrideMeetingInputSchema).min(1)
 });
+export const ScheduleOverrideUpdateInputSchema = z
+  .object({
+    date: IsoDateSchema.optional(),
+    label: z.string().trim().min(1).max(160).optional(),
+    type: z.string().trim().min(1).max(60).optional(),
+    meetings: z.array(ScheduleOverrideMeetingInputSchema).min(1).optional()
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: 'Provide at least one Schedule Override field to update.'
+  });
 export const ScheduleOverrideSchema = ScheduleOverrideInputSchema.extend({
   id: UuidSchema,
   academicYearId: UuidSchema
@@ -1050,13 +1318,17 @@ export type InitializeTimezoneRequest = z.infer<typeof InitializeTimezoneRequest
 export type UpdateTimezoneRequest = z.infer<typeof UpdateTimezoneRequestSchema>;
 export type AcademicYear = z.infer<typeof AcademicYearSchema>;
 export type AcademicYearInput = z.infer<typeof AcademicYearInputSchema>;
+export type AcademicYearUpdateInput = z.infer<typeof AcademicYearUpdateInputSchema>;
 export type CalendarEvent = z.infer<typeof CalendarEventSchema>;
 export type CalendarEventInput = z.infer<typeof CalendarEventInputSchema>;
+export type CalendarEventUpdateInput = z.infer<typeof CalendarEventUpdateInputSchema>;
 export type ClassGroup = z.infer<typeof ClassGroupSchema>;
 export type ClassGroupInput = z.infer<typeof ClassGroupInputSchema>;
+export type ClassGroupUpdateInput = z.infer<typeof ClassGroupUpdateInputSchema>;
 export type MeetingRuleInput = z.infer<typeof MeetingRuleInputSchema>;
 export type ScheduleOverride = z.infer<typeof ScheduleOverrideSchema>;
 export type ScheduleOverrideInput = z.infer<typeof ScheduleOverrideInputSchema>;
+export type ScheduleOverrideUpdateInput = z.infer<typeof ScheduleOverrideUpdateInputSchema>;
 export type MeetingInstance = z.infer<typeof MeetingInstanceSchema>;
 export type PlanAllocation = z.infer<typeof PlanAllocationSchema>;
 export type PlanAllocationInput = z.infer<typeof PlanAllocationInputSchema>;

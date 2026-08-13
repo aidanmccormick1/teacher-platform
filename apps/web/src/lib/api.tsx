@@ -7,8 +7,11 @@ import type {
   AccountTimezone,
   AcademicYear,
   AcademicYearInput,
+  AcademicYearUpdateInput,
   CalendarEventInput,
+  CalendarEventUpdateInput,
   ClassGroupInput,
+  ClassGroupUpdateInput,
   ClassroomProgressInput,
   ClassroomState,
   ClassGroupUnitPlanInput,
@@ -56,6 +59,7 @@ import type {
   SegmentUpdateRequest,
   ScheduleImportRequest,
   ScheduleOverrideInput,
+  ScheduleOverrideUpdateInput,
   ScheduleSetupApplyRequest,
   ScheduleSetupApplyResponse,
   ScheduleSetupSource,
@@ -176,6 +180,12 @@ export function useApiClient() {
           { method: 'POST', body: JSON.stringify(body) },
           auth
         ),
+      updateAcademicYear: (academicYearId: string, body: AcademicYearUpdateInput) =>
+        request<{ year: AcademicYear }>(
+          `/v3/academic-years/${academicYearId}`,
+          { method: 'PATCH', body: JSON.stringify(body) },
+          auth
+        ),
       getAcademicCalendar: (academicYearId: string) =>
         request<{
           events: Array<Record<string, unknown>>;
@@ -187,15 +197,62 @@ export function useApiClient() {
           { method: 'POST', body: JSON.stringify(body) },
           auth
         ),
+      updateCalendarEvent: (eventId: string, body: CalendarEventUpdateInput) =>
+        request<{ event: Record<string, unknown> }>(
+          `/v3/calendar-events/${eventId}`,
+          { method: 'PATCH', body: JSON.stringify(body) },
+          auth
+        ),
+      deleteCalendarEvent: (eventId: string) =>
+        request<DeleteEntityResponse>(`/v3/calendar-events/${eventId}`, { method: 'DELETE' }, auth),
       createScheduleOverride: (academicYearId: string, body: ScheduleOverrideInput) =>
         request<{ override: Record<string, unknown> }>(
           `/v3/academic-years/${academicYearId}/schedule-overrides`,
           { method: 'POST', body: JSON.stringify(body) },
           auth
         ),
+      updateScheduleOverride: (overrideId: string, body: ScheduleOverrideUpdateInput) =>
+        request<{ override: Record<string, unknown> }>(
+          `/v3/schedule-overrides/${overrideId}`,
+          { method: 'PATCH', body: JSON.stringify(body) },
+          auth
+        ),
+      deleteScheduleOverride: (overrideId: string) =>
+        request<DeleteEntityResponse>(
+          `/v3/schedule-overrides/${overrideId}`,
+          { method: 'DELETE' },
+          auth
+        ),
       createClassGroup: (body: ClassGroupInput) =>
         request<{ classGroup: { id: string } }>(
           '/v3/class-groups',
+          { method: 'POST', body: JSON.stringify(body) },
+          auth
+        ),
+      updateClassGroup: (classGroupId: string, body: ClassGroupUpdateInput) =>
+        request<{ classGroup: { id: string }; requiresRecalculation: boolean }>(
+          `/v3/class-groups/${classGroupId}`,
+          { method: 'PATCH', body: JSON.stringify(body) },
+          auth
+        ),
+      previewClassGroupScheduleChange: (classGroupId: string, body: ClassGroupUpdateInput) =>
+        request<{
+          generated: number;
+          updated: number;
+          removedUnused: number;
+          affectedPlanned: number;
+          affectedPlanAllocations: number;
+          historicalPreserved: number;
+          proposedRemappings: Array<{
+            fromMeetingId: string;
+            fromMeetingNumber: number;
+            toLocalDate: string;
+            toStartTime: string;
+          }>;
+          unmappedPlanAllocations: number;
+          conflicts: string[];
+        }>(
+          `/v3/class-groups/${classGroupId}/meeting-impact-preview`,
           { method: 'POST', body: JSON.stringify(body) },
           auth
         ),

@@ -26,6 +26,7 @@ import type {
   ClassroomState,
   MeetingGenerationPreview,
   MeetingInstance,
+  MeetingRuleInput,
   PlannedPercentage
 } from '@teacheros/contracts';
 
@@ -268,7 +269,8 @@ function isHistoricalMeeting(params: {
 export async function recalculateMeetingInstances(
   userId: string,
   classGroupId: string,
-  mode: 'preview' | 'meetings_only' | 'shift' = 'preview'
+  mode: 'preview' | 'meetings_only' | 'shift' = 'preview',
+  options: { meetingRules?: MeetingRuleInput[] } = {}
 ): Promise<MeetingGenerationPreview> {
   const group = await assertOwnedClassGroup(userId, classGroupId);
   const [year] = await db
@@ -280,7 +282,7 @@ export async function recalculateMeetingInstances(
   const timezone = await loadAccountTimezone(userId);
   if (!timezone) throw new Error('Set your TeacherOS timezone before generating meetings.');
 
-  const rules = await db
+  const persistedRules = await db
     .select({
       id: meetingRules.id,
       startTime: meetingRules.startTime,
@@ -291,13 +293,30 @@ export async function recalculateMeetingInstances(
     })
     .from(meetingRules)
     .where(eq(meetingRules.classGroupId, classGroupId));
-  const ruleIds = rules.map((rule) => rule.id);
-  const ruleDays = ruleIds.length
+  const persistedRuleIds = persistedRules.map((rule) => rule.id);
+  const persistedRuleDays = persistedRuleIds.length
     ? await db
         .select({ meetingRuleId: meetingRuleDays.meetingRuleId, weekday: meetingRuleDays.weekday })
         .from(meetingRuleDays)
-        .where(inArray(meetingRuleDays.meetingRuleId, ruleIds))
+        .where(inArray(meetingRuleDays.meetingRuleId, persistedRuleIds))
     : [];
+  // A schedule-edit preview must evaluate the proposed rules without writing them.
+  // These synthetic IDs exist only long enough to group the proposed weekday values.
+  const rules = options.meetingRules
+    ? options.meetingRules.map((rule, index) => ({
+        id: `draft-rule-${index}`,
+        startTime: rule.startTime,
+        endTime: rule.endTime,
+        effectiveStart: rule.effectiveStart,
+        effectiveEnd: rule.effectiveEnd,
+        room: rule.room
+      }))
+    : persistedRules;
+  const ruleDays = options.meetingRules
+    ? options.meetingRules.flatMap((rule, index) =>
+        rule.weekdays.map((weekday) => ({ meetingRuleId: `draft-rule-${index}`, weekday }))
+      )
+    : persistedRuleDays;
   const events = await db
     .select({
       startDate: calendarEvents.startDate,

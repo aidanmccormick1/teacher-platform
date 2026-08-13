@@ -4,9 +4,12 @@ import { z } from 'zod';
 
 import {
   AcademicYearInputSchema,
+  AcademicYearUpdateInputSchema,
   AccountTimezoneSchema,
   CalendarEventInputSchema,
+  CalendarEventUpdateInputSchema,
   ClassGroupInputSchema,
+  ClassGroupUpdateInputSchema,
   ClassroomProgressInputSchema,
   ClassroomStateSchema,
   ClassGroupUnitPlanInputSchema,
@@ -19,7 +22,10 @@ import {
   PlannedPercentageSchema,
   ResourceInputSchema,
   ScheduleSetupApplyRequestSchema,
+  findScheduleHierarchyProblems,
+  normalizeWeeklyScheduleProposal,
   ScheduleOverrideInputSchema,
+  ScheduleOverrideUpdateInputSchema,
   UpdateTimezoneRequestSchema,
   V3CourseDetailSchema
 } from '@teacheros/contracts';
@@ -62,6 +68,8 @@ import {
 const UuidParams = z.object({ id: z.string().uuid() });
 const CourseParams = z.object({ courseId: z.string().uuid() });
 const GroupParams = z.object({ classGroupId: z.string().uuid() });
+const EventParams = z.object({ eventId: z.string().uuid() });
+const OverrideParams = z.object({ overrideId: z.string().uuid() });
 const AllocationParams = z.object({ allocationId: z.string().uuid() });
 const UnitParams = z.object({ classGroupId: z.string().uuid(), unitId: z.string().uuid() });
 const StepParams = z.object({ classGroupId: z.string().uuid() });
@@ -296,10 +304,60 @@ export async function v3Routes(app: FastifyInstance) {
     return { year };
   });
 
+  app.patch('/v3/academic-years/:id', async (request, reply) => {
+    const principal = principalOrReply(request, reply);
+    if (!principal) return;
+    const { id } = UuidParams.parse(request.params);
+    const body = AcademicYearUpdateInputSchema.parse(request.body);
+    const user = await ensureUserFromPrincipal(principal);
+    const [current] = await db
+      .select()
+      .from(academicYears)
+      .where(and(eq(academicYears.id, id), eq(academicYears.teacherId, user.id)))
+      .limit(1);
+    if (!current) {
+      reply.code(404);
+      return { error: 'Academic Year not found.' };
+    }
+    const startDate = body.startDate ?? current.startDate;
+    const endDate = body.endDate ?? current.endDate;
+    if (endDate < startDate) {
+      reply.code(400);
+      return { error: 'Academic Year end date must be on or after its start date.' };
+    }
+    const [year] = await db.transaction(async (tx) => {
+      if (body.isActive) {
+        await tx
+          .update(academicYears)
+          .set({ isActive: false, updatedAt: new Date() })
+          .where(eq(academicYears.teacherId, user.id));
+      }
+      return tx
+        .update(academicYears)
+        .set({ ...body, updatedAt: new Date() })
+        .where(eq(academicYears.id, id))
+        .returning({
+          id: academicYears.id,
+          name: academicYears.name,
+          startDate: academicYears.startDate,
+          endDate: academicYears.endDate,
+          isActive: academicYears.isActive
+        });
+    });
+    return { year };
+  });
+
   app.post('/v3/schedule/import/apply', async (request, reply) => {
     const principal = principalOrReply(request, reply);
     if (!principal) return;
-    const body = ScheduleSetupApplyRequestSchema.parse(request.body);
+    const parsedBody = ScheduleSetupApplyRequestSchema.parse(request.body);
+    const weekly = normalizeWeeklyScheduleProposal(parsedBody.weekly);
+    const hierarchyProblems = findScheduleHierarchyProblems(weekly);
+    if (hierarchyProblems.length) {
+      reply.code(400);
+      return { error: hierarchyProblems.join(' '), requestId: request.id };
+    }
+    const body = { ...parsedBody, weekly };
     const user = await ensureUserFromPrincipal(principal);
     const [year, profile, timezone] = await Promise.all([
       db
@@ -505,6 +563,57 @@ export async function v3Routes(app: FastifyInstance) {
     return { event };
   });
 
+  app.patch('/v3/calendar-events/:eventId', async (request, reply) => {
+    const principal = principalOrReply(request, reply);
+    if (!principal) return;
+    const { eventId } = EventParams.parse(request.params);
+    const body = CalendarEventUpdateInputSchema.parse(request.body);
+    const user = await ensureUserFromPrincipal(principal);
+    const [current] = await db
+      .select({
+        id: calendarEvents.id,
+        startDate: calendarEvents.startDate,
+        endDate: calendarEvents.endDate
+      })
+      .from(calendarEvents)
+      .innerJoin(academicYears, eq(calendarEvents.academicYearId, academicYears.id))
+      .where(and(eq(calendarEvents.id, eventId), eq(academicYears.teacherId, user.id)))
+      .limit(1);
+    if (!current) {
+      reply.code(404);
+      return { error: 'Calendar Event not found.' };
+    }
+    if ((body.endDate ?? current.endDate) < (body.startDate ?? current.startDate)) {
+      reply.code(400);
+      return { error: 'Calendar Event end date must be on or after its start date.' };
+    }
+    const [event] = await db
+      .update(calendarEvents)
+      .set({ ...body, updatedAt: new Date() })
+      .where(eq(calendarEvents.id, eventId))
+      .returning();
+    return { event };
+  });
+
+  app.delete('/v3/calendar-events/:eventId', async (request, reply) => {
+    const principal = principalOrReply(request, reply);
+    if (!principal) return;
+    const { eventId } = EventParams.parse(request.params);
+    const user = await ensureUserFromPrincipal(principal);
+    const [owned] = await db
+      .select({ id: calendarEvents.id })
+      .from(calendarEvents)
+      .innerJoin(academicYears, eq(calendarEvents.academicYearId, academicYears.id))
+      .where(and(eq(calendarEvents.id, eventId), eq(academicYears.teacherId, user.id)))
+      .limit(1);
+    if (!owned) {
+      reply.code(404);
+      return { error: 'Calendar Event not found.' };
+    }
+    await db.delete(calendarEvents).where(eq(calendarEvents.id, eventId));
+    return { deleted: true };
+  });
+
   app.post('/v3/academic-years/:id/schedule-overrides', async (request, reply) => {
     const principal = principalOrReply(request, reply);
     if (!principal) return;
@@ -549,6 +658,89 @@ export async function v3Routes(app: FastifyInstance) {
       return [created];
     });
     return { override };
+  });
+
+  app.patch('/v3/schedule-overrides/:overrideId', async (request, reply) => {
+    const principal = principalOrReply(request, reply);
+    if (!principal) return;
+    const { overrideId } = OverrideParams.parse(request.params);
+    const body = ScheduleOverrideUpdateInputSchema.parse(request.body);
+    const user = await ensureUserFromPrincipal(principal);
+    const [current] = await db
+      .select({ id: scheduleOverridesV3.id, academicYearId: scheduleOverridesV3.academicYearId })
+      .from(scheduleOverridesV3)
+      .innerJoin(academicYears, eq(scheduleOverridesV3.academicYearId, academicYears.id))
+      .where(and(eq(scheduleOverridesV3.id, overrideId), eq(academicYears.teacherId, user.id)))
+      .limit(1);
+    if (!current) {
+      reply.code(404);
+      return { error: 'Schedule Override not found.' };
+    }
+    if (body.meetings) {
+      const matchingGroups = await db
+        .select({ id: classGroups.id })
+        .from(classGroups)
+        .innerJoin(courses, eq(classGroups.courseId, courses.id))
+        .where(
+          and(
+            eq(courses.teacherId, user.id),
+            eq(classGroups.academicYearId, current.academicYearId),
+            inArray(
+              classGroups.id,
+              body.meetings.map((meeting) => meeting.classGroupId)
+            )
+          )
+        );
+      if (
+        matchingGroups.length !== new Set(body.meetings.map((meeting) => meeting.classGroupId)).size
+      ) {
+        reply.code(404);
+        return {
+          error: 'A Schedule Override can only target your Class Groups in this Academic Year.'
+        };
+      }
+    }
+    const [override] = await db.transaction(async (tx) => {
+      const [updated] = await tx
+        .update(scheduleOverridesV3)
+        .set({
+          ...(body.date === undefined ? {} : { date: body.date }),
+          ...(body.label === undefined ? {} : { label: body.label }),
+          ...(body.type === undefined ? {} : { type: body.type }),
+          updatedAt: new Date()
+        })
+        .where(eq(scheduleOverridesV3.id, overrideId))
+        .returning();
+      if (body.meetings) {
+        await tx
+          .delete(scheduleOverrideMeetingsV3)
+          .where(eq(scheduleOverrideMeetingsV3.scheduleOverrideId, overrideId));
+        await tx
+          .insert(scheduleOverrideMeetingsV3)
+          .values(body.meetings.map((meeting) => ({ scheduleOverrideId: overrideId, ...meeting })));
+      }
+      return [updated];
+    });
+    return { override };
+  });
+
+  app.delete('/v3/schedule-overrides/:overrideId', async (request, reply) => {
+    const principal = principalOrReply(request, reply);
+    if (!principal) return;
+    const { overrideId } = OverrideParams.parse(request.params);
+    const user = await ensureUserFromPrincipal(principal);
+    const [owned] = await db
+      .select({ id: scheduleOverridesV3.id })
+      .from(scheduleOverridesV3)
+      .innerJoin(academicYears, eq(scheduleOverridesV3.academicYearId, academicYears.id))
+      .where(and(eq(scheduleOverridesV3.id, overrideId), eq(academicYears.teacherId, user.id)))
+      .limit(1);
+    if (!owned) {
+      reply.code(404);
+      return { error: 'Schedule Override not found.' };
+    }
+    await db.delete(scheduleOverridesV3).where(eq(scheduleOverridesV3.id, overrideId));
+    return { deleted: true };
   });
 
   app.get('/v3/class-groups', async (request, reply) => {
@@ -625,6 +817,69 @@ export async function v3Routes(app: FastifyInstance) {
       return [created];
     });
     return { classGroup: group };
+  });
+
+  app.patch('/v3/class-groups/:classGroupId', async (request, reply) => {
+    const principal = principalOrReply(request, reply);
+    if (!principal) return;
+    const { classGroupId } = GroupParams.parse(request.params);
+    const body = ClassGroupUpdateInputSchema.parse(request.body);
+    const user = await ensureUserFromPrincipal(principal);
+    if (!(await ownedClassGroupCourse(user.id, classGroupId))) {
+      reply.code(404);
+      return { error: 'Class Group not found.' };
+    }
+    const [classGroup] = await db.transaction(async (tx) => {
+      const [updated] = await tx
+        .update(classGroups)
+        .set({
+          ...(body.name === undefined ? {} : { name: body.name }),
+          ...(body.periodLabel === undefined ? {} : { periodLabel: body.periodLabel }),
+          ...(body.room === undefined ? {} : { room: body.room }),
+          updatedAt: new Date()
+        })
+        .where(eq(classGroups.id, classGroupId))
+        .returning();
+      if (!updated) throw new Error('Class Group not found.');
+      if (body.meetingRules) {
+        await tx.delete(meetingRules).where(eq(meetingRules.classGroupId, classGroupId));
+        for (const rule of body.meetingRules) {
+          const [createdRule] = await tx
+            .insert(meetingRules)
+            .values({
+              classGroupId,
+              startTime: rule.startTime,
+              endTime: rule.endTime,
+              effectiveStart: rule.effectiveStart,
+              effectiveEnd: rule.effectiveEnd,
+              room: rule.room
+            })
+            .returning({ id: meetingRules.id });
+          if (createdRule) {
+            await tx
+              .insert(meetingRuleDays)
+              .values(rule.weekdays.map((weekday) => ({ meetingRuleId: createdRule.id, weekday })));
+          }
+        }
+      }
+      return [updated];
+    });
+    return { classGroup, requiresRecalculation: Boolean(body.meetingRules) };
+  });
+
+  app.post('/v3/class-groups/:classGroupId/meeting-impact-preview', async (request, reply) => {
+    const principal = principalOrReply(request, reply);
+    if (!principal) return;
+    const { classGroupId } = GroupParams.parse(request.params);
+    const body = ClassGroupUpdateInputSchema.parse(request.body);
+    if (!body.meetingRules) {
+      reply.code(400);
+      return { error: 'Meeting rules are required to preview a schedule change.' };
+    }
+    const user = await ensureUserFromPrincipal(principal);
+    return recalculateMeetingInstances(user.id, classGroupId, 'preview', {
+      meetingRules: body.meetingRules
+    });
   });
 
   app.get(

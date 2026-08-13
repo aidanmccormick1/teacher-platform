@@ -8,6 +8,7 @@ type PromptInput = {
   schema: z.ZodTypeAny;
   systemPrompt: string;
   userPrompt: string;
+  reasoningEffort?: 'low' | 'medium' | 'high';
   userImageDataUrl?: string;
   userImageDataUrls?: string[];
 };
@@ -67,10 +68,12 @@ function extractOutputText(payload: unknown): string {
 }
 
 export async function runStructuredPrompt<T>(params: PromptInput): Promise<T> {
-  const schemaJson = makeSchemaStrictForOpenAi(zodToJsonSchema(params.schema, {
-    name: params.schemaName,
-    $refStrategy: 'none'
-  }));
+  const schemaJson = makeSchemaStrictForOpenAi(
+    zodToJsonSchema(params.schema, {
+      name: params.schemaName,
+      $refStrategy: 'none'
+    })
+  );
   const imageUrls = [
     ...(params.userImageDataUrls ?? []),
     ...(params.userImageDataUrl ? [params.userImageDataUrl] : [])
@@ -100,7 +103,7 @@ export async function runStructuredPrompt<T>(params: PromptInput): Promise<T> {
               ]
             }
           ],
-          reasoning: { effort: 'low' },
+          reasoning: { effort: params.reasoningEffort ?? 'low' },
           text: {
             format: {
               type: 'json_schema',
@@ -132,10 +135,16 @@ export async function runStructuredPrompt<T>(params: PromptInput): Promise<T> {
     } catch (error) {
       lastError =
         error instanceof Error && error.name === 'AbortError'
-          ? new Error('OpenAI request timed out after 45 seconds. Try a clearer or smaller schedule file.')
+          ? new Error(
+              'OpenAI request timed out after 45 seconds. Try a clearer or smaller schedule file.'
+            )
           : error;
 
-      if (attempt === 0 && lastError instanceof Error && /status (400|401|403|404)/.test(lastError.message)) {
+      if (
+        attempt === 0 &&
+        lastError instanceof Error &&
+        /status (400|401|403|404)/.test(lastError.message)
+      ) {
         break;
       }
     } finally {

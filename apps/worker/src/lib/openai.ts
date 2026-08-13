@@ -8,7 +8,23 @@ type PromptInput = {
   schema: z.ZodTypeAny;
   systemPrompt: string;
   userPrompt: string;
+  reasoningEffort?: 'low' | 'medium' | 'high';
+  userImageDataUrl?: string;
 };
+
+function makeSchemaStrictForOpenAi(schema: unknown): unknown {
+  if (Array.isArray(schema)) return schema.map(makeSchemaStrictForOpenAi);
+  if (!schema || typeof schema !== 'object') return schema;
+  const record = schema as Record<string, unknown>;
+  const normalized = Object.fromEntries(
+    Object.entries(record).map(([key, value]) => [key, makeSchemaStrictForOpenAi(value)])
+  );
+  const properties = normalized.properties;
+  if (properties && typeof properties === 'object' && !Array.isArray(properties)) {
+    normalized.required = Object.keys(properties);
+  }
+  return normalized;
+}
 
 function extractOutputText(payload: unknown): string {
   if (!payload || typeof payload !== 'object') {
@@ -22,10 +38,12 @@ function extractOutputText(payload: unknown): string {
 }
 
 export async function runStructuredPrompt<T>(params: PromptInput): Promise<T> {
-  const schemaJson = zodToJsonSchema(params.schema, {
-    name: params.schemaName,
-    $refStrategy: 'none'
-  });
+  const schemaJson = makeSchemaStrictForOpenAi(
+    zodToJsonSchema(params.schema, {
+      name: params.schemaName,
+      $refStrategy: 'none'
+    })
+  );
 
   const response = await fetch('https://api.openai.com/v1/responses', {
     method: 'POST',
@@ -37,9 +55,17 @@ export async function runStructuredPrompt<T>(params: PromptInput): Promise<T> {
       model: params.model,
       input: [
         { role: 'system', content: [{ type: 'input_text', text: params.systemPrompt }] },
-        { role: 'user', content: [{ type: 'input_text', text: params.userPrompt }] }
+        {
+          role: 'user',
+          content: [
+            { type: 'input_text', text: params.userPrompt },
+            ...(params.userImageDataUrl
+              ? [{ type: 'input_image', image_url: params.userImageDataUrl }]
+              : [])
+          ]
+        }
       ],
-      reasoning: { effort: 'low' },
+      reasoning: { effort: params.reasoningEffort ?? 'low' },
       text: {
         format: {
           type: 'json_schema',
